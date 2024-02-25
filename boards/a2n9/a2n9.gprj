@@ -1,0 +1,41 @@
+<?xml version="1" encoding="UTF-8"?>
+<!DOCTYPE gowin-fpga-project>
+<Project>
+    <Template>FPGA</Template>
+    <Version>5</Version>
+    <Device name="GW1NR-9C" pn="GW1NR-LV9QN88PC6/I5">gw1nr9c-004</Device>
+    <FileList>
+        <File path="../../hdl/bus/a2bus_if.sv" type="file.verilog" enable="1"/>
+        <File path="../../hdl/hdmi/audio_clock_regeneration_packet.sv" type="file.verilog" enable="1"/>
+        <File path="../../hdl/hdmi/audio_info_frame.sv" type="file.verilog" enable="1"/>
+        <File path="../../hdl/hdmi/audio_sample_packet.sv" type="file.verilog" enable="1"/>
+        <File path="../../hdl/hdmi/auxiliary_video_information_info_frame.sv" type="file.verilog" enable="1"/>
+        <File path="../../hdl/hdmi/hdmi.sv" type="file.verilog" enable="1"/>
+        <File path="../../hdl/hdmi/packet_assembler.sv" type="file.verilog" enable="1"/>
+        <File path="../../hdl/hdmi/packet_picker.sv" type="file.verilog" enable="1"/>
+        <File path="../../hdl/hdmi/serializer.sv" type="file.verilog" enable="1"/>
+        <File path="../../hdl/hdmi/source_product_description_info_frame.sv" type="file.verilog" enable="1"/>
+        <File path="../../hdl/hdmi/tmds_channel.sv" type="file.verilog" enable="1"/>
+        <File path="../../hdl/memory/a2mem_if.sv" type="file.verilog" enable="1"/>
+        <File path="../../hdl/memory/apple_memory.sv" type="file.verilog" enable="1"/>
+        <File path="../../hdl/mockingboard/mockingboard.sv" type="file.verilog" enable="1"/>
+        <File path="../../hdl/ssc/ssc_rom.vhd" type="file.vhdl" enable="1"/>
+        <File path="../../hdl/ssc/super_serial_card.sv" type="file.verilog" enable="1"/>
+        <File path="../../hdl/support/cdc.sv" type="file.verilog" enable="1"/>
+        <File path="../../hdl/support/sdpram32.sv" type="file.verilog" enable="1"/>
+        <File path="../../hdl/support/uart_6551.v" type="file.verilog" enable="1"/>
+        <File path="../../hdl/support/uart_rx.v" type="file.verilog" enable="1"/>
+        <File path="../../hdl/support/uart_tx.v" type="file.verilog" enable="1"/>
+        <File path="../../hdl/support/via6522.vhd" type="file.vhdl" enable="1"/>
+        <File path="../../hdl/support/YM2149.sv" type="file.verilog" enable="1"/>
+        <File path="../../hdl/video/apple_video.sv" type="file.verilog" enable="1"/>
+        <File path="../../hdl/video/video_control_if.sv" type="file.verilog" enable="1"/>
+        <File path="../../hdl/video/video.hex" type="file.other" enable="1"/>
+        <File path="hdl/a2n9.cst" type="file.cst" enable="1"/>
+        <File path="hdl/a2n9.sdc" type="file.sdc" enable="1"/>
+        <File path="hdl/bus/apple_bus.sv" type="file.verilog" enable="1"/>
+        <File path="hdl/gowin/clk_hdmi/clk_hdmi.v" type="file.verilog" enable="1"/>
+        <File path="hdl/gowin/clk_logic/clk_logic.v" type="file.verilog" enable="1"/>
+        <File path="hdl/top.sv" type="file.verilog" enable="1"/>
+    </FileList>
+</Project>
