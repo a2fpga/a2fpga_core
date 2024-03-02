@@ -106,9 +106,11 @@ module apple_memory #(
     always @(posedge a2bus_if.clk_logic or negedge a2bus_if.system_reset_n) begin
         if (!a2bus_if.system_reset_n) begin
             a2mem_if.MONOCHROME_DHIRES_MODE <= 1'b0;
+            a2mem_if.LINEARIZE_MODE <= 1'b0;
             a2mem_if.SHRG_MODE <= 1'b0;
         end else if (write_strobe && (a2bus_if.addr == 16'hC029)) begin
             a2mem_if.MONOCHROME_DHIRES_MODE <= a2bus_if.data[5];
+            a2mem_if.LINEARIZE_MODE <= a2bus_if.data[6] | a2bus_if.data[7];
             a2mem_if.SHRG_MODE <= a2bus_if.data[7];
         end
     end
@@ -136,10 +138,9 @@ module apple_memory #(
     assign a2mem_if.keycode = keycode_r;
     assign a2mem_if.keypress_strobe = keypress_strobe_r;
 
-    reg aux_mem_r;
+    logic aux_mem_r;
     
-    always @(*)
-    begin: aux_ctrl
+    always_comb begin
         aux_mem_r = 1'b0;
         if (a2bus_if.addr[15:9] == 7'b0000000 | a2bus_if.addr[15:14] == 2'b11)		// Page 00,01,C0-FF
             aux_mem_r = a2mem_if.ALTZP;
@@ -174,6 +175,8 @@ module apple_memory #(
 
     wire E1 = aux_mem_r || a2bus_if.m2b0;
 
+    wire [31:0] write_word = {a2bus_if.data, a2bus_if.data, a2bus_if.data, a2bus_if.data};
+
     // Apple II bus address ranges
     wire bus_addr_0400_0BFF = a2bus_if.addr[15:10] inside {6'b000001, 3'b000010};
     wire bus_addr_2000_5FFF = a2bus_if.addr[15:13] inside {3'b001, 3'b010};
@@ -193,27 +196,26 @@ module apple_memory #(
     // only valid when address is in the range
     wire [9:0] text_read_offset = {!video_address_i[10], video_address_i[9:1]};
     wire [11:0] hires_main_read_offset = {!video_address_i[13], video_address_i[12:2]};
-    wire [12:0] hires_aux_read_offset = vgc_active_i ? vgc_address_i : {1'b0, hires_main_read_offset};
 
     wire [31:0] text_data;
     wire [31:0] hires_data_main;
     wire [31:0] hires_data_aux;
 
-    assign vgc_data_o = vgc_active_i ? hires_data_aux : 32'b0;
-
-    wire [31:0] hires_data_lo = {hires_data_aux[15:8], hires_data_main[15:8], hires_data_aux[7:0], hires_data_main[7:0]};
-    wire [31:0] hires_data_hi = {hires_data_aux[31:24], hires_data_main[31:24], hires_data_aux[23:16], hires_data_main[23:16]};
+    function automatic [31:0] interleave_mux(input hi, input [31:0] data_a, input [31:0] data_b);
+        logic [31:0] result = 0;
+        if (hi) result = {data_b[31:24], data_a[31:24], data_b[23:16], data_a[23:16]};
+        else result = {data_b[15:8], data_a[15:8], data_b[7:0], data_a[7:0]};
+        return result;
+    endfunction
 
     logic [31:0] video_data_w;
     always_comb begin
         if (vgc_active_i) video_data_w = 32'b0;
         else if (video_addr_0400_0BFF) video_data_w = text_data;
-        else if (video_addr_2000_5FFF) video_data_w = video_address_i[1] ? hires_data_hi : hires_data_lo;
+        else if (video_addr_2000_5FFF) video_data_w = interleave_mux(video_address_i[1], hires_data_main, hires_data_aux);
         else video_data_w  = 32'b0;
     end
     assign video_data_o = video_data_w;
-
-    wire [31:0] write_word = {a2bus_if.data, a2bus_if.data, a2bus_if.data, a2bus_if.data};
 
     // Instantiate the video memory shadow copy in the BSRAM
 
@@ -237,35 +239,121 @@ module apple_memory #(
 
     // Main memory bank, linear
 
+    wire [3:0] hires_byte_enable = 4'(1 << hires_write_offset[1:0]);
+
+    wire [11:0] write_offset_main_2000_5FFF = hires_write_offset[13:2];
+    wire write_enable_main_2000_5FFF = write_strobe && bus_addr_2000_5FFF && !E1;
+
     sdpram32 #(
         .ADDR_WIDTH(12)
-    ) hires_main (
+    ) hires_main_2000_5FFF (
         .clk(a2bus_if.clk_logic),
-        .write_addr(hires_write_offset[13:2]),
+        .write_addr(write_offset_main_2000_5FFF),
         .write_data(write_word),
-        .write_enable(write_strobe && bus_addr_2000_5FFF && !E1),
-        .byte_enable(4'(1 << hires_write_offset[1:0])),
-        .read_addr(hires_main_read_offset[11:0]),
+        .write_enable(write_enable_main_2000_5FFF),
+        .byte_enable(hires_byte_enable),
+        .read_addr(hires_main_read_offset),
         .read_enable(1'b1),
         .read_data(hires_data_main)
     );  
 
     // Aux memory bank, linear
+    
+    // The aux memory bank for hires is 16KB, but but when VGC_MEMORY is set, an additional 16KB is added
 
-    localparam HIRES_AUX_ADDR_WIDTH = VGC_MEMORY? 13 : 12;
-    wire write_aux_addr_valid = VGC_MEMORY ? bus_addr_2000_9FFF : bus_addr_2000_5FFF;
+    // Set up reads and combine ouputs for VGC
+
+    logic [11:0] hires_aux_read_offset;
+
+    always_comb begin
+        if (VGC_MEMORY && vgc_active_i) begin
+            hires_aux_read_offset = vgc_address_i[12:1];
+        end else begin
+            hires_aux_read_offset = hires_main_read_offset;
+        end
+    end
+    
+    wire [31:0] hires_data_aux_6000_9FFF;
+
+    assign vgc_data_o = vgc_active_i ? interleave_mux(vgc_address_i[0], hires_data_aux, hires_data_aux_6000_9FFF) : 32'b0;
+
+    // Set up writes
+
+    logic write_enable_aux_2000_5FFF;
+    logic write_enable_aux_6000_9FFF;
+    logic [11:0] write_offset_aux_2000_5FFF;
+    logic [11:0] write_offset_aux_6000_9FFF;
+    logic [3:0] hires_byte_enable_aux_2000_5FFF;
+    logic [3:0] hires_byte_enable_aux_6000_9FFF;
+
+    always_comb begin
+        write_enable_aux_2000_5FFF = 1'b0;
+        write_offset_aux_2000_5FFF = 12'b0;
+        hires_byte_enable_aux_2000_5FFF = 4'b0;
+
+        write_enable_aux_6000_9FFF = 1'b0;
+        write_offset_aux_6000_9FFF = 12'b0;
+        hires_byte_enable_aux_6000_9FFF = 4'b0;
+
+        if (VGC_MEMORY) begin
+            if (a2mem_if.LINEARIZE_MODE) begin
+                write_enable_aux_2000_5FFF = write_strobe && bus_addr_2000_9FFF && E1;
+                write_offset_aux_2000_5FFF = hires_write_offset[14:3];
+                hires_byte_enable_aux_2000_5FFF = hires_write_offset[0] ? 4'b0 : 4'(1 << hires_write_offset[2:1]);
+
+                write_enable_aux_6000_9FFF = write_strobe && bus_addr_2000_9FFF && E1;
+                write_offset_aux_6000_9FFF = hires_write_offset[14:3];
+                hires_byte_enable_aux_6000_9FFF = hires_write_offset[0] ? 4'(1 << hires_write_offset[2:1]) : 4'b0;
+
+            end else begin
+                if (bus_addr_2000_5FFF) begin
+                    write_enable_aux_2000_5FFF = write_strobe && bus_addr_2000_5FFF && E1;
+                    write_offset_aux_2000_5FFF = hires_write_offset[13:2];
+                    hires_byte_enable_aux_2000_5FFF = hires_byte_enable;
+                end else if (bus_addr_6000_9FFF) begin
+                    write_enable_aux_6000_9FFF = write_strobe && bus_addr_6000_9FFF && E1;
+                    write_offset_aux_6000_9FFF = hires_write_offset[13:2];
+                    hires_byte_enable_aux_6000_9FFF = hires_byte_enable;
+                end
+            end
+        end else begin
+            // only write to the aux 2000-5FFF bank when VGC_MEMORY is not set
+            write_enable_aux_2000_5FFF = write_strobe && bus_addr_2000_5FFF && E1;
+            write_offset_aux_2000_5FFF = hires_write_offset[13:2];
+            hires_byte_enable_aux_2000_5FFF = hires_byte_enable;
+        end
+    end
 
     sdpram32 #(
-        .ADDR_WIDTH(HIRES_AUX_ADDR_WIDTH)
-    ) hires_aux (
+        .ADDR_WIDTH(12)
+    ) hires_aux_2000_5FFF (
         .clk(a2bus_if.clk_logic),
-        .write_addr(hires_write_offset[HIRES_AUX_ADDR_WIDTH + 1:2]),
+        .write_addr(write_offset_aux_2000_5FFF),
         .write_data(write_word),
-        .write_enable(write_strobe && write_aux_addr_valid && E1),
-        .byte_enable(4'(1 << hires_write_offset[1:0])),
-        .read_addr(hires_aux_read_offset[HIRES_AUX_ADDR_WIDTH - 1:0]),
+        .write_enable(write_enable_aux_2000_5FFF),
+        .byte_enable(hires_byte_enable_aux_2000_5FFF),
+        .read_addr(hires_aux_read_offset),
         .read_enable(1'b1),
         .read_data(hires_data_aux)
     );
+
+    generate
+        if (VGC_MEMORY) begin
+            sdpram32 #(
+                .ADDR_WIDTH(12)
+            ) hires_aux_6000_9FFF (
+                .clk(a2bus_if.clk_logic),
+                .write_addr(write_offset_aux_6000_9FFF),
+                .write_data(write_word),
+                .write_enable(write_enable_aux_6000_9FFF),
+                .byte_enable(hires_byte_enable_aux_6000_9FFF),
+                .read_addr(hires_aux_read_offset),
+                .read_enable(1'b1),
+                .read_data(hires_data_aux_6000_9FFF)
+            );
+        end else begin
+            assign hires_data_aux_6000_9FFF = 32'b0;
+        end
+    endgenerate
 
 endmodule

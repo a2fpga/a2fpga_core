@@ -50,6 +50,7 @@ interface a2mem_if;
     logic MONOCHROME_MODE;
     logic MONOCHROME_DHIRES_MODE;
     logic SHRG_MODE;
+    logic LINEARIZE_MODE;
 
     logic aux_mem;
 
@@ -81,6 +82,7 @@ interface a2mem_if;
         output MONOCHROME_MODE,
         output MONOCHROME_DHIRES_MODE,
         output SHRG_MODE,
+        output LINEARIZE_MODE,
 
         output aux_mem,
 
@@ -113,6 +115,7 @@ interface a2mem_if;
         input MONOCHROME_MODE,
         input MONOCHROME_DHIRES_MODE,
         input SHRG_MODE,
+        input LINEARIZE_MODE,
 
         input aux_mem,
 
