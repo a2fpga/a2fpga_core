@@ -69,7 +69,7 @@ module apple_memory #(
     // capture the soft switches
     always @(posedge a2bus_if.clk_logic or negedge a2bus_if.system_reset_n) begin
         if (!a2bus_if.system_reset_n) begin
-            SWITCHES_II <= '{1'b1, 1'b1, 1'b0, 1'b0, 1'b0, 1'b0, 1'b0, 1'b1};
+            SWITCHES_II <= '{1'b1, 1'b0, 1'b0, 1'b0, 1'b0, 1'b0, 1'b0, 1'b1};
         end else if ((a2bus_if.phi1_posedge) && (a2bus_if.addr[15:4] == 12'hC05) && !a2bus_if.m2sel_n)
             SWITCHES_II[a2bus_if.addr[3:1]] <= a2bus_if.addr[0];
     end
