@@ -135,7 +135,9 @@ display implementation is to not do any blurring or pixel interpolation
 of the display output, so the result is that the display is slightly
 stretched horizontally on a modern widescreen HDMI display.  For the IIgs
 320/640 by 240 super hires modes, the display is once again centered
-and vertically line-doubled within the 720x480 HDMI display area.
+and vertically line-doubled within the 720x480 HDMI display area. Many
+monitors and TVs have a "4:3 mode" in their settings that will give you a more
+faithful aspect ratio if desired.
 
 By default, a scanline effect is provided that dims alternating lines
 to create a CRT-like display appearance.  This can be enabled or disabled on the
