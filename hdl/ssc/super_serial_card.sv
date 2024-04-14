@@ -18,6 +18,7 @@ module SuperSerial #(
     parameter bit ENABLE = 1'b1
 ) (
     a2bus_if.slave a2bus_if,
+    a2mem_if.slave a2mem_if,
 
     output [7:0] data_o,
     output rd_en_o,
@@ -74,29 +75,11 @@ module SuperSerial #(
         Map and Unmap the ROM - setup rom_en_o and ENA_C8S
     */
 
-    reg  SLOTCXROM;
     wire ENA_C8S;
     reg  C8S2;
     wire APPLE_C0;
 
-
     assign APPLE_C0 = a2bus_if.addr[15:8] == 8'b11000000;
-
-    always @(posedge a2bus_if.clk_logic) begin
-        if (!a2bus_if.system_reset_n) begin
-            SLOTCXROM <= 1'b0;
-        end else begin
-            if (~a2bus_if.rw_n) begin
-                case ({
-                    APPLE_C0, a2bus_if.addr[7:0]
-                })
-                    9'h106: SLOTCXROM <= 1'b0;
-                    9'h107: SLOTCXROM <= 1'b1;
-                endcase
-            end
-        end
-    end
-
 
     always @(posedge a2bus_if.clk_logic) begin
         if (!a2bus_if.system_reset_n) begin
@@ -104,11 +87,11 @@ module SuperSerial #(
         end else begin
             case (a2bus_if.addr[15:8])
                 8'hC2: begin
-                    if (!SLOTCXROM)  // SSC ROM
+                    if (!a2mem_if.CXROM)  // SSC ROM
                         C8S2 <= 1'b1;
                 end
                 8'hCF: begin
-                    if (!SLOTCXROM) begin
+                    if (!a2mem_if.CXROM) begin
                         if (a2bus_if.addr[7:0] == 8'hFF) C8S2 <= 1'b0;
                     end
                 end
@@ -116,7 +99,7 @@ module SuperSerial #(
         end
     end
 
-    assign ENA_C8S  = {(C8S2 & !SLOTCXROM), a2bus_if.addr[15:11]} == 6'b111001;
+    assign ENA_C8S  = {(C8S2 & !a2mem_if.CXROM), a2bus_if.addr[15:11]} == 6'b111001;
     assign rom_en_o = ENA_C8S;
     //assign data_o2 = ENA_C8S ? DOA_C8S : SSC;
 
