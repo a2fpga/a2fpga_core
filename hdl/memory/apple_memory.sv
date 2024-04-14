@@ -81,6 +81,7 @@ module apple_memory #(
         end else if (!a2bus_if.rw_n && (a2bus_if.phi1_posedge) && (a2bus_if.addr == 16'hC068) && !a2bus_if.m2sel_n) begin
             SWITCHES_IIE[1] <= a2bus_if.data[5];
             SWITCHES_IIE[2] <= a2bus_if.data[4];
+            SWITCHES_IIE[3] <= a2bus_if.data[0];
         end
     end
 
