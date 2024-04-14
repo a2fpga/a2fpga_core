@@ -77,8 +77,12 @@ module apple_memory #(
     always @(posedge a2bus_if.clk_logic or negedge a2bus_if.system_reset_n) begin
         if (!a2bus_if.system_reset_n) begin
             SWITCHES_IIE <= '{8{1'b0}};
-        end else if (!a2bus_if.rw_n && (a2bus_if.phi1_posedge) && (a2bus_if.addr[15:4] == 12'hC00) && !a2bus_if.m2sel_n) 
+        end else if (!a2bus_if.rw_n && (a2bus_if.phi1_posedge) && (a2bus_if.addr[15:4] == 12'hC00) && !a2bus_if.m2sel_n) begin
             SWITCHES_IIE[a2bus_if.addr[3:1]] <= a2bus_if.addr[0];
+        end else if (!a2bus_if.rw_n && (a2bus_if.phi1_posedge) && (a2bus_if.addr == 16'hC068) && !a2bus_if.m2sel_n) begin
+            SWITCHES_IIE[1] <= a2bus_if.data[5];
+            SWITCHES_IIE[2] <= a2bus_if.data[4];
+        end
     end
 
     always @(posedge a2bus_if.clk_logic or negedge a2bus_if.device_reset_n) begin
