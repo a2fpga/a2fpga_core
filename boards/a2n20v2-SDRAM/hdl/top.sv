@@ -598,7 +598,8 @@ module top #(
         .ENABLE(SUPERSERIAL_ENABLE),
         .SLOT(SUPERSERIAL_SLOT)
     ) superserial (
-        .a2bus_if(a2bus_if),  // use system_reset_n
+        .a2bus_if(a2bus_if),
+        .a2mem_if(a2mem_if),
 
         .data_o(ssc_d_w),
         .rd_en_o(ssc_rd),
