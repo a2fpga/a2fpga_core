@@ -42,6 +42,7 @@ You will need the following:
 
 - A2FPGA Apple II Fpga Co-Processor Card, A2N20 versions 2 recommended.
     - The A2N20 card uses the [SiPeed Tang Nano 20K FPGA Developer Board](https://wiki.sipeed.com/hardware/en/tang/tang-nano-20k/nano-20k.html)
+    - Cards purchased from [ReActiveMicro](https://www.reactivemicro.com/product/a2fpga-multicard/) will come fully programmed with the Tang Nano FPGA module installed and should be ready for use unless the FPGA bitsream needs to be updated.
 
 - To update the bitstream on the A2FPGA, the most convenient way for Mac and Linux users is to use [OpenFPGALoader](https://github.com/trabucayre/openFPGALoader)
     - Mac users with [Homebrew](https://brew.sh/) can just type `brew install openfpgaloader` in the Terminal to install it
