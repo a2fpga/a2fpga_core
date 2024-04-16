@@ -55,11 +55,11 @@ You will need the following:
 - For updating the bitstream on the A2FPGA on Windows, or rebuilding or developing the A2FPGA project on Windows or Linux, you will need the Gowin V1.9.9Beta-4 Education Edition IDE (or later)
     - [Windows](https://cdn.gowinsemi.com.cn/Gowin_V1.9.9Beta-4_Education_win.zip) 
     - [Linux](https://cdn.gowinsemi.com.cn/Gowin_V1.9.9Beta-4_Education.tar.gz)
-    - For updating the A2N20v2 using the Gowin Programmer from the above downloads, do the following:
+    - For updating the *A2N20v2* card using the Gowin Programmer from the above downloads, do the following:
         - Download the [a2n20v2.fs](boards/a2n20v2/impl/pnr/a2n20v2.fs) bitstream file by right-clicking on the link and choosing *Save Link As...*
         - Attach a USB cable from your PC to the Tang Nano 20K USB-C socket
-        - Launch the Gowin Programmer. The Cable Setup dialog will appear and should detect the USB cable and the Tang Nano 20K device.  The FPGA will appear in the device list as GW2AR-18C.
-        - If any device appears in the device list with anything other than GW2AR-18C then click on it and hit the Delete Device button.  If there no devices after doing this, click Scan Device and it will say *Multi-device found*, select *GW2AR-18C*.
+        - Launch the Gowin Programmer. The *Cable Setup* dialog will appear and should detect the USB cable and the Tang Nano 20K device.  The FPGA will appear in the device list as *GW2AR-18C*.
+        - If any device appears in the device list with anything other than *GW2AR-18C* then click on it and hit the *Delete Device* button.  If there no devices after doing this, click *Scan Device* and it will say *Multi-device found*, select *GW2AR-18C*.
         - Right click on the device and select *Configure Device*
         - Select *External Flash Mode*, choose *Generic Flash* in *External Flash Options*, leave address at *0x000000*. Select the `a2n20v2.fs` file in *Programming Options File Name*. Hit *Save*.
         - Hit *Program/Configure*.  It will program the device.
