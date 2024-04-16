@@ -29,7 +29,7 @@ benefit of providing easy USB-based programming.
 
 For enthusiasts looking for an assembled, programmed, and tested A2FPGA board
 that is pre-populated with a Tang Nano 20K FPGA module, we have partnered with 
-[ReActiveMicro](https://www.reactivemicro.com/) to make the A2N20 card available
+[ReActiveMicro](https://www.reactivemicro.com/product/a2fpga-multicard/) to make the A2N20v2 card available
 for easy purchase.
 
 Schematics and Gerbers are available for some of the A2FPGA board models in
@@ -43,18 +43,31 @@ You will need the following:
 - A2FPGA Apple II Fpga Co-Processor Card, A2N20 versions 2 recommended.
     - The A2N20 card uses the [SiPeed Tang Nano 20K FPGA Developer Board](https://wiki.sipeed.com/hardware/en/tang/tang-nano-20k/nano-20k.html)
 
-- To update the bitstream on the A2FPGA, the most convenient way is to use [OpenFPGALoader](https://github.com/trabucayre/openFPGALoader)
+- To update the bitstream on the A2FPGA, the most convenient way for Mac and Linux users is to use [OpenFPGALoader](https://github.com/trabucayre/openFPGALoader)
     - Mac users with [Homebrew](https://brew.sh/) can just type `brew install openfpgaloader` in the Terminal to install it
-    - Use OpenFPGALoader to program the correct bitstream for your board.  For example, for the A2N20v2, use [a2n20v2.fs](boards/a2n20v2/impl/pnr/a2n20v2.fs) and run `openfpgaloader -b tangnano20k -f a2n20v2.fs`
+    - Use OpenFPGALoader to program the correct bitstream for your board.
+    - For the updating A2N20v2 using OpenFPGALoader, do the following:
+        - Download the [a2n20v2.fs](boards/a2n20v2/impl/pnr/a2n20v2.fs) bitstream file by right-clicking on the link and choosing *Save Link As...*
+        - Open the Mac Terminal or Linux shell and `cd` into the directory where you've saved the `a2n20v2.fs` file
+        - Make sure you've connected the Tang Nano 20K module via USC-C to your Mac or Linux computer
+        - Run `openfpgaloader -b tangnano20k -f a2n20v2.fs`
 
-- For rebuilding the project, or developing with the A2FPGA, you will need the Gowin V1.9.9Beta-4 Education Edition IDE (or later)
+- For updating the bitstream on the A2FPGA on Windows, or rebuilding or developing the A2FPGA project on Windows or Linux, you will need the Gowin V1.9.9Beta-4 Education Edition IDE (or later)
     - [Windows](https://cdn.gowinsemi.com.cn/Gowin_V1.9.9Beta-4_Education_win.zip) 
-    - [Linux](https://cdn.gowinsemi.com.cn/Gowin_V1.9.9Beta-4_Education.tar.gz) 
+    - [Linux](https://cdn.gowinsemi.com.cn/Gowin_V1.9.9Beta-4_Education.tar.gz)
+    - For updating the A2N20v2 using the Gowin Programmer from the above downloads, do the following:
+        - Download the [a2n20v2.fs](boards/a2n20v2/impl/pnr/a2n20v2.fs) bitstream file by right-clicking on the link and choosing *Save Link As...*
+        - Attach a USB cable from your PC to the Tang Nano 20K USB-C socket
+        - Launch the Gowin Programmer. The Cable Setup dialog will appear and should detect the USB cable and the Tang Nano 20K device.  The FPGA will appear in the device list as GW2AR-18C.
+        - If any device appears in the device list with anything other than GW2AR-18C then click on it and hit the Delete Device button.  If there no devices after doing this, click Scan Device and it will say *Multi-device found*, select *GW2AR-18C*.
+        - Right click on the device and select *Configure Device*
+        - Select *External Flash Mode*, choose *Generic Flash* in *External Flash Options*, leave address at *0x000000*. Select the `a2n20v2.fs` file in *Programming Options File Name*. Hit *Save*.
+        - Hit *Program/Configure*.  It will program the device.
 
-Install the A2FPGA card into any slot in your Apple II or //e.  Please note that
-the default configuration assumes that slots 1, 3, and 7 are empty as it uses
-the memory addresses for these to support Super Serial, Mockingboard, and
-SuperSprite software.  If you already have cards in those slots and plan to
+Install the A2FPGA card into any slot in your Apple II or //e.  IIgs users with ROM 00/01 models will need to install the card in slot 3.  Please note that
+the default configuration assumes that slots 4 and 7 are empty as it uses
+the memory addresses for these to support Mockingboard and
+SuperSprite software.  If you are using a build that provides Super Serial Card support, you'll need Slot 1 empty as well.  If you already have cards in those slots and plan to
 continue using them, you'll need to build a version of the Multicard core with
 those cards disabled in top.v.
 
@@ -70,7 +83,7 @@ those cards disabled in top.v.
 - Compatible with most HDMI television sets and monitors
 - Not compatible with HDMI-to-DVI converters
 - Recommended for all users/models
-- General Availability - contact [ReActiveMicro](https://www.reactivemicro.com/) to order
+- General Availability - contact [ReActiveMicro](https://www.reactivemicro.com/product/a2fpga-multicard/) to order
 
 The A2N20v2 has a 4-switch DIP switch that controls the following settings:
 
