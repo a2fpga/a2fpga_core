@@ -610,7 +610,7 @@ module apple_video (
 
         pix_color_r <= background_color_r;
   
-        if (video_active_o) begin
+        if (video_active_o & !shrg_mode_r) begin
             if (BW) begin
                 if (pix_history_r[HISTORY_PIXEL_OFFSET]) begin
                     pix_color_r <= 4'hF;

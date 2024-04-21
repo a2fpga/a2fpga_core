@@ -87,6 +87,7 @@ module vgc (
     localparam [5:0] LAST_CYCLE = (FRAME_WIDTH / 16) - 1;               // 52
 
     wire [ 9:0] pix_x_w = cx_i < H_FIRST ? H_WRAP + cx_i : cx_i - H_BORDER;
+    //wire [ 9:0] pix_x_w = cx_i < 38 ? H_WRAP + cx_i : cx_i - 38;
 
     reg  [12:0] scanline_addr_r;
 
@@ -118,6 +119,7 @@ module vgc (
     wire store_palette_odd_w = cycle_step_w == 4'd1;
 
     wire display_active_w = (cycle_w < 6'd40) && ((cy_i > V_TOP_BORDER) && (cy_i < V_BOTTOM_BORDER));
+    wire output_active_w = ((cx_i > H_FIRST) && (cx_i <= H_RIGHT_BORDER)) && ((cy_i > V_TOP_BORDER) && (cy_i < V_BOTTOM_BORDER));
 
     // set up interface to memory
 
@@ -163,7 +165,8 @@ module vgc (
 
     reg [3:0] prev_pix_palette_r;
     wire [3:0] pix_palette_w = PIX640 ? {pix640_palette_select_w, pix640_w} : pix320_w;
-    wire [3:0] pix_fill_w = COLOR_FILL_MODE && (pix_palette_w == 4'b0000) ? prev_pix_palette_r : pix_palette_w;
+    //wire [3:0] pix_fill_w = COLOR_FILL_MODE && (pix_palette_w == 4'b0000) ? prev_pix_palette_r : pix_palette_w;
+    wire [3:0] pix_fill_w = display_active_w ? (COLOR_FILL_MODE && (pix_palette_w == 4'b0000) ? prev_pix_palette_r : pix_palette_w) :  a2mem_if.BORDER_COLOR;
     wire [11:0] pix_rgb_w = palette_rgb_r[pix_fill_w];
     wire [3:0] pix_b_w = pix_rgb_w[3:0];
     wire [3:0] pix_g_w = pix_rgb_w[7:4];
@@ -193,20 +196,19 @@ module vgc (
     end
 
     always @(posedge a2bus_if.clk_pixel) begin
-        R_o <= 0;
-        G_o <= 0;
-        B_o <= 0;
+        R_o <= {pix_r_w, 4'h0};
+        G_o <= {pix_g_w, 4'h0};
+        B_o <= {pix_b_w, 4'h0};
         if (display_active_w) begin
-            R_o <= {pix_r_w, 4'h0};
-            G_o <= {pix_g_w, 4'h0};
-            B_o <= {pix_b_w, 4'h0};
             prev_pix_palette_r <= pix_fill_w;
         end else begin
-            prev_pix_palette_r <= 4'b0000;
+            prev_pix_palette_r <= a2mem_if.BORDER_COLOR;
         end
     end
 
-    wire VGC_OUTPUT = a2mem_if.SHRG_MODE & display_active_w & !video_control_if.enable;
+    wire VGC_OUTPUT = a2mem_if.SHRG_MODE & output_active_w & !video_control_if.enable;
+    //wire VGC_OUTPUT = a2mem_if.SHRG_MODE & display_active_w & !video_control_if.enable;
+    //wire VGC_OUTPUT = a2mem_if.SHRG_MODE & display_active_w & !video_control_if.enable & (pix_x_w > 0);
     assign vgc_vga_r_o = VGC_OUTPUT ? R_o : apple_vga_r_i;
     assign vgc_vga_g_o = VGC_OUTPUT ? G_o : apple_vga_g_i;
     assign vgc_vga_b_o = VGC_OUTPUT ? B_o : apple_vga_b_i;
