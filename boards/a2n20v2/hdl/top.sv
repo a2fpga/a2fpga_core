@@ -480,26 +480,44 @@ module top #(
     // will cause the HDMI receiver to clip the audio or amplify anything such as the Mockingboard
     // audio that is added to it.
 
-    reg speaker_audio;
+
+    reg [7:0] speaker_audio;
     reg [7:0] speaker_audio_counter;
     reg prev_speaker_bit;
 
     always_ff @(posedge clk_pixel_w) begin
         if (clk_audio_r) begin
             if (speaker_bit != prev_speaker_bit) begin
-                speaker_audio_counter <= 8'b11111111;
-            end else if (speaker_audio_counter != 0) begin
-                speaker_audio_counter <= speaker_audio_counter - 8'd1;
+                speaker_audio_counter <= 8'd255;
+            end else begin
+                speaker_audio_counter <= speaker_audio_counter != 0 ? speaker_audio_counter - 8'd1 : 0;
             end
             prev_speaker_bit <= speaker_bit;
 
-            if (prev_speaker_bit && (speaker_audio_counter != 0)) begin
-                speaker_audio <= APPLE_SPEAKER_ENABLE | sw_apple_speaker_w;
+            if ((speaker_audio_counter != 0) && (APPLE_SPEAKER_ENABLE | sw_apple_speaker_w)) begin
+                if (speaker_bit) begin
+                    speaker_audio <= speaker_audio != 8'd127 ? speaker_audio + 8'd1 : 8'd127;
+                end else begin
+                    speaker_audio <= speaker_audio != 8'd0 ? speaker_audio - 8'd1 : 8'd0;
+                end
             end else begin
-                speaker_audio <= 1'b0;
+                speaker_audio <= speaker_audio != 8'd0 ? speaker_audio - 8'd1 : 8'd0;
             end
         end
     end
+
+    /*
+    reg [7:0] speaker_audio;
+    always_ff @(posedge clk_pixel_w) begin
+        if (clk_audio_r) begin
+            if (speaker_bit) begin
+                speaker_audio <= speaker_audio != 8'd127 ? speaker_audio + 8'd1 : 8'd127;
+            end else begin
+                speaker_audio <= speaker_audio != 8'd0 ? speaker_audio - 8'd1 : 8'd0;
+            end
+        end
+    end
+    */
 
     ////
     logic [2:0] tmds;
@@ -508,9 +526,9 @@ module top #(
     //wire [15:0] sample = {ssp_psg_mix_audio_o, 2'b00};
     reg [15:0] audio_sample_word[1:0], audio_sample_word0[1:0];
     always @(posedge clk_pixel_w) begin  // crossing clock domain
-        audio_sample_word0[0] <= ssp_audio_w + {mb_audio_l, 4'b00} + {speaker_audio, 13'b0};
+        audio_sample_word0[0] <= ssp_audio_w + {mb_audio_l, 4'b00} + {speaker_audio, 8'b0};
         audio_sample_word[0]  <= audio_sample_word0[0];
-        audio_sample_word0[1] <= ssp_audio_w + {mb_audio_r, 4'b00} + {speaker_audio, 13'b0};
+        audio_sample_word0[1] <= ssp_audio_w + {mb_audio_r, 4'b00} + {speaker_audio, 8'b0};
         audio_sample_word[1]  <= audio_sample_word0[1];
     end
 
