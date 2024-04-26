@@ -37,13 +37,18 @@ module audio_out
 
 	reg flt_ce;
 	reg [31:0] cnt = 0;
-	always @(posedge clk) begin
-
-		flt_ce <= 0;
-		cnt <= cnt + {flt_rate[30:0],1'b0};
-		if(cnt >= CLK_RATE) begin
-			cnt <= cnt - CLK_RATE;
-			flt_ce <= 1;
+	always @(posedge clk, posedge reset) begin
+		if(reset) begin
+			cnt <= 0;
+			flt_ce <= 0;
+		end
+		else begin
+			flt_ce <= 0;
+			cnt <= cnt + {flt_rate[30:0],1'b0};
+			if(cnt >= CLK_RATE) begin
+				cnt <= cnt - CLK_RATE;
+				flt_ce <= 1;
+			end
 		end
 	end
 
