@@ -13,11 +13,11 @@ module apple_speaker (
             speaker_bit <= !speaker_bit;
     end
 
-    localparam COUNTDOWN_WIDTH = 24;
+    localparam COUNTDOWN_WIDTH = 20;
     reg [COUNTDOWN_WIDTH - 1:0] countdown;
     reg prev_speaker_bit;
 
-    always_ff @(posedge a2bus_if.phi1_posedge) begin
+    always_ff @(posedge a2bus_if.clk_logic) begin
         if (speaker_bit != prev_speaker_bit) begin
             countdown <= '1;
         end else begin
