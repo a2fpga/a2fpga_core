@@ -625,6 +625,10 @@ module top #(
 
     // HDMI
 
+    // TODO - Needs to incorporate the audio filter code from a2n20v2
+    // IMPORTANT - the Ensoniq module outputs signed 16-bit audio, so we need to
+    // properly mix it with the apple audio and the mockingboard audio
+
     localparam AUDIO_RATE = 44100;
     localparam AUDIO_BIT_WIDTH = 16;
     localparam AUDIO_CLK_COUNT = (CLOCK_SPEED_HZ / 2) / AUDIO_RATE;

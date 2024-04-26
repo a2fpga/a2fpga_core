@@ -338,6 +338,10 @@ module top #(
 
     // HDMI
 
+    // TODO - Adapt the IIR filter im A2N20, but GW1NR-9C FPGA does not
+    // have sufficient DSP resources to run IIR filter code.  This means
+    // A2N9 audio will have high frequency noise.
+
     localparam AUDIO_RATE = 44100;
     localparam AUDIO_BIT_WIDTH = 16;
     localparam AUDIO_CLK_COUNT = (CLOCK_SPEED_HZ / 2) / AUDIO_RATE;

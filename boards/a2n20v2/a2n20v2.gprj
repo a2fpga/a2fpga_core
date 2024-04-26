@@ -33,10 +33,13 @@
         <File path="../../hdl/memory/a2mem_if.sv" type="file.verilog" enable="1"/>
         <File path="../../hdl/memory/apple_memory.sv" type="file.verilog" enable="1"/>
         <File path="../../hdl/mockingboard/mockingboard.sv" type="file.verilog" enable="1"/>
+        <File path="../../hdl/sound/apple_speaker.sv" type="file.verilog" enable="1"/>
+        <File path="../../hdl/sound/audio_out.v" type="file.verilog" enable="1"/>
         <File path="../../hdl/ssc/ssc_rom.vhd" type="file.vhdl" enable="1"/>
         <File path="../../hdl/ssc/super_serial_card.sv" type="file.verilog" enable="1"/>
         <File path="../../hdl/supersprite/supersprite.sv" type="file.verilog" enable="1"/>
         <File path="../../hdl/support/cdc.sv" type="file.verilog" enable="1"/>
+        <File path="../../hdl/support/iir_filter.v" type="file.verilog" enable="1"/>
         <File path="../../hdl/support/sdpram32.sv" type="file.verilog" enable="1"/>
         <File path="../../hdl/support/uart_6551.v" type="file.verilog" enable="1"/>
         <File path="../../hdl/support/uart_rx.v" type="file.verilog" enable="1"/>
