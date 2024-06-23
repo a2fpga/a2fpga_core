@@ -55,7 +55,7 @@ interface a2bus_if (
     endfunction
 
     function automatic logic io_strobe_n (bit enable);
-        return ~(enable & phi0 & (addr[15:11] == 5'b11001) & !m2sel_n);
+        return ~(enable & phi0 & (addr[15:11] == 5'b11001) & !m2sel_n); // C800-CFFF
     endfunction
 
     modport master (

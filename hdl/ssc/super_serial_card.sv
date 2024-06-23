@@ -31,7 +31,7 @@ module SuperSerial #(
 
 );
 
-    wire IO_SELECT_N = a2bus_if.io_select_n(ENABLE, SLOT);
+    wire IO_SELECT_N = a2bus_if.io_select_n(ENABLE, SLOT) && !a2mem_if.INTCXROM;;
     wire DEVICE_SELECT_N = a2bus_if.dev_select_n(ENABLE, SLOT);
     wire IO_STROBE_N = a2bus_if.io_strobe_n(ENABLE);
 
@@ -87,11 +87,11 @@ module SuperSerial #(
         end else begin
             case (a2bus_if.addr[15:8])
                 8'hC2: begin
-                    if (!a2mem_if.CXROM)  // SSC ROM
+                    if (!a2mem_if.INTCXROM)  // SSC ROM
                         C8S2 <= 1'b1;
                 end
                 8'hCF: begin
-                    if (!a2mem_if.CXROM) begin
+                    if (!a2mem_if.INTCXROM) begin
                         if (a2bus_if.addr[7:0] == 8'hFF) C8S2 <= 1'b0;
                     end
                 end
@@ -99,14 +99,14 @@ module SuperSerial #(
         end
     end
 
-    assign ENA_C8S  = {(C8S2 & !a2mem_if.CXROM), a2bus_if.addr[15:11]} == 6'b111001;
+    assign ENA_C8S  = {(C8S2 & !a2mem_if.INTCXROM), a2bus_if.addr[15:11]} == 6'b111001;
     assign rom_en_o = ENA_C8S;
     //assign data_o2 = ENA_C8S ? DOA_C8S : SSC;
 
     wire [10:0] ROM_ADDR = rom_en_o ? a2bus_if.addr[10:0] : {3'b111, a2bus_if.addr[7:0]};
     assign data_o = !IO_SELECT_N ? DOA_C8S : (rom_en_o && !IO_STROBE_N) ? DOA_C8S : SSC;
     //assign rd_en_o = a2bus_if.rw_n && (~IO_SELECT_N /* || (rom_en_o) */ || ~DEVICE_SELECT_N);
-    assign rd_en_o = a2bus_if.rw_n && (!IO_SELECT_N || (rom_en_o && !IO_STROBE_N) || !DEVICE_SELECT_N);
+    assign rd_en_o = ENABLE && a2bus_if.rw_n && (!IO_SELECT_N || (rom_en_o && !IO_STROBE_N) || !DEVICE_SELECT_N);
     //assign rd_en_o = a2bus_if.rw_n && !DEVICE_SELECT_N;
 
     ssc_rom rom (

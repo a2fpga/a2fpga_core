@@ -60,9 +60,9 @@ module apple_memory #(
     assign a2mem_if.STORE80 = SWITCHES_IIE[0];
     assign a2mem_if.RAMRD = SWITCHES_IIE[1];
     assign a2mem_if.RAMWRT = SWITCHES_IIE[2];
-    assign a2mem_if.CXROM = SWITCHES_IIE[3];
+    assign a2mem_if.INTCXROM = SWITCHES_IIE[3];
     assign a2mem_if.ALTZP = SWITCHES_IIE[4];
-    assign a2mem_if.C3ROM = SWITCHES_IIE[5];
+    assign a2mem_if.SLOTC3ROM = SWITCHES_IIE[5];
     assign a2mem_if.COL80 = SWITCHES_IIE[6];
     assign a2mem_if.ALTCHAR = SWITCHES_IIE[7];
 
