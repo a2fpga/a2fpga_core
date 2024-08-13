@@ -190,7 +190,9 @@ module top #(
     );
 
     apple_bus #(
-        .CLOCK_SPEED_HZ(CLOCK_SPEED_HZ)
+        .CLOCK_SPEED_HZ(CLOCK_SPEED_HZ),
+        .BUS_DATA_OUT_ENABLE(BUS_DATA_OUT_ENABLE),
+        .IRQ_OUT_ENABLE(IRQ_OUT_ENABLE)
     ) apple_bus (
         .a2bus_if(a2bus_if),
 
@@ -450,7 +452,7 @@ module top #(
 
     // Interrupts
 
-    assign irq_n_w = (mb_irq_n && vdp_irq_n && ssc_irq_n) || !IRQ_OUT_ENABLE;
+    assign irq_n_w = mb_irq_n && vdp_irq_n && ssc_irq_n;
 
     // Audio
 

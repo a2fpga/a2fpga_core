@@ -25,6 +25,8 @@
 //
 
 module apple_bus #(
+    parameter bit IRQ_OUT_ENABLE = 1,
+    parameter bit BUS_DATA_OUT_ENABLE = 1,
     parameter int CLOCK_SPEED_HZ = 50_000_000,
     parameter int APPLE_HZ = 14_318_181,
     parameter int CPU_HZ = APPLE_HZ / 14,                   // 1_022_727
@@ -71,7 +73,7 @@ module apple_bus #(
         if (!a2bus_if.device_reset_n) begin
             control_out_r <= 8'hFF;
         end else begin
-            control_out_r[2] <=  irq_n_i;
+            control_out_r[2] <=  irq_n_i || !IRQ_OUT_ENABLE;
         end
     end
 
@@ -273,7 +275,7 @@ module apple_bus #(
 
     end
 
-    assign a2_bridge_bus_d_oe_n_o = !data_out_en_i;
+    assign a2_bridge_bus_d_oe_n_o = ~(data_out_en_i & BUS_DATA_OUT_ENABLE);
 
     assign a2bus_if.data_in_strobe = data_in_strobe_r;
 
