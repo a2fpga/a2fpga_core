@@ -261,21 +261,21 @@ module apple_video (
         reg [27:0] vs;
         case (seg)
             1'b0: vs = { 
-                vd[19],vd[18],vd[17],vd[16],
-                vd[19],vd[18],vd[17],vd[24],
+                vd[16],vd[19],vd[18],vd[17],
+                vd[16],vd[19],vd[18],vd[24],
                 vd[27],vd[26],vd[25],vd[24],
-                vd[27],vd[26],vd[1],vd[0],
-                vd[3],vd[2],vd[1],vd[0],
-                vd[3],vd[10],vd[9],vd[8],
+                vd[27],vd[26],vd[2],vd[1],
+                vd[0],vd[3],vd[2],vd[1],
+                vd[0],vd[10],vd[9],vd[8],
                 vd[11],vd[10],vd[9],vd[8]
             };
             1'b1: vs = { 
-                vd[23],vd[22],vd[21],vd[20],
-                vd[23],vd[22],vd[21],vd[28],
+                vd[20],vd[23],vd[22],vd[21],
+                vd[20],vd[23],vd[22],vd[28],
                 vd[31],vd[30],vd[29],vd[28],
-                vd[31],vd[30],vd[5],vd[4],
-                vd[7],vd[6],vd[5],vd[4],
-                vd[7],vd[14],vd[13],vd[12],
+                vd[31],vd[30],vd[6],vd[5],
+                vd[4],vd[7],vd[6],vd[5],
+                vd[4],vd[14],vd[13],vd[12],
                 vd[15],vd[14],vd[13],vd[12]
             };
         endcase
