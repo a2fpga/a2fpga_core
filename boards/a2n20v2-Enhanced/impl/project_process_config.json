@@ -59,7 +59,7 @@
  "Number_of_Critical_Paths" : "",
  "Number_of_Start/End_Points" : "",
  "OSC_DIVIDER" : "8",
- "OUTPUT_BASE_NAME" : "a2n20v2-SDRAM",
+ "OUTPUT_BASE_NAME" : "a2n20v2-Enhanced",
  "POWER_ON_RESET_MONITOR" : true,
  "PRINT_BSRAM_VALUE" : true,
  "PROGRAM_DONE_BYPASS" : false,

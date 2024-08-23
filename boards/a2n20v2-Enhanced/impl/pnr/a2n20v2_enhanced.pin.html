@@ -1,7 +1,7 @@
 <!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
 <html>
 <head>
-<title>PnR Analysis Report</title>
+<title>Pin Report</title>
 <style type="text/css">
 body { font-family: Verdana, Arial, sans-serif; font-size: 12px; }
 div#main_wrapper{ width: 100%; }
@@ -30,15 +30,10 @@ table.detail_table th.label {  min-width: 8%; width: 8%; }
 <div id="catalog_wrapper">
 <div id="catalog">
 <ul>
-<li><a href="#Message" style=" font-size: 16px;">PnR Messages</a></li>
-<!--<li><a href="#Summary" style=" font-size: 16px;">PnR Summaries</a></li>-->
-<li><a href="#PnR_Details" style=" font-size: 16px;">PnR Details</a>
-<li><a href="#Resource" style=" font-size: 16px;">Resource</a>
+<li><a href="#Message" style=" font-size: 16px;">Pin Messages</a></li>
+<!--<li><a href="#Summary" style=" font-size: 16px;">Pin Summaries</a></li>-->
+<li><a href="#Pin_Details" style=" font-size: 16px;">Pin Details</a>
 <ul>
-<li><a href="#Resource_Usage_Summary" style=" font-size: 14px;">Resource Usage Summary</a></li>
-<li><a href="#I/O_Bank_Usage_Summary" style=" font-size: 14px;">I/O Bank Usage Summary</a></li>
-<li><a href="#Global_Clock_Usage_Summary" style=" font-size: 14px;">Global Clock Usage Summary</a></li>
-<li><a href="#Global_Clock_Signals" style=" font-size: 14px;">Global Clock Signals</a></li>
 <li><a href="#Pinout_by_Port_Name" style=" font-size: 14px;">Pinout by Port Name</a></li>
 <li><a href="#All_Package_Pins" style=" font-size: 14px;">All Package Pins</a></li>
 </ul>
@@ -47,23 +42,23 @@ table.detail_table th.label {  min-width: 8%; width: 8%; }
 </div><!-- catalog -->
 </div><!-- catalog_wrapper -->
 <div id="content">
-<h1><a name="Message">PnR Messages</a></h1>
+<h1><a name="Message">Pin Messages</a></h1>
 <table class="summary_table">
 <tr>
 <td class="label">Report Title</td>
-<td>PnR Report</td>
+<td>Pin Report</td>
 </tr>
 <tr>
 <td class="label">Design File</td>
-<td>C:\Users\ed\GitHub\a2fpga_core\boards\a2n20v2-SDRAM\impl\gwsynthesis\a2n20v2-SDRAM.vg</td>
+<td>C:\Users\ed\GitHub\a2fpga_core\boards\a2n20v2-Enhanced\impl\gwsynthesis\a2n20v2-Enhanced.vg</td>
 </tr>
 <tr>
 <td class="label">Physical Constraints File</td>
-<td>C:\Users\ed\GitHub\a2fpga_core\boards\a2n20v2-SDRAM\hdl\a2n20v2-SDRAM.cst</td>
+<td>C:\Users\ed\GitHub\a2fpga_core\boards\a2n20v2-Enhanced\hdl\a2n20v2-Enhanced.cst</td>
 </tr>
 <tr>
 <td class="label">Timing Constraints File</td>
-<td>C:\Users\ed\GitHub\a2fpga_core\boards\a2n20v2-SDRAM\hdl\a2n20v2-SDRAM.sdc</td>
+<td>C:\Users\ed\GitHub\a2fpga_core\boards\a2n20v2-Enhanced\hdl\a2n20v2-Enhanced.sdc</td>
 </tr>
 <tr>
 <td class="label">Version</td>
@@ -91,308 +86,7 @@ table.detail_table th.label {  min-width: 8%; width: 8%; }
 <td>Copyright (C)2014-2023 Gowin Semiconductor Corporation. All rights reserved.</td>
 </tr>
 </table>
-<h1><a name="PnR_Details">PnR Details</a></h1>
-<!--<h1><a name="Summary">PnR Summaries</a></h1>-->
-<table class="summary_table">
-<tr>
-<td class="label">Place & Route Process</td>
-<td>Running placement:
-   Placement Phase 0: CPU time = 0h 0m 0.731s, Elapsed time = 0h 0m 0.731s
-   Placement Phase 1: CPU time = 0h 0m 0.189s, Elapsed time = 0h 0m 0.189s
-   Placement Phase 2: CPU time = 0h 0m 2s, Elapsed time = 0h 0m 2s
-   Placement Phase 3: CPU time = 0h 0m 2s, Elapsed time = 0h 0m 2s
-   Total Placement: CPU time = 0h 0m 4s, Elapsed time = 0h 0m 4s
-Running routing:
-   Routing Phase 0: CPU time = 0h 0m 0.001s, Elapsed time = 0h 0m 0.002s
-   Routing Phase 1: CPU time = 0h 0m 0.234s, Elapsed time = 0h 0m 0.234s
-   Routing Phase 2: CPU time = 0h 0m 3s, Elapsed time = 0h 0m 3s
-   Routing Phase 3: CPU time = 0h 0m 0s, Elapsed time = 0h 0m 0s
-   Total Routing: CPU time = 0h 0m 3s, Elapsed time = 0h 0m 3s
-Generate output files:
-   CPU time = 0h 0m 2s, Elapsed time = 0h 0m 2s
-</td>
-</tr>
-<tr>
-<td class="label">Total Time and Memory Usage</td>
-<td>CPU time = 0h 0m 10s, Elapsed time = 0h 0m 10s, Peak memory usage = 322MB</td>
-</tr>
-</table>
-<br/>
-<h1><a name="Resource">Resource</a></h1>
-<!--<h1><a name="Summary">PnR Summaries</a></h1>-->
-<h2><a name="Resource_Usage_Summary">Resource Usage Summary:</a></h2>
-<table class="summary_table">
-<tr>
-<td class="label"><b>Resource</b></td>
-<td><b>Usage</b></td>
-<td><b>Utilization</b></td>
-</tr>
-<tr>
-<td class="label">Logic</td>
-<td>7026/20736</td>
-<td>34%</td>
-</tr>
-<tr>
-<td class="label">&nbsp &nbsp --LUT,ALU,ROM16</td>
-<td>6156(5548 LUT, 608 ALU, 0 ROM16)</td>
-<td>-</td>
-</tr>
-<tr>
-<td class="label">&nbsp &nbsp --SSRAM(RAM16)</td>
-<td>145</td>
-<td>-</td>
-</tr>
-<tr>
-<td class="label">Register</td>
-<td>3234/15915</td>
-<td>21%</td>
-</tr>
-<tr>
-<td class="label">&nbsp &nbsp --Logic Register as Latch</td>
-<td>0/15552</td>
-<td>0%</td>
-</tr>
-<tr>
-<td class="label">&nbsp &nbsp --Logic Register as FF</td>
-<td>3165/15552</td>
-<td>21%</td>
-</tr>
-<tr>
-<td class="label">&nbsp &nbsp --I/O Register as Latch</td>
-<td>0/363</td>
-<td>0%</td>
-</tr>
-<tr>
-<td class="label">&nbsp &nbsp --I/O Register as FF</td>
-<td>69/363</td>
-<td>20%</td>
-</tr>
-<tr>
-<td class="label">CLS</td>
-<td>4816/10368</td>
-<td>47%</td>
-</tr>
-<tr>
-<td class="label">I/O Port</td>
-<td>36</td>
-<td>-</td>
-</tr>
-<tr>
-<td class="label">I/O Buf</td>
-<td>30</td>
-<td>-</td>
-</tr>
-<tr>
-<td class="label"> &nbsp &nbsp --Input Buf</td>
-<td>5</td>
-<td>-</td>
-</tr>
-<tr>
-<td class="label"> &nbsp &nbsp --Output Buf</td>
-<td>17</td>
-<td>-</td>
-</tr>
-<tr>
-<td class="label"> &nbsp &nbsp --Inout Buf</td>
-<td>8</td>
-<td>-</td>
-</tr>
-<tr>
-<td class="label">IOLOGIC</td>
-<td>3 OSER10<br/></td>
-<td>5%</td>
-</tr>
-<tr>
-<td class="label">BSRAM</td>
-<td>16 SDPB<br/>8 DPB<br/>2 DPX9B<br/>1 pROM<br/></td>
-<td>59%</td>
-</tr>
-<tr>
-<td class="label">DSP</td>
-<td>4 MULT9X9<br/></td><td>5%</td>
-</tr>
-<tr>
-<td class="label">PLL</td>
-<td>2/2</td>
-<td>100%</td>
-</tr>
-<tr>
-<td class="label">DCS</td>
-<td>0/8</td>
-<td>0%</td>
-</tr>
-<tr>
-<td class="label">DQCE</td>
-<td>0/24</td>
-<td>0%</td>
-</tr>
-<tr>
-<td class="label">OSC</td>
-<td>0/1</td>
-<td>0%</td>
-</tr>
-<tr>
-<td class="label">CLKDIV</td>
-<td>0/8</td>
-<td>0%</td>
-</tr>
-<tr>
-<td class="label">DLLDLY</td>
-<td>0/8</td>
-<td>0%</td>
-</tr>
-<tr>
-<td class="label">DQS</td>
-<td>0/1</td>
-<td>0%</td>
-</tr>
-<tr>
-<td class="label">DHCEN</td>
-<td>0/16</td>
-<td>0%</td>
-</tr>
-</table>
-<h2><a name="I/O_Bank_Usage_Summary">I/O Bank Usage Summary:</a></h2>
-<table class="summary_table">
-<tr>
-<td class="label"><b>I/O Bank</b></td>
-<td><b>Usage</b></td>
-</tr>
-<tr>
-<td class="label">bank 0</td>
-<td>0/8(0%)</td>
-</tr>
-<tr>
-<td class="label">bank 1</td>
-<td>7/9(77%)</td>
-</tr>
-<tr>
-<td class="label">bank 2</td>
-<td>0/4(0%)</td>
-</tr>
-<tr>
-<td class="label">bank 3</td>
-<td>7/17(41%)</td>
-</tr>
-<tr>
-<td class="label">bank 4</td>
-<td>8/8(100%)</td>
-</tr>
-<tr>
-<td class="label">bank 5</td>
-<td>7/10(70%)</td>
-</tr>
-<tr>
-<td class="label">bank 6</td>
-<td>6/9(66%)</td>
-</tr>
-<tr>
-<td class="label">bank 7</td>
-<td>1/1(100%)</td>
-</tr>
-</table>
-<br/>
-<h2><a name="Global_Clock_Usage_Summary">Global Clock Usage Summary:</a></h2>
-<table class="summary_table">
-<tr>
-<td class="label"><b>Global Clock</b></td>
-<td><b>Usage</b></td>
-</tr>
-<tr>
-<td class="label">PRIMARY</td>
-<td>4/8(50%)</td>
-</tr>
-<tr>
-<td class="label">LW</td>
-<td>7/8(88%)</td>
-</tr>
-<tr>
-<td class="label">GCLK_PIN</td>
-<td>2/5(40%)</td>
-</tr>
-<tr>
-<td class="label">PLL</td>
-<td>2/2(100%)</td>
-</tr>
-<tr>
-<td class="label">CLKDIV</td>
-<td>0/8(0%)</td>
-</tr>
-<tr>
-<td class="label">DLLDLY</td>
-<td>0/8(0%)</td>
-</tr>
-</table>
-<br/>
-<h2><a name="Global_Clock_Signals">Global Clock Signals:</a></h2>
-<table class="summary_table">
-<tr>
-<td class="label"><b>Signal</b></td>
-<td><b>Global Clock</b></td>
-<td><b>Location</b></td>
-</tr>
-<tr>
-<td class="label">clk_d</td>
-<td>PRIMARY</td>
-<td> BL</td>
-</tr>
-<tr>
-<td class="label">clk_logic_w</td>
-<td>PRIMARY</td>
-<td> TR TL BR BL</td>
-</tr>
-<tr>
-<td class="label">O_sdram_clk_d</td>
-<td>PRIMARY</td>
-<td> TR</td>
-</tr>
-<tr>
-<td class="label">clk_pixel_w</td>
-<td>PRIMARY</td>
-<td> TR TL BR BL</td>
-</tr>
-<tr>
-<td class="label">n900_7</td>
-<td>LW</td>
-<td> -</td>
-</tr>
-<tr>
-<td class="label">n39_7</td>
-<td>LW</td>
-<td> -</td>
-</tr>
-<tr>
-<td class="label">supersprite/vdp/f18a_core/reset_n_r</td>
-<td>LW</td>
-<td> -</td>
-</tr>
-<tr>
-<td class="label">supersprite/vdp/f18a_core/inst_cpu/n957_6</td>
-<td>LW</td>
-<td> -</td>
-</tr>
-<tr>
-<td class="label">mockingboard/pb_l_o[2]</td>
-<td>LW</td>
-<td> -</td>
-</tr>
-<tr>
-<td class="label">mockingboard/pb_r_o[2]</td>
-<td>LW</td>
-<td> -</td>
-</tr>
-<tr>
-<td class="label">hdmi/true_hdmi_output.packet_picker/n4087_5</td>
-<td>LW</td>
-<td> -</td>
-</tr>
-<tr>
-<td class="label">clk_hdmi_w</td>
-<td>HCLK</td>
-<td>BOTTOM[1]</td>
-</tr>
-</table>
-<br/>
+<h1><a name="Pin_Details">Pin Details</a></h1>
 <h2><a name="Pinout_by_Port_Name">Pinout by Port Name:</a></h2>
 <table class="summary_table">
 <tr>

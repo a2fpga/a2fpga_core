@@ -56,8 +56,8 @@
         <File path="../../hdl/video/vgc.sv" type="file.verilog" enable="1"/>
         <File path="../../hdl/video/video_control_if.sv" type="file.verilog" enable="1"/>
         <File path="../../hdl/video/video.hex" type="file.other" enable="1"/>
-        <File path="hdl/a2n20v2-SDRAM.cst" type="file.cst" enable="1"/>
-        <File path="hdl/a2n20v2-SDRAM.sdc" type="file.sdc" enable="1"/>
+        <File path="hdl/a2n20v2-Enhanced.cst" type="file.cst" enable="1"/>
+        <File path="hdl/a2n20v2-Enhanced.sdc" type="file.sdc" enable="1"/>
         <File path="hdl/bus/apple_bus.sv" type="file.verilog" enable="1"/>
         <File path="hdl/gowin/clk_hdmi/clk_hdmi.v" type="file.verilog" enable="1"/>
         <File path="hdl/gowin/clk_logic/clk_logic.v" type="file.verilog" enable="1"/>

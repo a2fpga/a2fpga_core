@@ -5,9 +5,9 @@
 1. PnR Messages
 
   <Report Title>: PnR Report
-  <Design File>: C:\Users\ed\GitHub\a2fpga_core\boards\a2n20v2-SDRAM\impl\gwsynthesis\a2n20v2-SDRAM.vg
-  <Physical Constraints File>: C:\Users\ed\GitHub\a2fpga_core\boards\a2n20v2-SDRAM\hdl\a2n20v2-SDRAM.cst
-  <Timing Constraints File>: C:\Users\ed\GitHub\a2fpga_core\boards\a2n20v2-SDRAM\hdl\a2n20v2-SDRAM.sdc
+  <Design File>: C:\Users\ed\GitHub\a2fpga_core\boards\a2n20v2-Enhanced\impl\gwsynthesis\a2n20v2-Enhanced.vg
+  <Physical Constraints File>: C:\Users\ed\GitHub\a2fpga_core\boards\a2n20v2-Enhanced\hdl\a2n20v2-Enhanced.cst
+  <Timing Constraints File>: C:\Users\ed\GitHub\a2fpga_core\boards\a2n20v2-Enhanced\hdl\a2n20v2-Enhanced.sdc
   <PnR Version>: V1.9.9 Beta-4 Education
   <Part Number>: GW2AR-LV18QN88C8/I7
   <Device>: GW2AR-18

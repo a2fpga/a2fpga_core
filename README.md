@@ -97,7 +97,7 @@ For ROM 00/01 IIgs models (such as the Woz edition), the A2N20v2 must be placed 
 
 [A2N20v2 Board Support Project (Schematics, Project Files)](boards/a2n20v2/)
 
-[A2N20v2 Board Support Project (Experimental SDRAM Feature Set)](boards/a2n20v2-SDRAM/)
+[A2N20v2 Board Support Project (Experimental SDRAM Feature Set)](boards/a2n20v2-Enhanced/)
 
 ### Using the A2N9
 
