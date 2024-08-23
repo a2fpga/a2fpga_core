@@ -1,4 +1,4 @@
-// 2N20v2-Enhanced - Tang Nano 20K SDRAM implementation of Apple II memory
+// 2N20v2_enhanced - Tang Nano 20K SDRAM implementation of Apple II memory
 //
 // (c) 2023,2024 Ed Anuff <ed@a2fpga.com> 
 //
