@@ -6,6 +6,9 @@
     <Device name="GW2AR-18C" pn="GW2AR-LV18QN88C8/I7">gw2ar18c-000</Device>
     <FileList>
         <File path="../../hdl/bus/a2bus_if.sv" type="file.verilog" enable="1"/>
+        <File path="../../hdl/disk/apple_disk.sv" type="file.verilog" enable="1"/>
+        <File path="../../hdl/disk/drive_ii.sv" type="file.verilog" enable="1"/>
+        <File path="../../hdl/disk/drive_volume_if.sv" type="file.verilog" enable="1"/>
         <File path="../../hdl/f18a/f18a_color.vhd" type="file.vhdl" enable="1"/>
         <File path="../../hdl/f18a/f18a_core.vhd" type="file.vhdl" enable="1"/>
         <File path="../../hdl/f18a/f18a_counters.vhd" type="file.vhdl" enable="1"/>
@@ -32,6 +35,18 @@
         <File path="../../hdl/hdmi/tmds_channel.sv" type="file.verilog" enable="1"/>
         <File path="../../hdl/memory/a2mem_if.sv" type="file.verilog" enable="1"/>
         <File path="../../hdl/mockingboard/mockingboard.sv" type="file.verilog" enable="1"/>
+        <File path="../../hdl/picosoc/picorv32/picorv32.v" type="file.verilog" enable="1"/>
+        <File path="../../hdl/picosoc/peripherals/a2fpga/picosoc_a2fpga.sv" type="file.verilog" enable="1"/>
+        <File path="../../hdl/picosoc/peripherals/gpio/picosoc_gpio.sv" type="file.verilog" enable="1"/>
+        <File path="../../hdl/picosoc/peripherals/sdcard/picosoc_sdcard.sv" type="file.verilog" enable="1"/>
+        <File path="../../hdl/picosoc/peripherals/sdcard/spi_master.v" type="file.verilog" enable="1"/>
+        <File path="../../hdl/picosoc/peripherals/sdram/fast_cache.sv" type="file.verilog" enable="1"/>
+        <File path="../../hdl/picosoc/peripherals/sdram/picosoc_sdram.sv" type="file.verilog" enable="1"/>
+        <File path="../../hdl/picosoc/peripherals/sram/picosoc_sram.sv" type="file.verilog" enable="1"/>
+        <File path="../../hdl/picosoc/peripherals/uart/picosoc_uart.sv" type="file.verilog" enable="1"/>
+        <File path="../../hdl/picosoc/peripherals/uart/simpleuart.v" type="file.verilog" enable="1"/>
+        <File path="../../hdl/picosoc/firmware.hex" type="file.other" enable="1"/>
+        <File path="../../hdl/picosoc/picosoc.sv" type="file.verilog" enable="1"/>
         <File path="../../hdl/sound/apple_speaker.sv" type="file.verilog" enable="1"/>
         <File path="../../hdl/sound/audio_out.v" type="file.verilog" enable="1"/>
         <File path="../../hdl/sdram/sdram_if_mux.sv" type="file.verilog" enable="1"/>
@@ -46,10 +61,13 @@
         <File path="../../hdl/supersprite/supersprite.sv" type="file.verilog" enable="1"/>
         <File path="../../hdl/support/cdc.sv" type="file.verilog" enable="1"/>
         <File path="../../hdl/support/clock_enable_counter.sv" type="file.verilog" enable="1"/>
+        <File path="../../hdl/support/countdown.sv" type="file.verilog" enable="1"/>
         <File path="../../hdl/support/iir_filter.v" type="file.verilog" enable="1"/>
         <File path="../../hdl/support/pulse_crossing.v" type="file.verilog" enable="1"/>
+        <File path="../../hdl/support/rom.v" type="file.verilog" enable="1"/>
         <File path="../../hdl/support/sdpram32.sv" type="file.verilog" enable="1"/>
         <File path="../../hdl/support/srff.v" type="file.verilog" enable="1"/>
+        <File path="../../hdl/support/timer.sv" type="file.verilog" enable="1"/>
         <File path="../../hdl/support/uart_6551.v" type="file.verilog" enable="1"/>
         <File path="../../hdl/support/uart_rx.v" type="file.verilog" enable="1"/>
         <File path="../../hdl/support/uart_tx.v" type="file.verilog" enable="1"/>

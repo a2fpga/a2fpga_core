@@ -12,27 +12,27 @@
   <Part Number>: GW2AR-LV18QN88C8/I7
   <Device>: GW2AR-18
   <Device Version>: C
-  <Created Time>:Fri Aug 23 22:08:21 2024
+  <Created Time>:Mon Aug 26 12:54:35 2024
 
 
 2. PnR Details
 
   Running placement:
-    Placement Phase 0: CPU time = 0h 0m 1s, Elapsed time = 0h 0m 1s
-    Placement Phase 1: CPU time = 0h 0m 0.219s, Elapsed time = 0h 0m 0.219s
+    Placement Phase 0: CPU time = 0h 0m 2s, Elapsed time = 0h 0m 2s
+    Placement Phase 1: CPU time = 0h 0m 0.248s, Elapsed time = 0h 0m 0.247s
     Placement Phase 2: CPU time = 0h 0m 4s, Elapsed time = 0h 0m 4s
     Placement Phase 3: CPU time = 0h 0m 3s, Elapsed time = 0h 0m 3s
-    Total Placement: CPU time = 0h 0m 9s, Elapsed time = 0h 0m 9s
+    Total Placement: CPU time = 0h 0m 8s, Elapsed time = 0h 0m 8s
  Running routing:
-    Routing Phase 0: CPU time = 0h 0m 0.003s, Elapsed time = 0h 0m 0.004s
-    Routing Phase 1: CPU time = 0h 0m 0.282s, Elapsed time = 0h 0m 0.281s
-    Routing Phase 2: CPU time = 0h 0m 5s, Elapsed time = 0h 0m 5s
+    Routing Phase 0: CPU time = 0h 0m 0.002s, Elapsed time = 0h 0m 0.002s
+    Routing Phase 1: CPU time = 0h 0m 0.453s, Elapsed time = 0h 0m 0.453s
+    Routing Phase 2: CPU time = 0h 0m 7s, Elapsed time = 0h 0m 7s
     Routing Phase 3: CPU time = 0h 0m 0s, Elapsed time = 0h 0m 0s
-    Total Routing: CPU time = 0h 0m 5s, Elapsed time = 0h 0m 5s
+    Total Routing: CPU time = 0h 0m 7s, Elapsed time = 0h 0m 7s
  Generate output files:
-    CPU time = 0h 0m 2s, Elapsed time = 0h 0m 2s
+    CPU time = 0h 0m 3s, Elapsed time = 0h 0m 3s
 
- Total Time and Memory Usage: CPU time = 0h 0m 16s, Elapsed time = 0h 0m 16s, Peak memory usage = 342MB
+ Total Time and Memory Usage: CPU time = 0h 0m 18s, Elapsed time = 0h 0m 18s, Peak memory usage = 364MB
 
 
 3. Resource Usage Summary
@@ -40,30 +40,32 @@
   ----------------------------------------------------------
   Resources                   | Usage
   ----------------------------------------------------------
-  Logic                       | 7923/20736  39%
-    --LUT,ALU,ROM16           | 7053(5892 LUT, 1161 ALU, 0 ROM16)
-    --SSRAM(RAM16)            | 145
-  Register                    | 3783/15915  24%
+  Logic                       | 10940/20736  53%
+    --LUT,ALU,ROM16           | 9926(8269 LUT, 1657 ALU, 0 ROM16)
+    --SSRAM(RAM16)            | 169
+  Register                    | 5088/15915  32%
     --Logic Register as Latch | 0/15552  0%
-    --Logic Register as FF    | 3714/15552  24%
+    --Logic Register as FF    | 5014/15552  33%
     --I/O Register as Latch   | 0/363  0%
-    --I/O Register as FF      | 69/363  20%
-  CLS                         | 5606/10368  55%
+    --I/O Register as FF      | 74/363  21%
+  CLS                         | 7417/10368  72%
   I/O Port                    | 36
-  I/O Buf                     | 30
-    --Input Buf               | 5
+  I/O Buf                     | 31
+    --Input Buf               | 6
     --Output Buf              | 17
     --Inout Buf               | 8
   IOLOGIC                     | 5%
     --OSER10                  | 3
-  BSRAM                       | 59%
-    --SDPB                    | 16
+  BSRAM                       | 83%
+    --SP                      | 10
+    --SDPB                    | 17
     --DPB                     | 8
     --DPX9B                   | 2
     --pROM                    | 1
-  DSP                         | 59%
+  DSP                         | 67%
     --MULT9X9                 | 4
     --MULT18X18               | 4
+    --MULT36X36               | 1
     --MULTADDALU18X18         | 11
   PLL                         | 2/2  100%
   DCS                         | 0/8  0%
@@ -118,12 +120,12 @@
   clk_pixel_w    | PRIMARY        |  TR TL BR BL
   n39_7          | LW             |  -
   n25_11         | LW             |  -
-  supersprite/vdp/f18a_core/reset_n_r| LW             |  -
+  picosoc/cpu/mem_xfer| LW             |  -
+  picosoc/cpu/n3617_3| LW             |  -
+  picosoc/cpu/cpu_state.cpu_state_fetch| LW             |  -
   supersprite/vdp/f18a_core/inst_cpu/n957_6| LW             |  -
   mockingboard/pb_l_o[2]| LW             |  -
   mockingboard/pb_r_o[2]| LW             |  -
-  audio_out/IIR_filter/out_l_15_7| LW             |  -
-  audio_out/IIR_filter/n869_5| LW             |  -
   clk_hdmi_w     | HCLK           | BOTTOM[1]
   ===========================================
 

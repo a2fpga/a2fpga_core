@@ -83,7 +83,7 @@ table.detail_table th.label {  min-width: 8%; width: 8%; }
 </tr>
 <tr>
 <td class="label">Created Time</td>
-<td>Fri Aug 23 22:08:21 2024
+<td>Mon Aug 26 12:54:35 2024
 </td>
 </tr>
 <tr>
@@ -97,24 +97,24 @@ table.detail_table th.label {  min-width: 8%; width: 8%; }
 <tr>
 <td class="label">Place & Route Process</td>
 <td>Running placement:
-   Placement Phase 0: CPU time = 0h 0m 1s, Elapsed time = 0h 0m 1s
-   Placement Phase 1: CPU time = 0h 0m 0.219s, Elapsed time = 0h 0m 0.219s
+   Placement Phase 0: CPU time = 0h 0m 2s, Elapsed time = 0h 0m 2s
+   Placement Phase 1: CPU time = 0h 0m 0.248s, Elapsed time = 0h 0m 0.247s
    Placement Phase 2: CPU time = 0h 0m 4s, Elapsed time = 0h 0m 4s
    Placement Phase 3: CPU time = 0h 0m 3s, Elapsed time = 0h 0m 3s
-   Total Placement: CPU time = 0h 0m 9s, Elapsed time = 0h 0m 9s
+   Total Placement: CPU time = 0h 0m 8s, Elapsed time = 0h 0m 8s
 Running routing:
-   Routing Phase 0: CPU time = 0h 0m 0.003s, Elapsed time = 0h 0m 0.004s
-   Routing Phase 1: CPU time = 0h 0m 0.282s, Elapsed time = 0h 0m 0.281s
-   Routing Phase 2: CPU time = 0h 0m 5s, Elapsed time = 0h 0m 5s
+   Routing Phase 0: CPU time = 0h 0m 0.002s, Elapsed time = 0h 0m 0.002s
+   Routing Phase 1: CPU time = 0h 0m 0.453s, Elapsed time = 0h 0m 0.453s
+   Routing Phase 2: CPU time = 0h 0m 7s, Elapsed time = 0h 0m 7s
    Routing Phase 3: CPU time = 0h 0m 0s, Elapsed time = 0h 0m 0s
-   Total Routing: CPU time = 0h 0m 5s, Elapsed time = 0h 0m 5s
+   Total Routing: CPU time = 0h 0m 7s, Elapsed time = 0h 0m 7s
 Generate output files:
-   CPU time = 0h 0m 2s, Elapsed time = 0h 0m 2s
+   CPU time = 0h 0m 3s, Elapsed time = 0h 0m 3s
 </td>
 </tr>
 <tr>
 <td class="label">Total Time and Memory Usage</td>
-<td>CPU time = 0h 0m 16s, Elapsed time = 0h 0m 16s, Peak memory usage = 342MB</td>
+<td>CPU time = 0h 0m 18s, Elapsed time = 0h 0m 18s, Peak memory usage = 364MB</td>
 </tr>
 </table>
 <br/>
@@ -129,23 +129,23 @@ Generate output files:
 </tr>
 <tr>
 <td class="label">Logic</td>
-<td>7923/20736</td>
-<td>39%</td>
+<td>10940/20736</td>
+<td>53%</td>
 </tr>
 <tr>
 <td class="label">&nbsp &nbsp --LUT,ALU,ROM16</td>
-<td>7053(5892 LUT, 1161 ALU, 0 ROM16)</td>
+<td>9926(8269 LUT, 1657 ALU, 0 ROM16)</td>
 <td>-</td>
 </tr>
 <tr>
 <td class="label">&nbsp &nbsp --SSRAM(RAM16)</td>
-<td>145</td>
+<td>169</td>
 <td>-</td>
 </tr>
 <tr>
 <td class="label">Register</td>
-<td>3783/15915</td>
-<td>24%</td>
+<td>5088/15915</td>
+<td>32%</td>
 </tr>
 <tr>
 <td class="label">&nbsp &nbsp --Logic Register as Latch</td>
@@ -154,8 +154,8 @@ Generate output files:
 </tr>
 <tr>
 <td class="label">&nbsp &nbsp --Logic Register as FF</td>
-<td>3714/15552</td>
-<td>24%</td>
+<td>5014/15552</td>
+<td>33%</td>
 </tr>
 <tr>
 <td class="label">&nbsp &nbsp --I/O Register as Latch</td>
@@ -164,13 +164,13 @@ Generate output files:
 </tr>
 <tr>
 <td class="label">&nbsp &nbsp --I/O Register as FF</td>
-<td>69/363</td>
-<td>20%</td>
+<td>74/363</td>
+<td>21%</td>
 </tr>
 <tr>
 <td class="label">CLS</td>
-<td>5606/10368</td>
-<td>55%</td>
+<td>7417/10368</td>
+<td>72%</td>
 </tr>
 <tr>
 <td class="label">I/O Port</td>
@@ -179,12 +179,12 @@ Generate output files:
 </tr>
 <tr>
 <td class="label">I/O Buf</td>
-<td>30</td>
+<td>31</td>
 <td>-</td>
 </tr>
 <tr>
 <td class="label"> &nbsp &nbsp --Input Buf</td>
-<td>5</td>
+<td>6</td>
 <td>-</td>
 </tr>
 <tr>
@@ -204,12 +204,12 @@ Generate output files:
 </tr>
 <tr>
 <td class="label">BSRAM</td>
-<td>16 SDPB<br/>8 DPB<br/>2 DPX9B<br/>1 pROM<br/></td>
-<td>59%</td>
+<td>10 SP<br/>17 SDPB<br/>8 DPB<br/>2 DPX9B<br/>1 pROM<br/></td>
+<td>83%</td>
 </tr>
 <tr>
 <td class="label">DSP</td>
-<td>4 MULT9X9<br/>4 MULT18X18<br/>11 MULTADDALU18X18<br/></td><td>59%</td>
+<td>4 MULT9X9<br/>4 MULT18X18<br/>1 MULT36X36<br/>11 MULTADDALU18X18<br/></td><td>67%</td>
 </tr>
 <tr>
 <td class="label">PLL</td>
@@ -362,7 +362,17 @@ Generate output files:
 <td> -</td>
 </tr>
 <tr>
-<td class="label">supersprite/vdp/f18a_core/reset_n_r</td>
+<td class="label">picosoc/cpu/mem_xfer</td>
+<td>LW</td>
+<td> -</td>
+</tr>
+<tr>
+<td class="label">picosoc/cpu/n3617_3</td>
+<td>LW</td>
+<td> -</td>
+</tr>
+<tr>
+<td class="label">picosoc/cpu/cpu_state.cpu_state_fetch</td>
 <td>LW</td>
 <td> -</td>
 </tr>
@@ -378,16 +388,6 @@ Generate output files:
 </tr>
 <tr>
 <td class="label">mockingboard/pb_r_o[2]</td>
-<td>LW</td>
-<td> -</td>
-</tr>
-<tr>
-<td class="label">audio_out/IIR_filter/out_l_15_7</td>
-<td>LW</td>
-<td> -</td>
-</tr>
-<tr>
-<td class="label">audio_out/IIR_filter/n869_5</td>
 <td>LW</td>
 <td> -</td>
 </tr>

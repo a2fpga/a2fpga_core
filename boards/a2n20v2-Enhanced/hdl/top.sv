@@ -25,7 +25,7 @@
 // Disk II requires PicoSoC
 
 `undef ENSONIQ
-`undef PICOSOC
+`define PICOSOC
 `undef DISKII
 
 module top #(
@@ -409,6 +409,8 @@ module top #(
     wire [7:0] diskii_d_w;
     wire diskii_rd;
 
+    `ifdef DISKII
+
     DiskII #(
         .ENABLE(DISK_II_ENABLE),
         .SLOT(DISK_II_SLOT)
@@ -422,6 +424,25 @@ module top #(
 
         .volumes(volumes)
     );
+    `else
+    assign diskii_d_w = 8'b0;
+    assign diskii_rd = 1'b0;
+
+    assign volumes[0].active = 1'b0;
+    assign volumes[0].lba = 32'd0;
+    assign volumes[0].blk_cnt = 6'd0;
+    assign volumes[0].rd = 1'b0;
+    assign volumes[0].wr = 1'b0;
+
+
+    assign volumes[1].active = 1'b0;
+    assign volumes[1].lba = 32'd0;
+    assign volumes[1].blk_cnt = 6'd0;
+    assign volumes[1].rd = 1'b0;
+    assign volumes[1].wr = 1'b0;
+    
+    `endif
+
 
 `else
 
@@ -634,8 +655,10 @@ module top #(
 
     wire ssc_uart_rx;
     wire ssc_uart_tx;
+    `ifndef PICOSOC
     assign ssc_uart_rx = uart_rx;
     assign uart_tx = ssc_uart_tx;
+    `endif
 
     SuperSerial #(
         .ENABLE(SUPERSERIAL_ENABLE),
