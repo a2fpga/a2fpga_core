@@ -3,14 +3,30 @@
 //
 // This version uses the Tang Nano 20K SDRAM for extended functionality
 //
+// (c) 2023,2024 Ed Anuff <ed@a2fpga.com> 
+//
+// Permission to use, copy, modify, and/or distribute this software for any
+// purpose with or without fee is hereby granted, provided that the above
+// copyright notice and this permission notice appear in all copies.
+//
+// THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
+// WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
+// MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR
+// ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+// WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
+// ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
+// OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+//
 
 // Using the Gowin IDE
 `define GW_IDE
 
-// Ensoniq and PicoSoC are included via defines in the top module
+// Ensoniq, PicoSoC, and DiskII are included via defines in the top module
+// Disk II requires PicoSoC
 
 `undef ENSONIQ
-`undef PICOSOC
+`define PICOSOC
+`undef DISKII
 
 module top #(
     parameter int CLOCK_SPEED_HZ = 54_000_000,
@@ -28,6 +44,9 @@ module top #(
 
     parameter bit SUPERSERIAL_ENABLE = 0,
     parameter SUPERSERIAL_SLOT = 2,
+
+    parameter bit DISK_II_ENABLE = 1,
+    parameter DISK_II_SLOT = 5,
 
     parameter bit ENSONIQ_ENABLE = 1,
 
@@ -160,13 +179,31 @@ module top #(
 `ifdef ENSONIQ
     localparam GLU_MEM_PORT = 2;
     localparam DOC_MEM_PORT = 3;
+    `ifdef PICOSOC
+    localparam SOC_MEM_PORT = 4;
+        `ifdef DISKII
+    localparam RAMDISK_MEM_PORT = 5;
+    localparam NUM_PORTS = 6;
+        `else
+    localparam NUM_PORTS = 5;
+        `endif
+    `else
+    localparam NUM_PORTS = 4;
+    `endif
+`else
+    `ifdef PICOSOC
+    localparam SOC_MEM_PORT = 2;
+        `ifdef DISKII
+    localparam RAMDISK_MEM_PORT = 3;
+    localparam NUM_PORTS = 4;
+        `else
+    localparam NUM_PORTS = 3;
+        `endif
+    `else
+    localparam NUM_PORTS = 2;
+    `endif
 `endif
 
-`ifdef ENSONIQ
-    localparam NUM_PORTS = 4;
-`else
-    localparam NUM_PORTS = 2;
-`endif
     localparam PORT_ADDR_WIDTH = 21;
     localparam DATA_WIDTH = 32;
     localparam DQM_WIDTH = 4;
@@ -372,6 +409,8 @@ module top #(
     wire [7:0] diskii_d_w;
     wire diskii_rd;
 
+    `ifdef DISKII
+
     DiskII #(
         .ENABLE(DISK_II_ENABLE),
         .SLOT(DISK_II_SLOT)
@@ -385,6 +424,25 @@ module top #(
 
         .volumes(volumes)
     );
+    `else
+    assign diskii_d_w = 8'b0;
+    assign diskii_rd = 1'b0;
+
+    assign volumes[0].active = 1'b0;
+    assign volumes[0].lba = 32'd0;
+    assign volumes[0].blk_cnt = 6'd0;
+    assign volumes[0].rd = 1'b0;
+    assign volumes[0].wr = 1'b0;
+
+
+    assign volumes[1].active = 1'b0;
+    assign volumes[1].lba = 32'd0;
+    assign volumes[1].blk_cnt = 6'd0;
+    assign volumes[1].rd = 1'b0;
+    assign volumes[1].wr = 1'b0;
+    
+    `endif
+
 
 `else
 
@@ -419,6 +477,10 @@ module top #(
     assign f18a_gpu_if.rwe = 1'b0;
     assign f18a_gpu_if.raddr = 13'b0;
     assign f18a_gpu_if.gstatus = 7'b0;
+
+
+    wire [7:0] diskii_d_w = 8'b0;
+    wire diskii_rd = 1'b0;
 
 `endif
 
@@ -593,8 +655,10 @@ module top #(
 
     wire ssc_uart_rx;
     wire ssc_uart_tx;
+    `ifndef PICOSOC
     assign ssc_uart_rx = uart_rx;
     assign uart_tx = ssc_uart_tx;
+    `endif
 
     SuperSerial #(
         .ENABLE(SUPERSERIAL_ENABLE),
@@ -614,82 +678,71 @@ module top #(
 
     // Data output
 
-    assign data_out_en_w = ssp_rd || mb_rd || ssc_rd;
+    assign data_out_en_w = ssp_rd || mb_rd || ssc_rd || diskii_rd;
 
     assign data_out_w = ssc_rd ? ssc_d_w :
         ssp_rd ? ssp_d_w : 
         mb_rd ? mb_d_w : 
+        diskii_rd ? diskii_d_w :
         a2bus_if.data;
 
     // Interrupts
 
     assign irq_n_w = mb_irq_n && vdp_irq_n && ssc_irq_n;
 
-    // HDMI
+    // Audio
 
-    // TODO - Needs to incorporate the audio filter code from a2n20v2
-    // IMPORTANT - the Ensoniq module outputs signed 16-bit audio, so we need to
-    // properly mix it with the apple audio and the mockingboard audio
+    wire speaker_audio_w;
+
+    apple_speaker apple_speaker (
+        .a2bus_if(a2bus_if),
+        .enable(APPLE_SPEAKER_ENABLE | sw_apple_speaker_w),
+        .speaker_o(speaker_audio_w)
+    );
+
+    localparam [31:0] aflt_rate = 7_056_000;
+    localparam [39:0] acx  = 4258969;
+    localparam  [7:0] acx0 = 3;
+    localparam  [7:0] acx1 = 3;
+    localparam  [7:0] acx2 = 1;
+    localparam [23:0] acy0 = -24'd6216759;
+    localparam [23:0] acy1 =  24'd6143386;
+    localparam [23:0] acy2 = -24'd2023767;
 
     localparam AUDIO_RATE = 44100;
     localparam AUDIO_BIT_WIDTH = 16;
-    localparam AUDIO_CLK_COUNT = (CLOCK_SPEED_HZ / 2) / AUDIO_RATE;
-    logic [$clog2(AUDIO_CLK_COUNT)-1:0] audio_counter_r;
-    logic clk_audio_r;
+    wire clk_audio_w;
+    wire [15:0] audio_sample_word[1:0];
+    audio_out #(
+        .CLK_RATE(CLOCK_SPEED_HZ / 2),
+        .AUDIO_RATE(AUDIO_RATE)
+    ) audio_out
+    (
+        .reset(~device_reset_n_w),
+        .clk(clk_pixel_w),
 
-    always_ff @(posedge clk_pixel_w)
-    begin
-        audio_counter_r <= (audio_counter_r == AUDIO_CLK_COUNT) ? 1'd0 : audio_counter_r + 1'd1;
-        clk_audio_r <= audio_counter_r == AUDIO_CLK_COUNT;
-    end
+        .flt_rate(aflt_rate),
+        .cx(acx),
+        .cx0(acx0),
+        .cx1(acx1),
+        .cx2(acx2),
+        .cy0(acy0),
+        .cy1(acy1),
+        .cy2(acy2),
 
-    reg speaker_bit;
-    always @(posedge clk_logic_w or negedge system_reset_n_w) begin
-        if (!system_reset_n_w) begin
-            speaker_bit <= 1'b0;
-        end else if (phi1_posedge && (a2bus_if.addr[15:0] == 16'hC030) && !a2bus_if.m2sel_n) 
-            speaker_bit <= !speaker_bit;
-    end
+        .is_signed(1'b0),
+        .core_l(ssp_audio_w + {mb_audio_l, 5'b00} + {speaker_audio_w, 13'b0}),
+        .core_r(ssp_audio_w + {mb_audio_r, 5'b00} + {speaker_audio_w, 13'b0}),
 
-    // Apple intermal audio toggles a +5V signal to a speaker.  We cannot simply leave a square wave
-    // indefinitaley on the HDMI audio line, so we need to generate a pulse of a maximum length.
-    // If we don't do this, the HDMI audio line will essentially have an amplitude offset, which
-    // will cause the HDMI receiver to clip the audio or amplify anything such as the Mockingboard
-    // audio that is added to it.
+        .audio_clk(clk_audio_w),
+        .audio_l(audio_sample_word[0]),
+        .audio_r(audio_sample_word[1])
+    );
 
-    reg speaker_audio;
-    reg [7:0] speaker_audio_counter;
-    reg prev_speaker_bit;
+    // HDMI
 
-    always_ff @(posedge clk_pixel_w) begin
-        if (clk_audio_r) begin
-            if (speaker_bit != prev_speaker_bit) begin
-                speaker_audio_counter <= 8'b11111111;
-            end else if (speaker_audio_counter != 0) begin
-                speaker_audio_counter <= speaker_audio_counter - 8'd1;
-            end
-            prev_speaker_bit <= speaker_bit;
-
-            if (prev_speaker_bit && (speaker_audio_counter != 0)) begin
-                speaker_audio <= APPLE_SPEAKER_ENABLE | sw_apple_speaker_w;
-            end else begin
-                speaker_audio <= 1'b0;
-            end
-        end
-    end
-
-    ////
     logic [2:0] tmds;
     wire tmdsClk;
-
-    //wire [15:0] sample = {ssp_psg_mix_audio_o, 2'b00};
-    reg [15:0] audio_sample_word[1:0], audio_sample_word0[1:0];
-    always @(posedge clk_pixel_w) begin  // crossing clock domain
-        audio_sample_word0[0] <= ssp_audio_w + {mb_audio_l, 4'b00} + {speaker_audio, 13'b0} + sg_audio_l;
-        audio_sample_word[0]  <= audio_sample_word0[0];
-        audio_sample_word0[1] <= ssp_audio_w + {mb_audio_r, 4'b00} + {speaker_audio, 13'b0} + sg_audio_r;
-        audio_sample_word[1]  <= audio_sample_word0[1];
-    end
 
     wire scanline_en = scanlines_w && hdmi_y[0];
 
@@ -708,7 +761,7 @@ module top #(
     ) hdmi (
         .clk_pixel_x5(clk_hdmi_w),
         .clk_pixel(clk_pixel_w),
-        .clk_audio(clk_audio_r),
+        .clk_audio(clk_audio_w),
         .rgb({
             scanline_en ? {1'b0, rgb_r_w[7:1]} : rgb_r_w,
             scanline_en ? {1'b0, rgb_g_w[7:1]} : rgb_g_w,
@@ -735,7 +788,9 @@ module top #(
     );
 
     always @(posedge clk_logic_w) begin 
-        if (!s2) led <= {!a2mem_if.TEXT_MODE, !a2mem_if.MIXED_MODE, !a2mem_if.HIRES_MODE, !a2mem_if.AN3, !a2mem_if.STORE80};
+        if (!s2) led <= {!a2mem_if.TEXT_MODE, !a2mem_if.SHRG_MODE, !a2mem_if.HIRES_MODE, !a2mem_if.RAMWRT, !a2mem_if.STORE80};
+        //if (!s2) led <= {!a2mem_if.TEXT_MODE, !a2mem_if.MIXED_MODE, !a2mem_if.HIRES_MODE, !a2mem_if.RAMWRT, !a2mem_if.STORE80};
+        //if (!s2) led <= {!a2mem_if.TEXT_MODE, !a2mem_if.MIXED_MODE, !a2mem_if.HIRES_MODE, !a2mem_if.AN3, !a2mem_if.STORE80};
         else led <= {!vdp_unlocked_w, ~vdp_gmode_w};
         //else led <= {!vdp_unlocked_w, dip_switches_n_w};
     end
