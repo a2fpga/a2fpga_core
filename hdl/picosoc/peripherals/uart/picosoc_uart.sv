@@ -22,7 +22,7 @@ module picosoc_uart #(
 	wire [31:0] simpleuart_reg_dat_do;
 	wire        simpleuart_reg_dat_wait;
 
-	assign iomem_ready = (simpleuart_reg_dat_sel && !simpleuart_reg_dat_wait);
+	assign iomem_ready = simpleuart_reg_div_sel || (simpleuart_reg_dat_sel && !simpleuart_reg_dat_wait);
 
 	assign iomem_rdata = simpleuart_reg_div_sel ? simpleuart_reg_div_do :
 			simpleuart_reg_dat_sel ? simpleuart_reg_dat_do : 
