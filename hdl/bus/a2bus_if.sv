@@ -44,9 +44,9 @@ interface a2bus_if (
     logic [7:0] data;
     logic data_in_strobe;
 
-    function automatic logic io_select_n (bit enable, int slot);
+    function automatic logic io_select_n (bit enable, int slot, int int_cx_rom);
         bit [15:0] IO_ADDRESS = 16'hC000 + (slot << 8);
-        return ~(enable & phi0 & (addr[15:8] == IO_ADDRESS[15:8]) & !m2sel_n);
+        return ~(enable & phi0 & (addr[15:8] == IO_ADDRESS[15:8]) & !m2sel_n) | int_cx_rom;
     endfunction
 
     function automatic logic dev_select_n (bit enable, int slot);
@@ -54,8 +54,8 @@ interface a2bus_if (
         return ~(enable & phi0 & (addr[15:4] == DEVICE_ADDRESS[15:4]) & !m2sel_n);
     endfunction
 
-    function automatic logic io_strobe_n (bit enable);
-        return ~(enable & phi0 & (addr[15:11] == 5'b11001) & !m2sel_n); // C800-CFFF
+    function automatic logic io_strobe_n (bit enable, int int_cx_rom);
+        return ~(enable & phi0 & (addr[15:11] == 5'b11001) & !m2sel_n) | int_cx_rom; // C800-CFFF
     endfunction
 
     modport master (

@@ -55,7 +55,7 @@ module Mockingboard #(
     wire irq_l_o;
     wire irq_r_o;
 
-    wire mb_iosel_n = a2bus_if.io_select_n(ENABLE, SLOT) && !a2mem_if.INTCXROM;
+    wire mb_iosel_n = a2bus_if.io_select_n(ENABLE, SLOT, a2mem_if.INTCXROM);
     assign rd_en_o = !mb_iosel_n & a2bus_if.rw_n;
 
     assign data_o  = (a2bus_if.addr[7] == 1'b0) ? data_l_o : data_r_o;
