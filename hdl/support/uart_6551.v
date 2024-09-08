@@ -63,7 +63,9 @@
 // gary_L_becker@yahoo.com
 ////////////////////////////////////////////////////////////////////////////////
 
-module glb6551(
+module glb6551 #(
+    parameter int CLOCK_SPEED_HZ = 54_000_000
+) (
     input clk_logic_i,
 	input RESET_N,
 	input PH_2,
@@ -226,23 +228,22 @@ begin
 		end
 end
 
-localparam CLK_FRE = 54_000_000;
-localparam CYCLE_50 = CLK_FRE / 50;
-localparam CYCLE_75 = CLK_FRE / 75;
-localparam CYCLE_110 = CLK_FRE / 110;
-localparam CYCLE_135 = CLK_FRE / 135;
-localparam CYCLE_150 = CLK_FRE / 150;
-localparam CYCLE_300 = CLK_FRE / 300;
-localparam CYCLE_600 = CLK_FRE / 600;
-localparam CYCLE_1200 = CLK_FRE / 1200;
-localparam CYCLE_1800 = CLK_FRE / 1800;
-localparam CYCLE_2400 = CLK_FRE / 2400;
-localparam CYCLE_3600 = CLK_FRE / 3600;
-localparam CYCLE_4800 = CLK_FRE / 4800;
-localparam CYCLE_7200 = CLK_FRE / 7200;
-localparam CYCLE_9600 = CLK_FRE / 9600;
-localparam CYCLE_19200 = CLK_FRE / 19200;
-localparam CYCLE_115200 = CLK_FRE / 115200;
+localparam CYCLE_50 = CLOCK_SPEED_HZ / 50;
+localparam CYCLE_75 = CLOCK_SPEED_HZ / 75;
+localparam CYCLE_110 = CLOCK_SPEED_HZ / 110;
+localparam CYCLE_135 = CLOCK_SPEED_HZ / 135;
+localparam CYCLE_150 = CLOCK_SPEED_HZ / 150;
+localparam CYCLE_300 = CLOCK_SPEED_HZ / 300;
+localparam CYCLE_600 = CLOCK_SPEED_HZ / 600;
+localparam CYCLE_1200 = CLOCK_SPEED_HZ / 1200;
+localparam CYCLE_1800 = CLOCK_SPEED_HZ / 1800;
+localparam CYCLE_2400 = CLOCK_SPEED_HZ / 2400;
+localparam CYCLE_3600 = CLOCK_SPEED_HZ / 3600;
+localparam CYCLE_4800 = CLOCK_SPEED_HZ / 4800;
+localparam CYCLE_7200 = CLOCK_SPEED_HZ / 7200;
+localparam CYCLE_9600 = CLOCK_SPEED_HZ / 9600;
+localparam CYCLE_19200 = CLOCK_SPEED_HZ / 19200;
+localparam CYCLE_115200 = CLOCK_SPEED_HZ / 115200;
 
 reg[19:0] cycle; //baud cycle
 

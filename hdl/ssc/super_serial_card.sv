@@ -14,6 +14,7 @@
 
 
 module SuperSerial #(
+    parameter int CLOCK_SPEED_HZ = 54_000_000,
     parameter SLOT = 2,
     parameter bit ENABLE = 1'b1
 ) (
@@ -122,7 +123,9 @@ module SuperSerial #(
     assign irq_n_o = SER_IRQ || !ENABLE;
     wire SER_IRQ;
 
-    glb6551 COM2 (
+    glb6551 #(
+        .CLOCK_SPEED_HZ(CLOCK_SPEED_HZ)
+    ) COM2 (
         .clk_logic_i(a2bus_if.clk_logic),
         .RESET_N(a2bus_if.system_reset_n),
         .PH_2(a2bus_if.phi1_posedge),

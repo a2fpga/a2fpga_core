@@ -427,6 +427,7 @@ module top #(
     assign uart_tx = ssc_uart_tx;
 
     SuperSerial #(
+        .CLOCK_SPEED_HZ(CLOCK_SPEED_HZ),
         .ENABLE(SUPERSERIAL_ENABLE),
         .SLOT(SUPERSERIAL_SLOT)
     ) superserial (
