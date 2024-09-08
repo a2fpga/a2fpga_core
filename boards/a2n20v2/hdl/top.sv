@@ -33,7 +33,7 @@ module top #(
     parameter bit MOCKINGBOARD_ENABLE = 1,
     parameter MOCKINGBOARD_SLOT = 4,
 
-    parameter bit SUPERSERIAL_ENABLE = 0,
+    parameter bit SUPERSERIAL_ENABLE = 1,
     parameter SUPERSERIAL_SLOT = 2,
 
     parameter bit CLEAR_APPLE_VIDEO_RAM = 1,    // Clear video ram on startup
