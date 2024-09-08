@@ -226,7 +226,7 @@ begin
 		end
 end
 
-localparam CLK_FRE = 50_000_000;
+localparam CLK_FRE = 54_000_000;
 localparam CYCLE_50 = CLK_FRE / 50;
 localparam CYCLE_75 = CLK_FRE / 75;
 localparam CYCLE_110 = CLK_FRE / 110;
