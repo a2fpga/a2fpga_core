@@ -97,7 +97,7 @@ For ROM 00/01 IIgs models (such as the Woz edition), the A2N20v2 must be placed 
 
 [A2N20v2 Board Support Project (Schematics, Project Files)](boards/a2n20v2/)
 
-[A2N20v2 Board Support Project (Experimental SDRAM Feature Set)](boards/a2n20v2-SDRAM/)
+[A2N20v2 Board Support Project (Experimental SDRAM Feature Set)](boards/a2n20v2_enhanced/)
 
 ### Using the A2N9
 
@@ -253,7 +253,7 @@ The Multicard core draws from a number of other open source FPGA cores, includin
 - [MiSTer FPGA Apple IIe core](https://github.com/MiSTer-devel/Apple-II_MiSTer), leveraging:
     - [Stephen A. Edwards' original Apple II core](http://www.cs.columbia.edu/~sedwards/apple2fpga/)
     - [Szombathelyi György's revised Apple //e core](https://github.com/gyurco/apple2efpga)
-    - [Alex Steremberg's Verilog port of the MiSTer core](https://github.com/alanswx/Apple-II-Verilog_MiSTer)
+    - [Alan Steremberg's Verilog port of the MiSTer core](https://github.com/alanswx/Apple-II-Verilog_MiSTer)
 
 - [Sameer Puri's HDMI core](https://github.com/hdl-util/hdmi)
 
