@@ -1,11 +1,7 @@
 module uart_tx
-#(
-	parameter CLK_FRE = 50,      //clock frequency(Mhz)
-	parameter BAUD_RATE = 115200 //serial baud rate
-)
 (
 	input                        clk,              //clock input
-	input[19:0]				  	 cycle,        	   //baud counter	
+	input[20:0]				  	 cycle,        	   //baud counter	
 	input                        rst_n,            //asynchronous reset input, low active 
 	input[7:0]                   tx_data,          //data to send
 	input                        tx_data_valid,    //data to be sent is valid
@@ -21,7 +17,7 @@ localparam                       S_SEND_BYTE  = 3;//data bits
 localparam                       S_STOP       = 4;//stop bit
 reg[2:0]                         state;
 reg[2:0]                         next_state;
-reg[19:0]                        cycle_cnt; //baud counter
+reg[20:0]                        cycle_cnt; //baud counter
 reg[2:0]                         bit_cnt;//bit counter
 reg[7:0]                         tx_data_latch; //latch data to send
 reg                              tx_reg; //serial data output

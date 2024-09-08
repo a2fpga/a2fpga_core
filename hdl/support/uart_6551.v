@@ -245,7 +245,7 @@ localparam CYCLE_9600 = CLOCK_SPEED_HZ / 9600;
 localparam CYCLE_19200 = CLOCK_SPEED_HZ / 19200;
 localparam CYCLE_115200 = CLOCK_SPEED_HZ / 115200;
 
-reg[19:0] cycle; //baud cycle
+reg[20:0] cycle; //baud cycle
 
 always@(posedge clk_logic_i or negedge RESET_X)
 begin
