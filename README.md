@@ -222,9 +222,6 @@ By default, the Multicard emulates a Super Serial Card in slot 2 although the A2
 card can physically be in any slot.  Slot position is configurable in the
 software.
 
-Note: The Super Serial Card core has proven to be unstable for some users
-during testing.  As a consequence, we disable it in the top.v file by default.
-
 ## Code Organization
 
 Specific cards are provided as distinct projects under the [boards/](boards/) subdirectory.  Each
