@@ -66,6 +66,13 @@ module apple_memory #(
     assign a2mem_if.COL80 = SWITCHES_IIE[6];
     assign a2mem_if.ALTCHAR = SWITCHES_IIE[7];
 
+
+    reg INTC8ROM;
+    assign a2mem_if.INTC8ROM = INTC8ROM;
+
+    reg [2:0] SLOTROM;
+    assign a2mem_if.SLOTROM = SLOTROM;
+
     // capture the soft switches
     always @(posedge a2bus_if.clk_logic or negedge a2bus_if.system_reset_n) begin
         if (!a2bus_if.system_reset_n) begin
@@ -124,6 +131,19 @@ module apple_memory #(
             a2mem_if.MONOCHROME_DHIRES_MODE <= a2bus_if.data[5];
             a2mem_if.LINEARIZE_MODE <= a2bus_if.data[6] | a2bus_if.data[7];
             a2mem_if.SHRG_MODE <= a2bus_if.data[7];
+        end
+    end
+
+    always @(posedge a2bus_if.clk_logic or negedge a2bus_if.system_reset_n) begin
+        if (!a2bus_if.system_reset_n) begin
+            INTC8ROM <= 1'b0;
+            SLOTROM <= 3'b0;
+        end else if ((a2bus_if.phi1_posedge) && (a2bus_if.addr == 16'hCFFF) && !a2bus_if.m2sel_n) begin
+            INTC8ROM <= 1'b0;
+            SLOTROM <= 3'b0;
+        end else if ((a2bus_if.phi1_posedge) && (a2bus_if.addr >= 16'hC100) && (a2bus_if.addr < 16'hC800) && !a2bus_if.m2sel_n) begin
+            if (!a2mem_if.SLOTC3ROM && (a2bus_if.addr[15:8] == 8'hC3)) INTC8ROM <= 1'b1; // Slot C3 ROM  
+            SLOTROM <= a2bus_if.addr[10:8];
         end
     end
 

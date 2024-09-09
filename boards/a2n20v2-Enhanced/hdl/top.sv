@@ -416,6 +416,7 @@ module top #(
         .SLOT(DISK_II_SLOT)
     ) diskii (
         .a2bus_if(a2bus_if),
+        .a2mem_if(a2mem_if),
 
         .data_o(diskii_d_w),
         .rd_en_o(diskii_rd),
@@ -637,6 +638,7 @@ module top #(
         .SLOT(MOCKINGBOARD_SLOT)
     ) mockingboard (
         .a2bus_if(a2bus_if),  // use system_reset_n
+        .a2mem_if(a2mem_if),
 
         .data_o(mb_d_w),
         .rd_en_o(mb_rd),
@@ -661,6 +663,7 @@ module top #(
     `endif
 
     SuperSerial #(
+        .CLOCK_SPEED_HZ(CLOCK_SPEED_HZ),
         .ENABLE(SUPERSERIAL_ENABLE),
         .SLOT(SUPERSERIAL_SLOT)
     ) superserial (

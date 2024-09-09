@@ -19,6 +19,7 @@ module DiskII #(
     parameter bit ENABLE = 1'b1
 ) (
     a2bus_if.slave a2bus_if,
+    a2mem_if.slave a2mem_if,
 
     output [7:0] data_o,
     output rd_en_o,
