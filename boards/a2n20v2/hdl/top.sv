@@ -33,7 +33,7 @@ module top #(
     parameter bit MOCKINGBOARD_ENABLE = 1,
     parameter MOCKINGBOARD_SLOT = 4,
 
-    parameter bit SUPERSERIAL_ENABLE = 0,
+    parameter bit SUPERSERIAL_ENABLE = 1,
     parameter SUPERSERIAL_SLOT = 2,
 
     parameter bit CLEAR_APPLE_VIDEO_RAM = 1,    // Clear video ram on startup
@@ -404,6 +404,7 @@ module top #(
         .SLOT(MOCKINGBOARD_SLOT)
     ) mockingboard (
         .a2bus_if(a2bus_if),  // use system_reset_n
+        .a2mem_if(a2mem_if),
 
         .data_o(mb_d_w),
         .rd_en_o(mb_rd),
@@ -426,6 +427,7 @@ module top #(
     assign uart_tx = ssc_uart_tx;
 
     SuperSerial #(
+        .CLOCK_SPEED_HZ(CLOCK_SPEED_HZ),
         .ENABLE(SUPERSERIAL_ENABLE),
         .SLOT(SUPERSERIAL_SLOT)
     ) superserial (

@@ -37,11 +37,15 @@ interface a2mem_if;
     logic STORE80;
     logic RAMRD;
     logic RAMWRT;
-    logic CXROM;
+    logic INTCXROM;
     logic ALTZP;
-    logic C3ROM;
+    logic SLOTC3ROM;
     logic COL80;
     logic ALTCHAR;
+
+    logic INTC8ROM;
+
+    logic [2:0] SLOTROM;
 
     // IIgs configuration
     logic [3:0] TEXT_COLOR;
@@ -70,11 +74,15 @@ interface a2mem_if;
         output STORE80,
         output RAMRD,
         output RAMWRT,
-        output CXROM,
+        output INTCXROM,
         output ALTZP,
-        output C3ROM,
+        output SLOTC3ROM,
         output COL80,
         output ALTCHAR,
+
+        output INTC8ROM,
+
+        output SLOTROM,
 
         output TEXT_COLOR,
         output BACKGROUND_COLOR,
@@ -103,11 +111,15 @@ interface a2mem_if;
         input STORE80,
         input RAMRD,
         input RAMWRT,
-        input CXROM,
+        input INTCXROM,
         input ALTZP,
-        input C3ROM,
+        input SLOTC3ROM,
         input COL80,
         input ALTCHAR,
+
+        input INTC8ROM,
+
+        input SLOTROM,
 
         input TEXT_COLOR,
         input BACKGROUND_COLOR,

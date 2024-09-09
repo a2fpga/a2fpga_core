@@ -29,9 +29,9 @@ module DiskII #(
 
 );
 
-    wire IO_SELECT_N = a2bus_if.io_select_n(ENABLE, SLOT);
+    wire IO_SELECT_N = a2bus_if.io_select_n(ENABLE, SLOT, a2mem_if.INTCXROM);
     wire DEVICE_SELECT_N = a2bus_if.dev_select_n(ENABLE, SLOT);
-    wire IO_STROBE_N = a2bus_if.io_strobe_n(ENABLE);
+    wire IO_STROBE_N = a2bus_if.io_strobe_n(ENABLE, a2mem_if.INTCXROM, a2mem_if.INTC8ROM);
 
     reg [3:0] motor_phase_r;
     reg drive_on_r;
