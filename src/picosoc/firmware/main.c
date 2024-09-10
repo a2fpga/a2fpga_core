@@ -37,6 +37,7 @@ void die (		/* Stop with dying message */
 	FRESULT rc	/* FatFs return value */
 )
 {
+	reg_a2fpga_a2bus_ready = 1;
 	reg_a2fpga_video_enable = 1;
 
 	xprintf("\nDisk error: %u", rc);
@@ -118,6 +119,7 @@ void irq_handler(uint32_t irq_mask, uint32_t *regs)
 		
 		soc_wait(10000);
 		reg_a2fpga_video_enable = 0;
+		reg_a2fpga_a2bus_ready = 1;
 		
 		soc_sbreak();
 	}
@@ -157,6 +159,8 @@ void main() {
 
     screen_clear();
     xputs("        A2fpga Firmware v1.0b1\n\n");
+
+	reg_a2fpga_a2bus_ready = 1;
 
 	FATFS fatfs;			/* File system object */
 	UINT bw, br, i;

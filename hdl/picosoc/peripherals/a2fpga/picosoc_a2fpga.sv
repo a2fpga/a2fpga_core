@@ -35,6 +35,7 @@ module picosoc_a2fpga #(parameter int CLOCK_SPEED_HZ = 0)
 
     a2bus_if.slave a2bus_if,
     a2mem_if.slave a2mem_if,
+    a2bus_control_if.control a2bus_control_if,
     video_control_if.control video_control_if,
     drive_volume_if.volume volumes[2]
 );
@@ -58,7 +59,8 @@ module picosoc_a2fpga #(parameter int CLOCK_SPEED_HZ = 0)
     localparam ADDR_SHRG_MODE =                 8'h40;      // 
     localparam ADDR_A2_CMD =                    8'h44;      // 
     localparam ADDR_A2_DATA =                   8'h48;      // 
-    localparam ADDR_COUNTDOWN =              8'h4C;      // 
+    localparam ADDR_COUNTDOWN =                 8'h4C;      // 
+    localparam ADDR_A2BUS_READY =               8'h50;      //
 
     localparam ADDR_V0_READY =      8'h80;      // V0 ready
     localparam ADDR_V0_ACTIVE =     8'h84;      // V0 active
@@ -126,6 +128,9 @@ module picosoc_a2fpga #(parameter int CLOCK_SPEED_HZ = 0)
     reg shrg_mode_r;
 
     reg [7:0] a2_cmd_r;
+
+    reg a2bus_ready_r;
+    assign a2bus_control_if.ready = a2bus_ready_r;
 
     assign video_control_if.enable = video_enable_r;
     assign video_control_if.TEXT_MODE = text_mode_r;
@@ -227,6 +232,7 @@ module picosoc_a2fpga #(parameter int CLOCK_SPEED_HZ = 0)
                         ADDR_MONOCHROME_DHIRES_MODE[6:2]: monochrome_dhires_mode_r <= iomem_wdata[0];
                         ADDR_SHRG_MODE[6:2]: shrg_mode_r <= iomem_wdata[0];
                         ADDR_A2_CMD[6:2]: a2_cmd_r <= iomem_wdata[7:0];
+                        ADDR_A2BUS_READY[6:2]: a2bus_ready_r <= iomem_wdata[0];
                         default: ;
                     endcase
                 end
@@ -261,6 +267,7 @@ module picosoc_a2fpga #(parameter int CLOCK_SPEED_HZ = 0)
                         ADDR_SHRG_MODE[6:2]: iomem_rdata <= {31'b0, shrg_mode_r};
                         ADDR_A2_CMD[6:2]: iomem_rdata <= {24'b0, a2_cmd_r};
                         ADDR_COUNTDOWN[6:2]: iomem_rdata <= countdown_w;
+                        ADDR_A2BUS_READY[6:2]: iomem_rdata <= {31'b0, a2bus_ready_r};
                         default: ;
                     endcase
                 end

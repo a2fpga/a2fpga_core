@@ -90,6 +90,14 @@ module top #(
     output uart_tx,
     input  uart_rx,
 
+    // MicroSD
+    output sd_clk,
+    output sd_cmd,      // MOSI
+    input  sd_dat0,     // MISO
+    //output sd_dat1,   // 1
+    //output sd_dat2,   // 1
+    output sd_dat3,     // CS
+
     // "Magic" port names that the gowin compiler connects to the on-chip SDRAM
     output        O_sdram_clk,
     output        O_sdram_cke,
@@ -272,6 +280,8 @@ module top #(
         .clk_14m_posedge(clk_14m_posedge_w)
     );
 
+    a2bus_control_if a2bus_control_if();
+
     wire sleep_w;
     wire data_in_strobe_w;
 
@@ -303,6 +313,7 @@ module top #(
         .IRQ_OUT_ENABLE(IRQ_OUT_ENABLE)
     ) apple_bus (
         .a2bus_if(a2bus_if),
+        .a2bus_control_if(a2bus_control_if),
 
         .a2_bridge_sel_o(a2_bridge_sel),
         .a2_bridge_bus_a_oe_n_o(a2_bridge_bus_a_oe_n),
@@ -365,7 +376,7 @@ module top #(
     wire picosoc_uart_rx_w;
     wire picosoc_uart_tx_w;
 
-    assign uart_tx = picosoc_uart_tx_w;
+    //assign uart_tx = picosoc_uart_tx_w;
     assign picosoc_uart_rx_w = uart_rx;
 
     wire picosoc_led;
@@ -398,6 +409,7 @@ module top #(
         .button_i(s2),
         .led_o(picosoc_led),
 
+        .a2bus_control_if(a2bus_control_if),
         .f18a_gpu_if(f18a_gpu_if),
         .video_control_if(video_control_if),
         .mem_if(mem_ports[SOC_MEM_PORT]),
@@ -482,6 +494,8 @@ module top #(
 
     wire [7:0] diskii_d_w = 8'b0;
     wire diskii_rd = 1'b0;
+
+    assign a2bus_control_if.ready = 1'b1;
 
 `endif
 
@@ -657,10 +671,12 @@ module top #(
 
     wire ssc_uart_rx;
     wire ssc_uart_tx;
-    `ifndef PICOSOC
-    assign ssc_uart_rx = uart_rx;
+    `ifdef PICOSOC
+    assign uart_tx = picosoc_uart_tx_w | ssc_uart_tx;
+    `else
     assign uart_tx = ssc_uart_tx;
     `endif
+    assign ssc_uart_rx = uart_rx;
 
     SuperSerial #(
         .CLOCK_SPEED_HZ(CLOCK_SPEED_HZ),

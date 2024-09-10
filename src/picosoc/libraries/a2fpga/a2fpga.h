@@ -24,6 +24,7 @@
 #define reg_a2fpga_a2_cmd (*(volatile uint8_t*)0x05000044)
 #define reg_a2fpga_a2_data (*(volatile uint8_t*)0x05000048)
 #define reg_a2fpga_countdown (*(volatile uint32_t*)0x0500004C)
+#define reg_a2fpga_a2bus_ready (*(volatile uint8_t*)0x05000050) 
 
 #define reg_a2fpga_volume_0_ready (*(volatile uint8_t*)0x05000080)
 #define reg_a2fpga_volume_0_active (*(volatile uint8_t*)0x05000084)

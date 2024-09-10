@@ -43,6 +43,7 @@ module picosoc #(
     input  button_i,
     output led_o,
 
+    a2bus_control_if.control a2bus_control_if,
     f18a_gpu_if.slave f18a_gpu_if,
     video_control_if.control video_control_if,
     sdram_port_if.client mem_if,
@@ -220,6 +221,7 @@ module picosoc #(
         .iomem_wdata(iomem_wdata),
         .a2bus_if(a2bus_if),
         .a2mem_if(a2mem_if),
+        .a2bus_control_if(a2bus_control_if),
         .video_control_if(video_control_if),
         .volumes(volumes)
     );
