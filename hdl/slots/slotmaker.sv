@@ -43,7 +43,9 @@ module slotmaker #(
     always_comb begin
         slot_sel = 3'd0;
         if (a2bus_if.phi0 & (a2bus_if.addr >= 16'hC100) & (a2bus_if.addr < 16'hC800) & !a2bus_if.m2sel_n) begin
-            slot_sel = a2bus_if.addr[15:8] >> 5;
+            slot_sel = a2bus_if.addr[10:8];
+        end else if (a2bus_if.phi0 & (a2bus_if.addr >= 16'hC080) & (a2bus_if.addr < 16'hC100) & !a2bus_if.m2sel_n) begin
+            slot_sel = a2bus_if.addr[6:4];
         end
     end
 

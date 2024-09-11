@@ -31,9 +31,9 @@ module Mockingboard #(
     output [9:0] audio_r_o
 );
 
-    logic card_sel = ENABLE && (slot_if.card_id == ID);
-    logic card_dev_sel = card_sel && !slot_if.devselect_n;
-    logic card_io_sel = card_sel && !slot_if.ioselect_n;
+    wire card_sel = ENABLE && (slot_if.card_id == ID);
+    wire card_dev_sel = card_sel && !slot_if.devselect_n;
+    wire card_io_sel = card_sel && !slot_if.ioselect_n;
 
     wire [7:0] pb_l_o;
     wire [7:0] pb_r_o;

@@ -33,9 +33,9 @@ module SuperSerial #(
 
 );
 
-    logic card_sel = ENABLE && (slot_if.card_id == ID);
-    logic card_dev_sel = card_sel && !slot_if.devselect_n;
-    logic card_io_sel = card_sel && !slot_if.ioselect_n;
+    wire card_sel = ENABLE && (slot_if.card_id == ID);
+    wire card_dev_sel = card_sel && !slot_if.devselect_n;
+    wire card_io_sel = card_sel && !slot_if.ioselect_n;
 
     wire UART51_RTS;
     wire UART51_DTR;

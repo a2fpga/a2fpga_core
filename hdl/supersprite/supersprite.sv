@@ -76,9 +76,9 @@ module SuperSprite #(
 
 );
 
-    logic card_sel = ENABLE && (slot_if.card_id == ID);
-    logic card_dev_sel = card_sel && !slot_if.devselect_n;
-    logic card_io_sel = card_sel && !slot_if.ioselect_n;
+    wire card_sel = ENABLE && (slot_if.card_id == ID);
+    wire card_dev_sel = card_sel && !slot_if.devselect_n;
+    wire card_io_sel = card_sel && !slot_if.ioselect_n;
 
     localparam [3:0] VDP_VRAM_ADDRESS = 4'h0;
     localparam [3:0] VDP_REGISTER_ADDRESS = 4'h1;

@@ -12,27 +12,27 @@
   <Part Number>: GW2AR-LV18QN88C8/I7
   <Device>: GW2AR-18
   <Device Version>: C
-  <Created Time>:Sun Sep 08 16:42:57 2024
+  <Created Time>:Tue Sep 10 23:25:10 2024
 
 
 2. PnR Details
 
   Running placement:
-    Placement Phase 0: CPU time = 0h 0m 0.938s, Elapsed time = 0h 0m 0.938s
-    Placement Phase 1: CPU time = 0h 0m 0.208s, Elapsed time = 0h 0m 0.207s
-    Placement Phase 2: CPU time = 0h 0m 3s, Elapsed time = 0h 0m 3s
-    Placement Phase 3: CPU time = 0h 0m 2s, Elapsed time = 0h 0m 2s
-    Total Placement: CPU time = 0h 0m 5s, Elapsed time = 0h 0m 5s
+    Placement Phase 0: CPU time = 0h 0m 0.365s, Elapsed time = 0h 0m 0.364s
+    Placement Phase 1: CPU time = 0h 0m 0.162s, Elapsed time = 0h 0m 0.162s
+    Placement Phase 2: CPU time = 0h 0m 0.712s, Elapsed time = 0h 0m 0.712s
+    Placement Phase 3: CPU time = 0h 0m 0.901s, Elapsed time = 0h 0m 0.902s
+    Total Placement: CPU time = 0h 0m 2s, Elapsed time = 0h 0m 2s
  Running routing:
-    Routing Phase 0: CPU time = 0h 0m 0.002s, Elapsed time = 0h 0m 0.002s
-    Routing Phase 1: CPU time = 0h 0m 0.261s, Elapsed time = 0h 0m 0.261s
-    Routing Phase 2: CPU time = 0h 0m 5s, Elapsed time = 0h 0m 5s
+    Routing Phase 0: CPU time = 0h 0m 0.001s, Elapsed time = 0h 0m 0.001s
+    Routing Phase 1: CPU time = 0h 0m 0.196s, Elapsed time = 0h 0m 0.196s
+    Routing Phase 2: CPU time = 0h 0m 2s, Elapsed time = 0h 0m 2s
     Routing Phase 3: CPU time = 0h 0m 0s, Elapsed time = 0h 0m 0s
-    Total Routing: CPU time = 0h 0m 5s, Elapsed time = 0h 0m 5s
+    Total Routing: CPU time = 0h 0m 2s, Elapsed time = 0h 0m 2s
  Generate output files:
     CPU time = 0h 0m 2s, Elapsed time = 0h 0m 2s
 
- Total Time and Memory Usage: CPU time = 0h 0m 13s, Elapsed time = 0h 0m 13s, Peak memory usage = 332MB
+ Total Time and Memory Usage: CPU time = 0h 0m 6s, Elapsed time = 0h 0m 6s, Peak memory usage = 295MB
 
 
 3. Resource Usage Summary
@@ -40,29 +40,26 @@
   ----------------------------------------------------------
   Resources                   | Usage
   ----------------------------------------------------------
-  Logic                       | 8055/20736  39%
-    --LUT,ALU,ROM16           | 7185(6030 LUT, 1155 ALU, 0 ROM16)
-    --SSRAM(RAM16)            | 145
-  Register                    | 3846/15750  25%
+  Logic                       | 3328/20736  17%
+    --LUT,ALU,ROM16           | 3310(2498 LUT, 812 ALU, 0 ROM16)
+    --SSRAM(RAM16)            | 3
+  Register                    | 1879/15750  12%
     --Logic Register as Latch | 0/15552  0%
-    --Logic Register as FF    | 3827/15552  25%
+    --Logic Register as FF    | 1859/15552  12%
     --I/O Register as Latch   | 0/198  0%
-    --I/O Register as FF      | 19/198  10%
-  CLS                         | 5679/10368  55%
+    --I/O Register as FF      | 20/198  11%
+  CLS                         | 2497/10368  25%
   I/O Port                    | 36
-  I/O Buf                     | 31
-    --Input Buf               | 6
+  I/O Buf                     | 30
+    --Input Buf               | 5
     --Output Buf              | 17
     --Inout Buf               | 8
   IOLOGIC                     | 5%
     --OSER10                  | 3
-  BSRAM                       | 87%
+  BSRAM                       | 64%
     --SDPB                    | 28
-    --DPB                     | 8
-    --DPX9B                   | 2
-    --pROM                    | 2
-  DSP                         | 59%
-    --MULT9X9                 | 4
+    --pROM                    | 1
+  DSP                         | 55%
     --MULT18X18               | 4
     --MULTADDALU18X18         | 11
   PLL                         | 2/2  100%
@@ -98,8 +95,8 @@
   -------------------------------
   Global Clock  | Usage       
   -------------------------------
-  PRIMARY       | 4/8(50%)
-  LW            | 8/8(100%)
+  PRIMARY       | 3/8(38%)
+  LW            | 5/8(63%)
   GCLK_PIN      | 2/5(40%)
   PLL           | 2/2(100%)
   CLKDIV        | 0/8(0%)
@@ -115,15 +112,11 @@
   clk_d          | PRIMARY        |  BL
   clk_logic_w    | PRIMARY        |  TR TL BR BL
   clk_pixel_w    | PRIMARY        |  TR TL BR BL
-  audio_out/IIR_filter/n869_5| PRIMARY        |  BR BL
-  n617_7         | LW             |  -
-  n29_13         | LW             |  -
-  timer_a_count_15_7| LW             |  -
-  supersprite/vdp/f18a_core/reset_n_r| LW             |  -
-  supersprite/vdp/f18a_core/inst_cpu/n957_6| LW             |  -
-  mockingboard/pb_l_o[2]| LW             |  -
-  mockingboard/pb_r_o[2]| LW             |  -
-  superserial/COM2/n67_5| LW             |  -
+  n651_7         | LW             |  -
+  clk_audio_w    | LW             |  -
+  audio_out/IIR_filter/out_l_15_7| LW             |  -
+  audio_out/IIR_filter/n869_5| LW             |  -
+  hdmi/true_hdmi_output.packet_picker/n4087_5| LW             |  -
   clk_hdmi_w     | HCLK           | BOTTOM[1]
   ===========================================
 
