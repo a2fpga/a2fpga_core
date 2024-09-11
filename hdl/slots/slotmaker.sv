@@ -26,23 +26,16 @@ module slotmaker #(
     a2bus_if.slave a2bus_if,
     a2mem_if.slave a2mem_if,
 
-    input [2:0] cfg_slot_i,
-    input cfg_wr_i,
-    input [7:0] cfg_card_i,
-    output [7:0] cfg_card_o,
+    slotmaker_config_if.slotmaker cfg_if,
 
-    output [2:0] slot_sel_o,
-    output [7:0] slot_card_o,
-    output slot_ioselect_n_o,
-    output slot_devselect_n_o,
-    output slot_iostrobe_n_o
+    slot_if.slotmaker slot_if
 );
 
     reg [7:0] slot_cards[0:7] = SLOT_CARDS;
 
 	always @(posedge a2bus_if.clk_logic) begin
-		cfg_card_o <= slot_cards[cfg_slot_i];
-		if (cfg_wr_i) slot_cards[cfg_slot_i] <= cfg_card_i;
+		cfg_if.card_o <= slot_cards[cfg_if.slot];
+		if (cfg_if.wr) slot_cards[cfg_if.slot] <= cfg_if.card_i;
 	end
 
     logic [2:0] slot_sel;
@@ -55,25 +48,28 @@ module slotmaker #(
     end
 
     logic [7:0] slot_card;
+    logic [15:0] IO_ADDRESS;
+    logic [15:0] DEVICE_ADDRESS;
+    logic enable;
     logic slot_ioselect_n;
     logic slot_devselect_n;
     logic slot_iostrobe_n;
 
     always_comb begin
         slot_card = slot_sel != 2'd0 ? slot_cards[slot_sel] : 8'd0;
-        bit [15:0] IO_ADDRESS = 16'hC000 + (slot_sel << 8);
-        bit [15:0] DEVICE_ADDRESS = 16'hC080 + (slot_sel << 4);
-        logic enable = slot_card != 8'd0;
+        IO_ADDRESS = 16'hC000 + (slot_sel << 8);
+        DEVICE_ADDRESS = 16'hC080 + (slot_sel << 4);
+        enable = slot_card != 8'd0;
         slot_ioselect_n = ~(enable & a2bus_if.phi0 & (a2bus_if.addr[15:8] == IO_ADDRESS[15:8]) & !a2bus_if.m2sel_n) | a2mem_if.INTCXROM;
         slot_devselect_n = ~(enable & a2bus_if.phi0 & (a2bus_if.addr[15:4] == DEVICE_ADDRESS[15:4]) & !a2bus_if.m2sel_n);
         slot_iostrobe_n = ~(enable & a2bus_if.phi0 & (a2bus_if.addr[15:11] == 5'b11001) & !a2bus_if.m2sel_n) | a2mem_if.INTCXROM | a2mem_if.INTC8ROM;
     end
 
-    assign slot_sel_o = slot_sel;
-    assign slot_card_o = slot_card;
-    assign slot_ioselect_n_o = slot_ioselect_n;
-    assign slot_devselect_n_o = slot_devselect_n;
-    assign slot_iostrobe_n_o = slot_iostrobe_n;
+    assign slot_if.slot = slot_sel;
+    assign slot_if.card_id = slot_card;
+    assign slot_if.ioselect_n = slot_ioselect_n;
+    assign slot_if.devselect_n = slot_devselect_n;
+    assign slot_if.iostrobe_n = slot_iostrobe_n;
 
 endmodule
 

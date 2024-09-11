@@ -15,11 +15,12 @@
 
 module SuperSerial #(
     parameter int CLOCK_SPEED_HZ = 54_000_000,
-    parameter SLOT = 2,
+    parameter ID = 3,
     parameter bit ENABLE = 1'b1
 ) (
     a2bus_if.slave a2bus_if,
     a2mem_if.slave a2mem_if,
+    slot_if.card slot_if,
 
     output [7:0] data_o,
     output rd_en_o,
@@ -32,9 +33,9 @@ module SuperSerial #(
 
 );
 
-    wire IO_SELECT_N = a2bus_if.io_select_n(ENABLE, SLOT, a2mem_if.INTCXROM);
-    wire DEVICE_SELECT_N = a2bus_if.dev_select_n(ENABLE, SLOT);
-    wire IO_STROBE_N = a2bus_if.io_strobe_n(ENABLE, a2mem_if.INTCXROM, a2mem_if.INTC8ROM);
+    logic card_sel = ENABLE && (slot_if.card_id == ID);
+    logic card_dev_sel = card_sel && !slot_if.devselect_n;
+    logic card_io_sel = card_sel && !slot_if.ioselect_n;
 
     wire UART51_RTS;
     wire UART51_DTR;
@@ -105,10 +106,8 @@ module SuperSerial #(
     //assign data_o2 = ENA_C8S ? DOA_C8S : SSC;
 
     wire [10:0] ROM_ADDR = rom_en_o ? a2bus_if.addr[10:0] : {3'b111, a2bus_if.addr[7:0]};
-    assign data_o = !IO_SELECT_N ? DOA_C8S : (rom_en_o && !IO_STROBE_N) ? DOA_C8S : SSC;
-    //assign rd_en_o = a2bus_if.rw_n && (~IO_SELECT_N /* || (rom_en_o) */ || ~DEVICE_SELECT_N);
-    assign rd_en_o = ENABLE && a2bus_if.rw_n && (!IO_SELECT_N || (rom_en_o && !IO_STROBE_N) || !DEVICE_SELECT_N);
-    //assign rd_en_o = a2bus_if.rw_n && !DEVICE_SELECT_N;
+    assign data_o = card_io_sel ? DOA_C8S : (rom_en_o && !slot_if.iostrobe_n) ? DOA_C8S : SSC;
+    assign rd_en_o = ENABLE && a2bus_if.rw_n && (card_io_sel || (rom_en_o && !slot_if.iostrobe_n) || card_dev_sel);
 
     ssc_rom rom (
         .clk (a2bus_if.clk_logic),
@@ -134,7 +133,7 @@ module SuperSerial #(
         .IRQ(SER_IRQ),
         // IS THIS DEVICE SELECT OR IO_SELECT?
         .CS({
-            !a2bus_if.addr[3], ~DEVICE_SELECT_N
+            !a2bus_if.addr[3], card_dev_sel
         }),  // C0A8-C0AF // we should be able to use IO_SELECT_N and it should reference our slot - and make it movable i think
         .RW_N(a2bus_if.rw_n),
         .RS(a2bus_if.addr[1:0]),
