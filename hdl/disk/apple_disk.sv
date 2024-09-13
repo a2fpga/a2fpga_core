@@ -15,11 +15,11 @@
 //
 
 module DiskII #(
-    parameter SLOT = 5,
+    parameter bit [7:0] ID = 4,
     parameter bit ENABLE = 1'b1
 ) (
     a2bus_if.slave a2bus_if,
-    a2mem_if.slave a2mem_if,
+    slot_if.card slot_if,
 
     output [7:0] data_o,
     output rd_en_o,
@@ -30,9 +30,9 @@ module DiskII #(
 
 );
 
-    wire IO_SELECT_N = a2bus_if.io_select_n(ENABLE, SLOT, a2mem_if.INTCXROM);
-    wire DEVICE_SELECT_N = a2bus_if.dev_select_n(ENABLE, SLOT);
-    wire IO_STROBE_N = a2bus_if.io_strobe_n(ENABLE, a2mem_if.INTCXROM, a2mem_if.INTC8ROM);
+    wire card_sel = ENABLE && (slot_if.card_id == ID) && a2bus_if.phi0;
+    wire card_dev_sel = card_sel && !slot_if.devselect_n;
+    wire card_io_sel = card_sel && !slot_if.ioselect_n;
 
     reg [3:0] motor_phase_r;
     reg drive_on_r;
@@ -59,7 +59,7 @@ module DiskII #(
                 drive2_select_r <= 1'b0;
                 q6_r <= 1'b0;
                 q7_r <= 1'b0;
-            end else if (!DEVICE_SELECT_N) begin
+            end else if (card_dev_sel) begin
                 if (a2bus_if.addr[3] == 1'b0)
                     motor_phase_r[(a2bus_if.addr[2:1])] <= a2bus_if.addr[0];
                 else
@@ -99,12 +99,12 @@ module DiskII #(
     wire drive_2_active = drive_real_on_r & drive2_select_r;
     assign write_mode_w = q7_r;
 
-    assign read_disk_w = (!DEVICE_SELECT_N & a2bus_if.addr[3:0] == 4'hc) ? 1'b1 : 1'b0;
-    assign write_reg_w = (!DEVICE_SELECT_N & a2bus_if.addr[3:2] == 2'b11 & a2bus_if.addr[0] == 1'b1) ? 1'b1 : 1'b0;
+    assign read_disk_w = (card_dev_sel & a2bus_if.addr[3:0] == 4'hc) ? 1'b1 : 1'b0;
+    assign write_reg_w = (card_dev_sel & a2bus_if.addr[3:2] == 2'b11 & a2bus_if.addr[0] == 1'b1) ? 1'b1 : 1'b0;
 
     assign data_reg_w = (drive2_select_r == 1'b0) ? d_out1_w : d_out2_w;
-    assign data_o = !IO_SELECT_N ? rom_dout_w : (q6_r == 1'b0) ? data_reg_w : 8'h00;
-    assign rd_en_o = (!IO_SELECT_N | !DEVICE_SELECT_N) & a2bus_if.rw_n;
+    assign data_o = card_io_sel ? rom_dout_w : (q6_r == 1'b0) ? data_reg_w : 8'h00;
+    assign rd_en_o = (card_io_sel | card_dev_sel) & a2bus_if.rw_n;
 
     localparam PORT_ADDR_WIDTH = 21;
     localparam DATA_WIDTH = 32;

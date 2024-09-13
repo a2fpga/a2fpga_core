@@ -36,17 +36,20 @@ module top #(
     parameter bit APPLE_SPEAKER_ENABLE = 0,
 
     parameter bit SUPERSPRITE_ENABLE = 1,
-    parameter SUPERSPRITE_SLOT = 7,
+    parameter bit [7:0] SUPERSPRITE_ID = 1,
     parameter bit SUPERSPRITE_FORCE_VDP_OVERLAY = 0,
 
     parameter bit MOCKINGBOARD_ENABLE = 1,
-    parameter MOCKINGBOARD_SLOT = 4,
+    parameter bit [7:0] MOCKINGBOARD_ID = 2,
 
-    parameter bit SUPERSERIAL_ENABLE = 0,
-    parameter SUPERSERIAL_SLOT = 2,
+    parameter bit SUPERSERIAL_ENABLE = 1,
+    parameter bit SUPERSERIAL_IRQ_ENABLE = 1,
+    parameter bit [7:0] SUPERSERIAL_ID = 3,
 
     parameter bit DISK_II_ENABLE = 1,
-    parameter DISK_II_SLOT = 5,
+    parameter DISK_II_ID = 4,
+
+    parameter bit [7:0] SLOT_CARDS [7:0] = '{8'd0, SUPERSERIAL_ID, 8'd0, 8'd0, MOCKINGBOARD_ID, 8'd0, 8'd0, SUPERSPRITE_ID},
 
     parameter bit ENSONIQ_ENABLE = 1,
 
@@ -366,6 +369,26 @@ module top #(
         .vgc_data_o(vgc_data_w)
     );
 
+    // Slots
+
+    slot_if slot_if();
+    slotmaker_config_if slotmaker_config_if();
+
+    slotmaker #(
+        .SLOT_CARDS(SLOT_CARDS)
+    ) slotmaker (
+        .a2bus_if(a2bus_if),
+        .a2mem_if(a2mem_if),
+
+        .cfg_if(slotmaker_config_if),
+
+        .slot_if(slot_if)
+    );
+
+    assign slotmaker_config_if.slot = 3'b0;
+    assign slotmaker_config_if.wr = 1'b0;
+    assign slotmaker_config_if.card_i = 8'b0;
+
 `ifdef PICOSOC
 
     // PicoSOC
@@ -425,10 +448,10 @@ module top #(
 
     DiskII #(
         .ENABLE(DISK_II_ENABLE),
-        .SLOT(DISK_II_SLOT)
+        .ID(DISK_II_ID)
     ) diskii (
         .a2bus_if(a2bus_if),
-        .a2mem_if(a2mem_if),
+        .slot_if(slot_if),
 
         .data_o(diskii_d_w),
         .rd_en_o(diskii_rd),
@@ -606,10 +629,11 @@ module top #(
 
     SuperSprite #(
         .ENABLE(SUPERSPRITE_ENABLE),
-        .SLOT(SUPERSPRITE_SLOT),
+        .ID(SUPERSPRITE_ID),
         .FORCE_VDP_OVERLAY(SUPERSPRITE_FORCE_VDP_OVERLAY)
     ) supersprite (
         .a2bus_if(a2bus_if),
+        .slot_if(slot_if),
 
         .data_o(ssp_d_w),
         .rd_en_o(ssp_rd),
@@ -649,10 +673,10 @@ module top #(
 
     Mockingboard #(
         .ENABLE(MOCKINGBOARD_ENABLE),
-        .SLOT(MOCKINGBOARD_SLOT)
+        .ID(MOCKINGBOARD_ID)
     ) mockingboard (
         .a2bus_if(a2bus_if),  // use system_reset_n
-        .a2mem_if(a2mem_if),
+        .slot_if(slot_if),
 
         .data_o(mb_d_w),
         .rd_en_o(mb_rd),
@@ -681,10 +705,12 @@ module top #(
     SuperSerial #(
         .CLOCK_SPEED_HZ(CLOCK_SPEED_HZ),
         .ENABLE(SUPERSERIAL_ENABLE),
-        .SLOT(SUPERSERIAL_SLOT)
+        .IRQ_ENABLE(SUPERSERIAL_IRQ_ENABLE),
+        .ID(SUPERSERIAL_ID)
     ) superserial (
         .a2bus_if(a2bus_if),
         .a2mem_if(a2mem_if),
+        .slot_if(slot_if),
 
         .data_o(ssc_d_w),
         .rd_en_o(ssc_rd),

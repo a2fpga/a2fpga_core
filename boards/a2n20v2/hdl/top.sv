@@ -34,9 +34,10 @@ module top #(
     parameter bit [7:0] MOCKINGBOARD_ID = 2,
 
     parameter bit SUPERSERIAL_ENABLE = 1,
+    parameter bit SUPERSERIAL_IRQ_ENABLE = 1,
     parameter bit [7:0] SUPERSERIAL_ID = 3,
 
-    parameter [7:0] SLOT_CARDS [7:0] = {8'd0, SUPERSERIAL_ID, 8'd0, 8'd0, MOCKINGBOARD_ID, 8'd0, 8'd0, SUPERSPRITE_ID},
+    parameter bit [7:0] SLOT_CARDS [7:0] = '{8'd0, SUPERSERIAL_ID, 8'd0, 8'd0, MOCKINGBOARD_ID, 8'd0, 8'd0, SUPERSPRITE_ID},
 
     parameter bit CLEAR_APPLE_VIDEO_RAM = 1,    // Clear video ram on startup
     parameter bit HDMI_SLEEP_ENABLE = 1,        // Sleep HDMI output on CPU stop
@@ -452,6 +453,7 @@ module top #(
     SuperSerial #(
         .CLOCK_SPEED_HZ(CLOCK_SPEED_HZ),
         .ENABLE(SUPERSERIAL_ENABLE),
+        .IRQ_ENABLE(SUPERSERIAL_IRQ_ENABLE),
         .ID(SUPERSERIAL_ID)
     ) superserial (
         .a2bus_if(a2bus_if),

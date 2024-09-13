@@ -157,10 +157,12 @@ void main() {
 	// start timer (IRQ 0)
 	soc_timer(10000000);
 
-    screen_clear();
-    xputs("        A2fpga Firmware v1.0b1\n\n");
+	shadow_ram_init();
 
 	reg_a2fpga_a2bus_ready = 1;
+
+    screen_clear();
+    xputs("        A2fpga Firmware v1.0b1\n\n");
 
 	FATFS fatfs;			/* File system object */
 	UINT bw, br, i;

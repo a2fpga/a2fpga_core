@@ -54,6 +54,9 @@
         <File path="../../hdl/sdram/sdram_port_if.sv" type="file.verilog" enable="1"/>
         <File path="../../hdl/sdram/sdram_ports.sv" type="file.verilog" enable="1"/>
         <File path="../../hdl/sdram/sdram.sv" type="file.verilog" enable="1"/>
+        <File path="../../hdl/slots/slot_if.sv" type="file.verilog" enable="1"/>
+        <File path="../../hdl/slots/slotmaker.sv" type="file.verilog" enable="1"/>
+        <File path="../../hdl/slots/slotmaker_config_if.sv" type="file.verilog" enable="1"/>
         <File path="../../hdl/sound/doc5503_register_ram.sv" type="file.verilog" enable="1"/>
         <File path="../../hdl/sound/doc5503.sv" type="file.verilog" enable="1"/>
         <File path="../../hdl/sound/sound_glu.sv" type="file.verilog" enable="1"/>

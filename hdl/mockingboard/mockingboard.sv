@@ -17,7 +17,7 @@
 //
 
 module Mockingboard #(
-    parameter ID = 2,
+    parameter bit [7:0] ID = 2,
     parameter bit ENABLE = 1'b1
 ) (
     a2bus_if.slave a2bus_if,
@@ -31,7 +31,7 @@ module Mockingboard #(
     output [9:0] audio_r_o
 );
 
-    wire card_sel = ENABLE && (slot_if.card_id == ID);
+    wire card_sel = ENABLE && (slot_if.card_id == ID) && a2bus_if.phi0;
     wire card_dev_sel = card_sel && !slot_if.devselect_n;
     wire card_io_sel = card_sel && !slot_if.ioselect_n;
 

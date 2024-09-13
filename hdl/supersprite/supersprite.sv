@@ -41,7 +41,7 @@
 //
 
 module SuperSprite #(
-    parameter [7:0] ID = 1,
+    parameter bit [7:0] ID = 1,
     parameter bit ENABLE = 1'b1,
     parameter bit FORCE_VDP_OVERLAY = 1'b0
 ) (
@@ -76,7 +76,7 @@ module SuperSprite #(
 
 );
 
-    wire card_sel = ENABLE && (slot_if.card_id == ID);
+    wire card_sel = ENABLE && (slot_if.card_id == ID) && a2bus_if.phi0;
     wire card_dev_sel = card_sel && !slot_if.devselect_n;
     wire card_io_sel = card_sel && !slot_if.ioselect_n;
 
@@ -105,7 +105,7 @@ module SuperSprite #(
         if (!a2bus_if.system_reset_n) begin
             vdp_overlay_sw <= FORCE_VDP_OVERLAY;
             apple_video_sw <= 1'b1;
-        end else if (ENABLE && (slot_if.card_id == ID) && (a2bus_if.phi1_posedge) && !slot_if.devselect_n) begin
+        end else if (ENABLE && (slot_if.card_id == ID) && (a2bus_if.phi1_posedge) && !slot_if.devselect_n && !a2bus_if.rw_n) begin
             case (a2bus_if.addr[3:0])
                 VIDEO_SWITCH_APPLE_OFF: apple_video_sw <= 1'b0;
                 VIDEO_SWITCH_APPLE_ON:  apple_video_sw <= 1'b1;
