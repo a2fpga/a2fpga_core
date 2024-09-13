@@ -92,20 +92,20 @@ module picosoc_a2disk #(parameter int CLOCK_SPEED_HZ = 0)
         if (iomem_valid) begin
             if (|iomem_wstrb) begin
                 case (iomem_addr[5:2])
-                    ADDR_VOL_READY[5:2]: volume_ready_r[iomem_addr[6]] <= iomem_wdata[0];
-                    ADDR_VOL_MOUNTED[5:2]: volume_mounted_r[iomem_addr[6]] <= iomem_wdata[0];
-                    ADDR_VOL_READONLY[5:2]: volume_readonly_r[iomem_addr[6]] <= iomem_wdata[0];
-                    ADDR_VOL_SIZE[5:2]: volume_size_r[iomem_addr[6]] <= iomem_wdata;
-                    ADDR_VOL_ACK[5:2]: volume_ack_r[iomem_addr[6]] <= iomem_wdata[0];
+                    ADDR_VOL_READY[5:2]: volume_ready_r[iomem_addr[7]] <= iomem_wdata[0];
+                    ADDR_VOL_MOUNTED[5:2]: volume_mounted_r[iomem_addr[7]] <= iomem_wdata[0];
+                    ADDR_VOL_READONLY[5:2]: volume_readonly_r[iomem_addr[7]] <= iomem_wdata[0];
+                    ADDR_VOL_SIZE[5:2]: volume_size_r[iomem_addr[7]] <= iomem_wdata;
+                    ADDR_VOL_ACK[5:2]: volume_ack_r[iomem_addr[7]] <= iomem_wdata[0];
                     default: ;
                 endcase
             end else begin
                 case (iomem_addr[5:2])
-                    ADDR_VOL_ACTIVE[5:2]: iomem_rdata <= {31'b0, volume_active_w[iomem_addr[6]]};
-                    ADDR_VOL_LBA[5:2]: iomem_rdata <= volume_lba_w[iomem_addr[6]];
-                    ADDR_VOL_BLK_CNT[5:2]: iomem_rdata <= {26'b0, volume_blk_cnt_w[iomem_addr[6]]};
-                    ADDR_VOL_RD[5:2]: iomem_rdata <= {31'b0, volume_rd_w[iomem_addr[6]]};
-                    ADDR_VOL_WR[5:2]: iomem_rdata <= {31'b0, volume_wr_w[iomem_addr[6]]};
+                    ADDR_VOL_ACTIVE[5:2]: iomem_rdata <= {31'b0, volume_active_w[iomem_addr[7]]};
+                    ADDR_VOL_LBA[5:2]: iomem_rdata <= volume_lba_w[iomem_addr[7]];
+                    ADDR_VOL_BLK_CNT[5:2]: iomem_rdata <= {26'b0, volume_blk_cnt_w[iomem_addr[7]]};
+                    ADDR_VOL_RD[5:2]: iomem_rdata <= {31'b0, volume_rd_w[iomem_addr[7]]};
+                    ADDR_VOL_WR[5:2]: iomem_rdata <= {31'b0, volume_wr_w[iomem_addr[7]]};
                     default: ;
                 endcase
             end
