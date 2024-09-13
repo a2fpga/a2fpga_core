@@ -117,6 +117,7 @@ module picosoc #(
     wire        sdram_en = (iomem_addr[31:24] == 8'h04);  /* SDRAM mapped to 0x04xx_xxxx */
     wire        a2fpga_en = (iomem_addr[31:24] == 8'h05);  /* A2FPGA mapped to 0x05xx_xxxx */
     wire        sdcard_en = (iomem_addr[31:24] == 8'h06);  /* SPI SD card mapped to 0x06xx_xxxx */
+    wire        a2disk_en = (iomem_addr[31:24] == 8'h07);  /* A2FPGA mapped to 0x07xx_xxxx */
 
     wire [31:0] sram_iomem_rdata;
     wire        sram_iomem_ready;
@@ -210,7 +211,7 @@ module picosoc #(
 
     picosoc_a2fpga #(
         .CLOCK_SPEED_HZ(CLOCK_SPEED_HZ)
-    ) soc_io_peripheral (
+    ) picosoc_a2fpga (
         .clk(a2bus_if.clk_logic),
         .resetn(a2bus_if.device_reset_n),
         .iomem_valid(iomem_valid && a2fpga_en),
@@ -222,7 +223,24 @@ module picosoc #(
         .a2bus_if(a2bus_if),
         .a2mem_if(a2mem_if),
         .a2bus_control_if(a2bus_control_if),
-        .video_control_if(video_control_if),
+        .video_control_if(video_control_if)
+    );
+
+    wire [31:0] a2disk_iomem_rdata;
+    wire a2disk_iomem_ready;
+
+    picosoc_a2disk #(
+        .CLOCK_SPEED_HZ(CLOCK_SPEED_HZ)
+    ) picosoc_a2disk (
+        .clk(a2bus_if.clk_logic),
+        .resetn(a2bus_if.device_reset_n),
+        .iomem_valid(iomem_valid && a2disk_en),
+        .iomem_wstrb(iomem_wstrb),
+        .iomem_addr(iomem_addr),
+        .iomem_rdata(a2disk_iomem_rdata),
+        .iomem_ready(a2disk_iomem_ready),
+        .iomem_wdata(iomem_wdata),
+        .a2bus_if(a2bus_if),
         .volumes(volumes)
     );
 
@@ -232,6 +250,7 @@ module picosoc #(
         : sdram_en ? sdram_iomem_ready
         : sdcard_en ? sdcard_iomem_ready
         : a2fpga_en ? a2fpga_iomem_ready
+        : a2disk_en ? a2disk_iomem_ready
         : 1'b1;
 
     assign iomem_rdata = sram_iomem_ready ? sram_iomem_rdata
@@ -240,6 +259,7 @@ module picosoc #(
         : sdram_iomem_ready ? sdram_iomem_rdata
         : sdcard_iomem_ready ? sdcard_iomem_rdata
         : a2fpga_iomem_ready ? a2fpga_iomem_rdata
+        : a2disk_iomem_ready ? a2disk_iomem_rdata
         : 32'h0;
 
     picorv32 #(

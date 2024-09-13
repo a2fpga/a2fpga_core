@@ -26,7 +26,7 @@
 
 `undef ENSONIQ
 `define PICOSOC
-`undef DISKII
+`define DISKII
 
 module top #(
     parameter int CLOCK_SPEED_HZ = 54_000_000,
@@ -47,9 +47,9 @@ module top #(
     parameter bit [7:0] SUPERSERIAL_ID = 3,
 
     parameter bit DISK_II_ENABLE = 1,
-    parameter DISK_II_ID = 4,
+    parameter bit [7:0] DISK_II_ID = 4,
 
-    parameter bit [7:0] SLOT_CARDS [7:0] = '{8'd0, SUPERSERIAL_ID, 8'd0, 8'd0, MOCKINGBOARD_ID, 8'd0, 8'd0, SUPERSPRITE_ID},
+    parameter bit [7:0] SLOT_CARDS [7:0] = '{8'd0, SUPERSERIAL_ID, 8'd0, 8'd0, MOCKINGBOARD_ID, DISK_II_ID, 8'd0, SUPERSPRITE_ID},
 
     parameter bit ENSONIQ_ENABLE = 1,
 
