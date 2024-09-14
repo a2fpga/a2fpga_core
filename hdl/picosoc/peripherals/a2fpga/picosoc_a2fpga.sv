@@ -87,7 +87,7 @@ module picosoc_a2fpga #(parameter int CLOCK_SPEED_HZ = 0)
     ) countdown (
         .clk(clk),
         .reset(!resetn),
-        .we(iomem_valid & |iomem_wstrb & !iomem_addr[7] & (iomem_addr[6:2] == ADDR_COUNTDOWN[6:2])),
+        .we(iomem_valid & |iomem_wstrb & (iomem_addr[7:2] == ADDR_COUNTDOWN[7:2])),
         .start(iomem_wdata),
         .counter(countdown_w),
         .done(countdown_done_w)
@@ -153,49 +153,49 @@ module picosoc_a2fpga #(parameter int CLOCK_SPEED_HZ = 0)
 
         if (iomem_valid) begin
             if (|iomem_wstrb) begin
-                case (iomem_addr[6:2])
-                    ADDR_KEYCODE[6:2]: keycode_r <= iomem_wdata[7:0];
-                    ADDR_VIDEO_ENABLE[6:2]: video_enable_r <= iomem_wdata[0];
-                    ADDR_TEXT_MODE[6:2]: text_mode_r <= iomem_wdata[0];
-                    ADDR_MIXED_MODE[6:2]: mixed_mode_r <= iomem_wdata[0];
-                    ADDR_PAGE2[6:2]: page2_r <= iomem_wdata[0];
-                    ADDR_HIRES_MODE[6:2]: hires_mode_r <= iomem_wdata[0];
-                    ADDR_AN3[6:2]: an3_r <= iomem_wdata[0];
-                    ADDR_STORE80[6:2]: store80_r <= iomem_wdata[0];
-                    ADDR_COL80[6:2]: col80_r <= iomem_wdata[0];
-                    ADDR_ALTCHAR[6:2]: altchar_r <= iomem_wdata[0];
-                    ADDR_TEXT_COLOR[6:2]: text_color_r <= iomem_wdata[3:0];
-                    ADDR_BACKGROUND_COLOR[6:2]: background_color_r <= iomem_wdata[3:0];
-                    ADDR_BORDER_COLOR[6:2]: border_color_r <= iomem_wdata[3:0];
-                    ADDR_MONOCHROME_MODE[6:2]: monochrome_mode_r <= iomem_wdata[0];
-                    ADDR_MONOCHROME_DHIRES_MODE[6:2]: monochrome_dhires_mode_r <= iomem_wdata[0];
-                    ADDR_SHRG_MODE[6:2]: shrg_mode_r <= iomem_wdata[0];
-                    ADDR_A2_CMD[6:2]: a2_cmd_r <= iomem_wdata[7:0];
-                    ADDR_A2BUS_READY[6:2]: a2bus_ready_r <= iomem_wdata[0];
+                case (iomem_addr[7:2])
+                    ADDR_KEYCODE[7:2]: keycode_r <= iomem_wdata[7:0];
+                    ADDR_VIDEO_ENABLE[7:2]: video_enable_r <= iomem_wdata[0];
+                    ADDR_TEXT_MODE[7:2]: text_mode_r <= iomem_wdata[0];
+                    ADDR_MIXED_MODE[7:2]: mixed_mode_r <= iomem_wdata[0];
+                    ADDR_PAGE2[7:2]: page2_r <= iomem_wdata[0];
+                    ADDR_HIRES_MODE[7:2]: hires_mode_r <= iomem_wdata[0];
+                    ADDR_AN3[7:2]: an3_r <= iomem_wdata[0];
+                    ADDR_STORE80[7:2]: store80_r <= iomem_wdata[0];
+                    ADDR_COL80[7:2]: col80_r <= iomem_wdata[0];
+                    ADDR_ALTCHAR[7:2]: altchar_r <= iomem_wdata[0];
+                    ADDR_TEXT_COLOR[7:2]: text_color_r <= iomem_wdata[3:0];
+                    ADDR_BACKGROUND_COLOR[7:2]: background_color_r <= iomem_wdata[3:0];
+                    ADDR_BORDER_COLOR[7:2]: border_color_r <= iomem_wdata[3:0];
+                    ADDR_MONOCHROME_MODE[7:2]: monochrome_mode_r <= iomem_wdata[0];
+                    ADDR_MONOCHROME_DHIRES_MODE[7:2]: monochrome_dhires_mode_r <= iomem_wdata[0];
+                    ADDR_SHRG_MODE[7:2]: shrg_mode_r <= iomem_wdata[0];
+                    ADDR_A2_CMD[7:2]: a2_cmd_r <= iomem_wdata[7:0];
+                    ADDR_A2BUS_READY[7:2]: a2bus_ready_r <= iomem_wdata[0];
                     default: ;
                 endcase
             end else begin
-                case (iomem_addr[6:2])
-                    ADDR_SYS_TIME[6:2]: iomem_rdata <= system_time_w;
-                    ADDR_KEYCODE[6:2]: iomem_rdata <= {25'b0, keycode_r[6:0]};
-                    ADDR_VIDEO_ENABLE[6:2]: iomem_rdata <= {31'b0, video_enable_r};
-                    ADDR_TEXT_MODE[6:2]: iomem_rdata <= {31'b0, text_mode_r};
-                    ADDR_MIXED_MODE[6:2]: iomem_rdata <= {31'b0, mixed_mode_r};
-                    ADDR_PAGE2[6:2]: iomem_rdata <= {31'b0, page2_r};
-                    ADDR_HIRES_MODE[6:2]: iomem_rdata <= {31'b0, hires_mode_r};
-                    ADDR_AN3[6:2]: iomem_rdata <= {31'b0, an3_r};
-                    ADDR_STORE80[6:2]: iomem_rdata <= {31'b0, store80_r};
-                    ADDR_COL80[6:2]: iomem_rdata <= {31'b0, col80_r};
-                    ADDR_ALTCHAR[6:2]: iomem_rdata <= {31'b0, altchar_r};
-                    ADDR_TEXT_COLOR[6:2]: iomem_rdata <= {28'b0, text_color_r};
-                    ADDR_BACKGROUND_COLOR[6:2]: iomem_rdata <= {28'b0, background_color_r};
-                    ADDR_BORDER_COLOR[6:2]: iomem_rdata <= {28'b0, border_color_r};
-                    ADDR_MONOCHROME_MODE[6:2]: iomem_rdata <= {31'b0, monochrome_mode_r};
-                    ADDR_MONOCHROME_DHIRES_MODE[6:2]: iomem_rdata <= {31'b0, monochrome_dhires_mode_r};
-                    ADDR_SHRG_MODE[6:2]: iomem_rdata <= {31'b0, shrg_mode_r};
-                    ADDR_A2_CMD[6:2]: iomem_rdata <= {24'b0, a2_cmd_r};
-                    ADDR_COUNTDOWN[6:2]: iomem_rdata <= countdown_w;
-                    ADDR_A2BUS_READY[6:2]: iomem_rdata <= {31'b0, a2bus_ready_r};
+                case (iomem_addr[7:2])
+                    ADDR_SYS_TIME[7:2]: iomem_rdata <= system_time_w;
+                    ADDR_KEYCODE[7:2]: iomem_rdata <= {25'b0, keycode_r[6:0]};
+                    ADDR_VIDEO_ENABLE[7:2]: iomem_rdata <= {31'b0, video_enable_r};
+                    ADDR_TEXT_MODE[7:2]: iomem_rdata <= {31'b0, text_mode_r};
+                    ADDR_MIXED_MODE[7:2]: iomem_rdata <= {31'b0, mixed_mode_r};
+                    ADDR_PAGE2[7:2]: iomem_rdata <= {31'b0, page2_r};
+                    ADDR_HIRES_MODE[7:2]: iomem_rdata <= {31'b0, hires_mode_r};
+                    ADDR_AN3[7:2]: iomem_rdata <= {31'b0, an3_r};
+                    ADDR_STORE80[7:2]: iomem_rdata <= {31'b0, store80_r};
+                    ADDR_COL80[7:2]: iomem_rdata <= {31'b0, col80_r};
+                    ADDR_ALTCHAR[7:2]: iomem_rdata <= {31'b0, altchar_r};
+                    ADDR_TEXT_COLOR[7:2]: iomem_rdata <= {28'b0, text_color_r};
+                    ADDR_BACKGROUND_COLOR[7:2]: iomem_rdata <= {28'b0, background_color_r};
+                    ADDR_BORDER_COLOR[7:2]: iomem_rdata <= {28'b0, border_color_r};
+                    ADDR_MONOCHROME_MODE[7:2]: iomem_rdata <= {31'b0, monochrome_mode_r};
+                    ADDR_MONOCHROME_DHIRES_MODE[7:2]: iomem_rdata <= {31'b0, monochrome_dhires_mode_r};
+                    ADDR_SHRG_MODE[7:2]: iomem_rdata <= {31'b0, shrg_mode_r};
+                    ADDR_A2_CMD[7:2]: iomem_rdata <= {24'b0, a2_cmd_r};
+                    ADDR_COUNTDOWN[7:2]: iomem_rdata <= countdown_w;
+                    ADDR_A2BUS_READY[7:2]: iomem_rdata <= {31'b0, a2bus_ready_r};
                     default: ;
                 endcase
             end

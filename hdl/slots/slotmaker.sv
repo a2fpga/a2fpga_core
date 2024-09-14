@@ -21,7 +21,7 @@
 //
 
 module slotmaker #(
-    parameter bit [7:0] SLOT_CARDS [7:0] = '{8'd0, 8'd0, 8'd0, 8'd0, 8'd0, 8'd0, 8'd0, 8'd0}
+    parameter [0:7] SLOT_CARDS [7:0] = '{8'd0, 8'd0, 8'd0, 8'd0, 8'd0, 8'd0, 8'd0, 8'd0}
 ) (
     a2bus_if.slave a2bus_if,
     a2mem_if.slave a2mem_if,
@@ -31,8 +31,8 @@ module slotmaker #(
     slot_if.slotmaker slot_if
 );
 
-    reg [7:0] slot_cards[0:7] = '{8'd0, 8'd3, 8'd0, 8'd0, 8'd2, 8'd0, 8'd0, 8'd1};
-    //reg [7:0] slot_cards[0:7] = SLOT_CARDS;
+    //reg [7:0] slot_cards[0:7] = '{8'd0, 8'd3, 8'd0, 8'd0, 8'd2, 8'd0, 8'd0, 8'd1};
+    reg [7:0] slot_cards[0:7] = SLOT_CARDS;
     assign cfg_if.card_o = 8'd0;
 
     /*
