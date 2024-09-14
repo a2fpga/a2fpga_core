@@ -28,7 +28,7 @@ C_FILES = \
 all: firmware.hex
 
 firmware.elf: $(C_FILES) 
-	$(GCC) -march=rv32imc -mabi=ilp32 -mno-div \
+	$(GCC) -march=rv32im -mabi=ilp32 -mno-div \
 		-nostartfiles \
 		-Wl,-Bstatic,-T,$(LDS_FILE),--strip-debug,-Map=firmware.map,--cref \
 		-fno-zero-initialized-in-bss -ffreestanding -Os \

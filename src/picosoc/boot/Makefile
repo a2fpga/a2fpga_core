@@ -29,7 +29,7 @@ C_FILES = \
 all: boot.bin
 
 boot.elf: $(C_FILES) 
-	$(GCC) -march=rv32i -mabi=ilp32 -nostartfiles \
+	$(GCC) -march=rv32im -mabi=ilp32 -nostartfiles \
 	-Wl,-Bstatic,-T,$(LDS_FILE),--strip-debug,-Map=boot.map,--cref \
 	-fno-zero-initialized-in-bss -ffreestanding -Os \
 	-o boot.elf \
