@@ -49,8 +49,6 @@ module top #(
     parameter bit DISK_II_ENABLE = 1,
     parameter bit [7:0] DISK_II_ID = 4,
 
-    parameter [7:0] SLOT_CARDS [0:7] = '{8'd0, SUPERSERIAL_ID, 8'd0, 8'd0, MOCKINGBOARD_ID, DISK_II_ID, 8'd0, SUPERSPRITE_ID},
-
     parameter bit ENSONIQ_ENABLE = 1,
 
     parameter bit CLEAR_APPLE_VIDEO_RAM = 1,    // Clear video ram on startup
@@ -374,9 +372,7 @@ module top #(
     slot_if slot_if();
     slotmaker_config_if slotmaker_config_if();
 
-    slotmaker #(
-        .SLOT_CARDS(SLOT_CARDS)
-    ) slotmaker (
+    slotmaker slotmaker (
         .a2bus_if(a2bus_if),
         .a2mem_if(a2mem_if),
 

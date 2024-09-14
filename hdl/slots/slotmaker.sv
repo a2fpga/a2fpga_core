@@ -20,9 +20,7 @@
 // Enables the configuration and switching of virtual card slots in the A2FPGA
 //
 
-module slotmaker #(
-    parameter [0:7] SLOT_CARDS [7:0] = '{8'd0, 8'd0, 8'd0, 8'd0, 8'd0, 8'd0, 8'd0, 8'd0}
-) (
+module slotmaker (
     a2bus_if.slave a2bus_if,
     a2mem_if.slave a2mem_if,
 
@@ -31,16 +29,19 @@ module slotmaker #(
     slot_if.slotmaker slot_if
 );
 
-    //reg [7:0] slot_cards[0:7] = '{8'd0, 8'd3, 8'd0, 8'd0, 8'd2, 8'd0, 8'd0, 8'd1};
-    reg [7:0] slot_cards[0:7] = SLOT_CARDS;
-    assign cfg_if.card_o = 8'd0;
+    reg [7:0] slot_cards[7:0] ;
+	initial $readmemh("slots.hex", slot_cards);
 
-    /*
+    //assign cfg_if.card_o = 8'd0;
+
 	always @(posedge a2bus_if.clk_logic) begin
-		cfg_if.card_o <= slot_cards[cfg_if.slot];
-		if (cfg_if.wr) slot_cards[cfg_if.slot] <= cfg_if.card_i;
+		if (cfg_if.wr) begin 
+            slot_cards[cfg_if.slot] <= cfg_if.card_i;
+            cfg_if.card_o <= cfg_if.card_i;
+        end else begin
+            cfg_if.card_o <= slot_cards[cfg_if.slot];
+        end 
 	end
-    */
 
     // 1111 1100 0000 0000
     // 5432 1098 7654 3210
@@ -89,13 +90,6 @@ module slotmaker #(
     reg [7:0] slot_card;
     always @(posedge a2bus_if.clk_logic) begin
         slot_card <= slot_cards[slot_sel];
-        /*
-        if (slot_sel == 3'd7) begin
-            slot_card <= 8'd1;
-        end else begin
-            slot_card <= 8'd0;
-        end
-        */
     end
 
     logic disabled;
