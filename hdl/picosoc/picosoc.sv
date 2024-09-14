@@ -44,6 +44,7 @@ module picosoc #(
     output led_o,
 
     a2bus_control_if.control a2bus_control_if,
+    slotmaker_config_if.controller slotmaker_config_if,
     f18a_gpu_if.slave f18a_gpu_if,
     video_control_if.control video_control_if,
     sdram_port_if.client mem_if,
@@ -118,6 +119,7 @@ module picosoc #(
     wire        a2fpga_en = (iomem_addr[31:24] == 8'h05);  /* A2FPGA mapped to 0x05xx_xxxx */
     wire        sdcard_en = (iomem_addr[31:24] == 8'h06);  /* SPI SD card mapped to 0x06xx_xxxx */
     wire        a2disk_en = (iomem_addr[31:24] == 8'h07);  /* A2FPGA mapped to 0x07xx_xxxx */
+    wire        a2slots_en = (iomem_addr[31:24] == 8'h08);  /* A2FPGA mapped to 0x07xx_xxxx */
 
     wire [31:0] sram_iomem_rdata;
     wire        sram_iomem_ready;
@@ -229,9 +231,7 @@ module picosoc #(
     wire [31:0] a2disk_iomem_rdata;
     wire a2disk_iomem_ready;
 
-    picosoc_a2disk #(
-        .CLOCK_SPEED_HZ(CLOCK_SPEED_HZ)
-    ) picosoc_a2disk (
+    picosoc_a2disk picosoc_a2disk (
         .clk(a2bus_if.clk_logic),
         .resetn(a2bus_if.device_reset_n),
         .iomem_valid(iomem_valid && a2disk_en),
@@ -242,6 +242,22 @@ module picosoc #(
         .iomem_wdata(iomem_wdata),
         .a2bus_if(a2bus_if),
         .volumes(volumes)
+    );
+
+    wire [31:0] a2slots_iomem_rdata;
+    wire a2slots_iomem_ready;
+
+    picosoc_a2slots picosoc_a2slots (
+        .clk(a2bus_if.clk_logic),
+        .resetn(a2bus_if.device_reset_n),
+        .iomem_valid(iomem_valid && a2slots_en),
+        .iomem_wstrb(iomem_wstrb),
+        .iomem_addr(iomem_addr),
+        .iomem_rdata(a2slots_iomem_rdata),
+        .iomem_ready(a2slots_iomem_ready),
+        .iomem_wdata(iomem_wdata),
+        .a2bus_if(a2bus_if),
+        .slotmaker_config_if(slotmaker_config_if)
     );
 
     assign iomem_ready = sram_en ? sram_iomem_ready

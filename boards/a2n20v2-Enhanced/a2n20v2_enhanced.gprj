@@ -39,6 +39,7 @@
         <File path="../../hdl/picosoc/picorv32/picorv32.v" type="file.verilog" enable="1"/>
         <File path="../../hdl/picosoc/peripherals/a2fpga/picosoc_a2fpga.sv" type="file.verilog" enable="1"/>
         <File path="../../hdl/picosoc/peripherals/a2disk/picosoc_a2disk.sv" type="file.verilog" enable="1"/>
+        <File path="../../hdl/picosoc/peripherals/a2slots/picosoc_a2slots.sv" type="file.verilog" enable="1"/>
         <File path="../../hdl/picosoc/peripherals/gpio/picosoc_gpio.sv" type="file.verilog" enable="1"/>
         <File path="../../hdl/picosoc/peripherals/sdcard/picosoc_sdcard.sv" type="file.verilog" enable="1"/>
         <File path="../../hdl/picosoc/peripherals/sdcard/spi_master.v" type="file.verilog" enable="1"/>

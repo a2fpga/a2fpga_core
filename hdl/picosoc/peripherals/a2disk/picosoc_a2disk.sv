@@ -21,8 +21,7 @@
 //
 
 
-module picosoc_a2disk #(parameter int CLOCK_SPEED_HZ = 0)
-(
+module picosoc_a2disk (
 	input clk,
 	input resetn,
 

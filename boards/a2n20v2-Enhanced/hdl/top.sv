@@ -381,10 +381,6 @@ module top #(
         .slot_if(slot_if)
     );
 
-    assign slotmaker_config_if.slot = 3'b0;
-    assign slotmaker_config_if.wr = 1'b0;
-    assign slotmaker_config_if.card_i = 8'b0;
-
 `ifdef PICOSOC
 
     // PicoSOC
@@ -429,6 +425,7 @@ module top #(
         .led_o(picosoc_led),
 
         .a2bus_control_if(a2bus_control_if),
+        .slotmaker_config_if(slotmaker_config_if),
         .f18a_gpu_if(f18a_gpu_if),
         .video_control_if(video_control_if),
         .mem_if(mem_ports[SOC_MEM_PORT]),
@@ -481,6 +478,10 @@ module top #(
 `else
 
     // Stub out the external interfaces if not using PicoSOC
+
+    assign slotmaker_config_if.slot = 3'b0;
+    assign slotmaker_config_if.wr = 1'b0;
+    assign slotmaker_config_if.card_i = 8'b0;
 
     video_control_if video_control_if();
     assign video_control_if.enable = 1'b0;
