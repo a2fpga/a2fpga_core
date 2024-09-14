@@ -19,6 +19,10 @@
         <File path="../../hdl/memory/a2mem_if.sv" type="file.verilog" enable="1"/>
         <File path="../../hdl/memory/apple_memory.sv" type="file.verilog" enable="1"/>
         <File path="../../hdl/mockingboard/mockingboard.sv" type="file.verilog" enable="1"/>
+        <File path="../../hdl/slots/slot_if.sv" type="file.verilog" enable="1"/>
+        <File path="../../hdl/slots/slotmaker.sv" type="file.verilog" enable="1"/>
+        <File path="../../hdl/slots/slotmaker_config_if.sv" type="file.verilog" enable="1"/>
+        <File path="../../hdl/slots/slots.hex" type="file.other" enable="1"/>
         <File path="../../hdl/ssc/ssc_rom.vhd" type="file.vhdl" enable="1"/>
         <File path="../../hdl/ssc/super_serial_card.sv" type="file.verilog" enable="1"/>
         <File path="../../hdl/support/cdc.sv" type="file.verilog" enable="1"/>
