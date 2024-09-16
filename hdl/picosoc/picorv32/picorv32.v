@@ -652,7 +652,8 @@ module picorv32 #(
 	reg instr_getq, instr_setq, instr_retirq, instr_maskirq, instr_waitirq, instr_timer;
 	wire instr_trap;
 
-	reg [regindex_bits-1:0] decoded_rd, decoded_rs1, decoded_rs2;
+	reg [regindex_bits-1:0] decoded_rd, decoded_rs1;
+	reg [4:0] decoded_rs2;
 	reg [31:0] decoded_imm, decoded_imm_j;
 	reg decoder_trigger;
 	reg decoder_trigger_q;
@@ -795,9 +796,9 @@ module picorv32 #(
 				cached_insn_opcode <= next_insn_opcode;
 			else
 				cached_insn_opcode <= {16'b0, next_insn_opcode[15:0]};
-			cached_insn_rs1 <= 5'(decoded_rs1);
-			cached_insn_rs2 <= 5'(decoded_rs2);
-			cached_insn_rd <= 5'(decoded_rd);
+			cached_insn_rs1 <= decoded_rs1;
+			cached_insn_rs2 <= decoded_rs2;
+			cached_insn_rd <= decoded_rd;
 		end
 
 		if (launch_next_insn) begin
@@ -828,9 +829,9 @@ module picorv32 #(
 				else
 					dbg_insn_opcode = {16'b0, next_insn_opcode[15:0]};
 				dbg_insn_imm = decoded_imm;
-				dbg_insn_rs1 = 5'(decoded_rs1);
-				dbg_insn_rs2 = 5'(decoded_rs2);
-				dbg_insn_rd = 5'(decoded_rd);
+				dbg_insn_rs1 = decoded_rs1;
+				dbg_insn_rs2 = decoded_rs2;
+				dbg_insn_rd = decoded_rd;
 			end
 		end
 	end
@@ -1034,7 +1035,7 @@ module picorv32 #(
 		end
 
 		if (decoder_trigger && !decoder_pseudo_trigger) begin
-			pcpi_insn <= WITH_PCPI ? mem_rdata_q : 'bZ;
+			pcpi_insn <= WITH_PCPI ? mem_rdata_q : 'bx;
 
 			instr_beq   <= is_beq_bne_blt_bge_bltu_bgeu && mem_rdata_q[14:12] == 3'b000;
 			instr_bne   <= is_beq_bne_blt_bge_bltu_bgeu && mem_rdata_q[14:12] == 3'b001;
@@ -1241,12 +1242,12 @@ module picorv32 #(
 			alu_lts = $signed(reg_op1) < $signed(reg_op2);
 			alu_ltu = reg_op1 < reg_op2;
 			alu_shl = reg_op1 << reg_op2[4:0];
-			alu_shr = 32'($signed({instr_sra || instr_srai ? reg_op1[31] : 1'b0, reg_op1}) >>> reg_op2[4:0]);
+			alu_shr = $signed({instr_sra || instr_srai ? reg_op1[31] : 1'b0, reg_op1}) >>> reg_op2[4:0];
 		end
 	end endgenerate
 
 	always @* begin
-		alu_out_0 = 1'bx;
+		alu_out_0 = 'bx;
 		(* parallel_case, full_case *)
 		case (1'b1)
 			instr_beq:
@@ -1345,7 +1346,7 @@ module picorv32 #(
 	end
 
 	always @* begin
-		decoded_rs = 6'bx;
+		decoded_rs = 'bx;
 		if (ENABLE_REGS_DUALPORT) begin
 `ifndef RISCV_FORMAL_BLACKBOX_REGS
 			cpuregs_rs1 = decoded_rs1 ? cpuregs[decoded_rs1] : 0;
@@ -1400,7 +1401,7 @@ module picorv32 #(
 
 	always @(posedge clk) begin
 		trap <= 0;
-		reg_sh <= 5'bx;
+		reg_sh <= 'bx;
 		reg_out <= 'bx;
 		set_mem_do_rinst = 0;
 		set_mem_do_rdata = 0;
@@ -1422,7 +1423,7 @@ module picorv32 #(
 		if (WITH_PCPI && CATCH_ILLINSN) begin
 			if (resetn && pcpi_valid && !pcpi_int_wait) begin
 				if (pcpi_timeout_counter)
-					pcpi_timeout_counter <= pcpi_timeout_counter - 1'b1;
+					pcpi_timeout_counter <= pcpi_timeout_counter - 1;
 			end else
 				pcpi_timeout_counter <= ~0;
 			pcpi_timeout <= !pcpi_timeout_counter;
@@ -1590,7 +1591,7 @@ module picorv32 #(
 							if (ENABLE_REGS_DUALPORT) begin
 								pcpi_valid <= 1;
 								`debug($display("LD_RS2: %2d 0x%08x", decoded_rs2, cpuregs_rs2);)
-								reg_sh <= 5'(cpuregs_rs2);
+								reg_sh <= cpuregs_rs2;
 								reg_op2 <= cpuregs_rs2;
 								dbg_rs2val <= cpuregs_rs2;
 								dbg_rs2val_valid <= 1;
@@ -1705,7 +1706,7 @@ module picorv32 #(
 						reg_op1 <= cpuregs_rs1;
 						dbg_rs1val <= cpuregs_rs1;
 						dbg_rs1val_valid <= 1;
-						reg_sh <= 5'(decoded_rs2);
+						reg_sh <= decoded_rs2;
 						cpu_state <= cpu_state_shift;
 					end
 					is_jalr_addi_slti_sltiu_xori_ori_andi, is_slli_srli_srai && BARREL_SHIFTER: begin
@@ -1727,7 +1728,7 @@ module picorv32 #(
 						dbg_rs1val_valid <= 1;
 						if (ENABLE_REGS_DUALPORT) begin
 							`debug($display("LD_RS2: %2d 0x%08x", decoded_rs2, cpuregs_rs2);)
-							reg_sh <= 5'(cpuregs_rs2);
+							reg_sh <= cpuregs_rs2;
 							reg_op2 <= cpuregs_rs2;
 							dbg_rs2val <= cpuregs_rs2;
 							dbg_rs2val_valid <= 1;
@@ -1757,7 +1758,7 @@ module picorv32 #(
 
 			cpu_state_ld_rs2: begin
 				`debug($display("LD_RS2: %2d 0x%08x", decoded_rs2, cpuregs_rs2);)
-				reg_sh <= 5'(cpuregs_rs2);
+				reg_sh <= cpuregs_rs2;
 				reg_op2 <= cpuregs_rs2;
 				dbg_rs2val <= cpuregs_rs2;
 				dbg_rs2val_valid <= 1;
@@ -1838,7 +1839,7 @@ module picorv32 #(
 						instr_srli || instr_srl: reg_op1 <= reg_op1 >> 4;
 						instr_srai || instr_sra: reg_op1 <= $signed(reg_op1) >>> 4;
 					endcase
-					reg_sh <= 5'(reg_sh - 4);
+					reg_sh <= reg_sh - 4;
 				end else begin
 					(* parallel_case, full_case *)
 					case (1'b1)
@@ -1846,7 +1847,7 @@ module picorv32 #(
 						instr_srli || instr_srl: reg_op1 <= reg_op1 >> 1;
 						instr_srai || instr_sra: reg_op1 <= $signed(reg_op1) >>> 1;
 					endcase
-					reg_sh <= 5'(reg_sh - 1);
+					reg_sh <= reg_sh - 1;
 				end
 			end
 
@@ -2390,7 +2391,7 @@ module picorv32_pcpi_fast_mul #(
 			active[0] <= 0;
 		end
 
-		active[3:1] <= active[2:0];
+		active[3:1] <= active;
 		shift_out <= instr_any_mulh;
 
 		if (!resetn)
@@ -2407,7 +2408,7 @@ module picorv32_pcpi_fast_mul #(
 			instr_mulhsu ? (pcpi_rs1 - pcpi_rs2) ^ 32'hecfbe137 :
 			instr_mulhu  ? (pcpi_rs1 + pcpi_rs2) ^ 32'h949ce5e8 : 1'bx;
 `else
-	assign pcpi_rd = shift_out ? 32'((EXTRA_MUL_FFS ? rd_q : rd) >> 32) : 32'(EXTRA_MUL_FFS ? rd_q : rd);
+	assign pcpi_rd = shift_out ? (EXTRA_MUL_FFS ? rd_q : rd) >> 32 : (EXTRA_MUL_FFS ? rd_q : rd);
 `endif
 endmodule
 

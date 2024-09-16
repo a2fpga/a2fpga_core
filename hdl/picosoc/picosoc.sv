@@ -116,10 +116,10 @@ module picosoc #(
     wire        uart_en = (iomem_addr[31:24] == 8'h02);  /* UART mapped to 0x02xx_xxxx */
     wire        gpio_en = (iomem_addr[31:24] == 8'h03);  /* GPIO mapped to 0x03xx_xxxx */
     wire        sdram_en = (iomem_addr[31:24] == 8'h04);  /* SDRAM mapped to 0x04xx_xxxx */
-    wire        a2fpga_en = (iomem_addr[31:24] == 8'h05);  /* A2FPGA mapped to 0x05xx_xxxx */
+    wire        a2fpga_en = (iomem_addr[31:24] == 8'h05);  /* A2FPGA general registers mapped to 0x05xx_xxxx */
     wire        sdcard_en = (iomem_addr[31:24] == 8'h06);  /* SPI SD card mapped to 0x06xx_xxxx */
-    wire        a2disk_en = (iomem_addr[31:24] == 8'h07);  /* A2FPGA mapped to 0x07xx_xxxx */
-    wire        a2slots_en = (iomem_addr[31:24] == 8'h08);  /* A2FPGA mapped to 0x07xx_xxxx */
+    wire        a2disk_en = (iomem_addr[31:24] == 8'h07);  /* A2FPGA disk control mapped to 0x07xx_xxxx */
+    wire        a2slots_en = (iomem_addr[31:24] == 8'h08);  /* A2FPGA slot configuration mapped to 0x08xx_xxxx */
 
     wire [31:0] sram_iomem_rdata;
     wire        sram_iomem_ready;
@@ -267,6 +267,7 @@ module picosoc #(
         : sdcard_en ? sdcard_iomem_ready
         : a2fpga_en ? a2fpga_iomem_ready
         : a2disk_en ? a2disk_iomem_ready
+        : a2slots_en ? a2slots_iomem_ready
         : 1'b1;
 
     assign iomem_rdata = sram_iomem_ready ? sram_iomem_rdata
@@ -276,6 +277,7 @@ module picosoc #(
         : sdcard_iomem_ready ? sdcard_iomem_rdata
         : a2fpga_iomem_ready ? a2fpga_iomem_rdata
         : a2disk_iomem_ready ? a2disk_iomem_rdata
+        : a2slots_iomem_ready ? a2slots_iomem_rdata
         : 32'h0;
 
     picorv32 #(

@@ -21,7 +21,7 @@
 //
 
 
-module picosoc_a2fpga #(parameter int CLOCK_SPEED_HZ = 0)
+module picosoc_a2fpga #(parameter int CLOCK_SPEED_HZ = 54_000_000)
 (
 	input clk,
 	input resetn,
@@ -60,14 +60,6 @@ module picosoc_a2fpga #(parameter int CLOCK_SPEED_HZ = 0)
     localparam ADDR_A2_DATA =                   8'h48;      // 
     localparam ADDR_COUNTDOWN =                 8'h4C;      // 
     localparam ADDR_A2BUS_READY =               8'h50;      //
-    localparam ADDR_SLOT_0_CONFIG =             8'h54;      //
-    localparam ADDR_SLOT_1_CONFIG =             8'h58;      //
-    localparam ADDR_SLOT_2_CONFIG =             8'h5C;      //
-    localparam ADDR_SLOT_3_CONFIG =             8'h60;      //
-    localparam ADDR_SLOT_4_CONFIG =             8'h64;      //
-    localparam ADDR_SLOT_5_CONFIG =             8'h68;      //
-    localparam ADDR_SLOT_6_CONFIG =             8'h6C;      //
-    localparam ADDR_SLOT_7_CONFIG =             8'h70;      //
 
     reg [7:0] keycode_r;
 

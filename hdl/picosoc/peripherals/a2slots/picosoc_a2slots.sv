@@ -29,21 +29,24 @@ module picosoc_a2slots (
 	input [3:0]  iomem_wstrb,
 	input [31:0] iomem_addr,
 	output reg [31:0] iomem_rdata,
-	output reg iomem_ready,
+	output iomem_ready,
 	input [31:0] iomem_wdata,
 
     a2bus_if.slave a2bus_if,
     slotmaker_config_if.controller slotmaker_config_if
 );
 
-    wire slotmaker_ready = iomem_valid && !iomem_ready;
-
+    reg ready_queue[2:0];
     always @(posedge clk)
-		iomem_ready <= slotmaker_ready;
+        ready_queue <= {ready_queue[1:0], iomem_valid};
+    assign iomem_ready = ready_queue[2] & iomem_valid;
 
-    assign slotmaker_config_if.slot <= iomem_addr[2:0];
-    assign slotmaker_config_if.card_i <= iomem_wdata[7:0];
-    assign slotmaker_config_if.wr = slotmaker_ready && |iomem_wstrb;
+    wire [2:0] slot = iomem_addr[4:2];
+    wire [7:0] card = iomem_wdata[7:0];
+    wire wr = iomem_valid && |iomem_wstrb;
+    assign slotmaker_config_if.slot = slot;
+    assign slotmaker_config_if.card_i = card;
+    assign slotmaker_config_if.wr = wr;
 
     always @(posedge clk)
         iomem_rdata <= {24'b0, slotmaker_config_if.card_o};

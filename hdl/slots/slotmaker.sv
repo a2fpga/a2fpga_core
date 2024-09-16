@@ -29,19 +29,33 @@ module slotmaker (
     slot_if.slotmaker slot_if
 );
 
-    reg [7:0] slot_cards[7:0] ;
-	initial $readmemh("slots.hex", slot_cards);
+    reg [7:0] slot_cards[0:7] = '{8'd0, 8'd3, 8'd0, 8'd0, 8'd2, 8'd0, 8'd0, 8'd5};
+
+    //reg [7:0] slot_cards[0:7];
+	//initial $readmemh("slots.hex", slot_cards);
 
     //assign cfg_if.card_o = 8'd0;
 
+    reg [7:0] card_o;
 	always @(posedge a2bus_if.clk_logic) begin
 		if (cfg_if.wr) begin 
             slot_cards[cfg_if.slot] <= cfg_if.card_i;
-            cfg_if.card_o <= cfg_if.card_i;
+            card_o <= cfg_if.card_i;
         end else begin
-            cfg_if.card_o <= slot_cards[cfg_if.slot];
+            card_o <= slot_cards[cfg_if.slot];
         end 
 	end
+    /*
+    reg [7:0] card_o;
+	always @(posedge a2bus_if.clk_logic) begin
+        card_o <= slot_cards[cfg_if.slot];
+		if (cfg_if.wr) begin 
+            slot_cards[cfg_if.slot] <= cfg_if.card_i;
+        end 
+	end
+    */
+
+    assign cfg_if.card_o = card_o;
 
     // 1111 1100 0000 0000
     // 5432 1098 7654 3210

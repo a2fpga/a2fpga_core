@@ -1,6 +1,7 @@
 #include <stdint.h>
 #include <stdbool.h>
 #include <a2fpga/a2fpga.h>
+#include <a2slots/a2slots.h>
 #include <soc/soc.h>
 #include <uart/uart.h>
 #include <xprintf/xprintf.h>
@@ -41,9 +42,14 @@ void die (		/* Stop with dying message */
 	reg_a2fpga_a2bus_ready = 1;
 	reg_a2fpga_video_enable = 1;
 
-	xprintf("\nDisk error: %u", rc);
+	xprintf("\nDisk error: %u\n", rc);
+
+	xprintf("\nTime Start: %d\n", reg_a2fpga_system_time);
 
 	soc_wait(10000);
+
+	xprintf("\nTime End: %d\n", reg_a2fpga_system_time);
+
 	reg_a2fpga_video_enable = 0;
 
 	// idle forever on error
@@ -163,13 +169,20 @@ void main() {
 	reg_a2fpga_a2bus_ready = 1;
 
     screen_clear();
-    xputs("        A2fpga Firmware v1.0b1\n\n");
+    xputs("        A2FPGA Firmware v1.0b1\n\n");
+
+	for (int i = 0; i < 8; i++)
+	{
+		xprintf("Slot: %u Card: %u\n", i, slots_get_card(i));
+	}
+
+	xprintf("\nTime: %d\n", reg_a2fpga_system_time);
 
 	FATFS fatfs;			/* File system object */
 	UINT bw, br, i;
 	uint32_t *buff=(uint32_t *)0x04400000;
 
-	xputs("\nMounting SDCard\n");
+	xputs("\n\nMounting SDCard\n");
 
 	FRESULT rc = pf_mount(&fatfs);
 	if (rc) die(rc);

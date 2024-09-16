@@ -18,6 +18,7 @@ START_FILE = $(FIRMWARE_DIR)/firmware.S
 C_FILES = \
 	main.c \
 	$(INCLUDE_DIR)/a2fpga/a2fpga.c \
+	$(INCLUDE_DIR)/a2slots/a2slots.c \
 	$(INCLUDE_DIR)/soc/soc.c \
 	$(INCLUDE_DIR)/uart/uart.c \
 	$(INCLUDE_DIR)/xprintf/xprintf.c \
