@@ -29,10 +29,10 @@ module slotmaker (
     slot_if.slotmaker slot_if
 );
 
-    reg [7:0] slot_cards[0:7] = '{8'd0, 8'd3, 8'd0, 8'd0, 8'd2, 8'd0, 8'd0, 8'd5};
+    //reg [7:0] slot_cards[0:7] = '{8'd0, 8'd3, 8'd0, 8'd0, 8'd2, 8'd0, 8'd0, 8'd5};
 
-    //reg [7:0] slot_cards[0:7];
-	//initial $readmemh("slots.hex", slot_cards);
+    reg [7:0] slot_cards[0:7];
+	initial $readmemh("slots.hex", slot_cards);
 
     //assign cfg_if.card_o = 8'd0;
 

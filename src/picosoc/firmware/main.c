@@ -44,11 +44,7 @@ void die (		/* Stop with dying message */
 
 	xprintf("\nDisk error: %u\n", rc);
 
-	xprintf("\nTime Start: %d\n", reg_a2fpga_system_time);
-
 	soc_wait(10000);
-
-	xprintf("\nTime End: %d\n", reg_a2fpga_system_time);
 
 	reg_a2fpga_video_enable = 0;
 
@@ -175,8 +171,6 @@ void main() {
 	{
 		xprintf("Slot: %u Card: %u\n", i, slots_get_card(i));
 	}
-
-	xprintf("\nTime: %d\n", reg_a2fpga_system_time);
 
 	FATFS fatfs;			/* File system object */
 	UINT bw, br, i;
