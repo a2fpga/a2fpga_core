@@ -26,7 +26,7 @@ void shadow_ram_init()
 {
     // clear text page 0
     for (int i = 0; i < 2048; i += 4) {
-        mmio32(0x04020800 + i) = 0x00000000;
+        mmio32(0x04000800 + i) = 0x00000000;
     }
 }
 
