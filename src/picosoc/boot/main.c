@@ -5,6 +5,7 @@
 #include <uart/uart.h>
 #include <xprintf/xprintf.h>
 #include <a2mem/a2mem.h>
+#include <a2disk/a2disk.h>
 #include <ff/ff.h>
 
 //

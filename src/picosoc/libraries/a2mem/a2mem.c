@@ -22,6 +22,14 @@ void poke8(uint32_t addr, uint8_t val) {
     mmio8(0x04000000 + addr) = val;
 }
 
+void shadow_ram_init()
+{
+    // clear text page 0
+    for (int i = 0; i < 2048; i += 4) {
+        mmio32(0x04000800 + i) = 0x00000000;
+    }
+}
+
 int h = 0;
 int v = 0;
 

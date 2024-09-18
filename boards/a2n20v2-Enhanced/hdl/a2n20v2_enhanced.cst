@@ -50,6 +50,9 @@ IO_PORT "led[1]" IO_TYPE=LVCMOS33 PULL_MODE=UP DRIVE=8;
 IO_LOC "led[0]" 16;
 IO_PORT "led[0]" IO_TYPE=LVCMOS33 PULL_MODE=UP DRIVE=8;
 
+IO_LOC "ws2812" 79;
+IO_PORT "ws2812" IO_TYPE=LVCMOS33 DRIVE=8;
+
 // A2N20 GPIO
 
 IO_LOC  "a2_phi1" 31;
@@ -106,3 +109,17 @@ IO_PORT "a2_bridge_d[0]" IO_TYPE=LVCMOS33;
 IO_LOC  "a2_bridge_wr_n" 71;
 IO_PORT "a2_bridge_wr_n" IO_TYPE=LVCMOS33;
 
+// SDCard
+
+IO_LOC  "sd_clk" 83;
+IO_PORT "sd_clk" PULL_MODE=NONE IO_TYPE=LVCMOS33; 
+IO_LOC  "sd_cmd" 82;        // MOSI
+IO_PORT "sd_cmd" PULL_MODE=NONE IO_TYPE=LVCMOS33;
+IO_LOC  "sd_dat0" 84;       // MISO
+IO_PORT "sd_dat0" PULL_MODE=NONE IO_TYPE=LVCMOS33;
+//IO_LOC  "sd_dat1" 85;       // 1
+//IO_PORT "sd_dat1" PULL_MODE=NONE IO_TYPE=LVCMOS33;
+//IO_LOC  "sd_dat2" 80;       // 1
+//IO_PORT "sd_dat2" PULL_MODE=NONE IO_TYPE=LVCMOS33;
+IO_LOC  "sd_dat3" 81;       // 1
+IO_PORT "sd_dat3" PULL_MODE=NONE IO_TYPE=LVCMOS33;

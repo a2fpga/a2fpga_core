@@ -18,6 +18,7 @@ START_FILE = $(FIRMWARE_DIR)/firmware.S
 C_FILES = \
 	main.c \
 	$(INCLUDE_DIR)/a2fpga/a2fpga.c \
+	$(INCLUDE_DIR)/a2slots/a2slots.c \
 	$(INCLUDE_DIR)/soc/soc.c \
 	$(INCLUDE_DIR)/uart/uart.c \
 	$(INCLUDE_DIR)/xprintf/xprintf.c \
@@ -28,7 +29,7 @@ C_FILES = \
 all: firmware.hex
 
 firmware.elf: $(C_FILES) 
-	$(GCC) -march=rv32imc -mabi=ilp32 -mno-div \
+	$(GCC) -march=rv32im -mabi=ilp32 -mno-div \
 		-nostartfiles \
 		-Wl,-Bstatic,-T,$(LDS_FILE),--strip-debug,-Map=firmware.map,--cref \
 		-fno-zero-initialized-in-bss -ffreestanding -Os \

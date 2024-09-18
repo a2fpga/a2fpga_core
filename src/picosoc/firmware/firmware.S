@@ -1,8 +1,8 @@
 .section .init
 .global main
 
-#define STACKADDR	0x04800000
-#define IRQSTACK	14336
+#define STACKADDR	0x04800000	// Program stack at end of 8MB SDRAM
+#define IRQSTACK	14336		// IRQ stack at end of 14KB SRAM
 
 /* begin: custom PicoRV32 opcodes */
 
@@ -120,8 +120,8 @@ irq_vec:
 	picorv32_setq_insn(q3, x2)
 
 	// x2 is the stack pointer
-	lui x2, %hi(IRQSTACK)
-	addi x2, x2, %lo(IRQSTACK)
+	lui x2, %hi(IRQSTACK-4*32)
+	addi x2, x2, %lo(IRQSTACK-4*32)
 
 	picorv32_getq_insn(x1, q0)
 	sw x1,   0*4(x2)

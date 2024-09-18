@@ -26,7 +26,7 @@
 
 `undef ENSONIQ
 `define PICOSOC
-`undef DISKII
+`define DISKII
 
 module top #(
     parameter int CLOCK_SPEED_HZ = 54_000_000,
@@ -36,23 +36,24 @@ module top #(
     parameter bit APPLE_SPEAKER_ENABLE = 0,
 
     parameter bit SUPERSPRITE_ENABLE = 1,
-    parameter SUPERSPRITE_SLOT = 7,
+    parameter bit [7:0] SUPERSPRITE_ID = 1,
     parameter bit SUPERSPRITE_FORCE_VDP_OVERLAY = 0,
 
     parameter bit MOCKINGBOARD_ENABLE = 1,
-    parameter MOCKINGBOARD_SLOT = 4,
+    parameter bit [7:0] MOCKINGBOARD_ID = 2,
 
-    parameter bit SUPERSERIAL_ENABLE = 0,
-    parameter SUPERSERIAL_SLOT = 2,
+    parameter bit SUPERSERIAL_ENABLE = 1,
+    parameter bit SUPERSERIAL_IRQ_ENABLE = 1,
+    parameter bit [7:0] SUPERSERIAL_ID = 3,
 
     parameter bit DISK_II_ENABLE = 1,
-    parameter DISK_II_SLOT = 5,
+    parameter bit [7:0] DISK_II_ID = 4,
 
     parameter bit ENSONIQ_ENABLE = 1,
 
     parameter bit CLEAR_APPLE_VIDEO_RAM = 1,    // Clear video ram on startup
     parameter bit SHADOW_ALL_MEMORY = 0,        // Shadoow all memory in SDRAM, not just video ram
-    parameter bit HDMI_SLEEP_ENABLE = 1,        // Sleep HDMI output on CPU stop
+    parameter bit HDMI_SLEEP_ENABLE = 0,        // Sleep HDMI output on CPU stop
     parameter bit IRQ_OUT_ENABLE = 1,           // Allow driving IRQ to Apple bus
     parameter bit BUS_DATA_OUT_ENABLE = 1       // Allow driving data to Apple bus
 
@@ -86,9 +87,19 @@ module top #(
     // leds
     output reg [4:0] led,
 
+    output ws2812,
+
     // uart
     output uart_tx,
     input  uart_rx,
+
+    // MicroSD
+    output sd_clk,
+    output sd_cmd,      // MOSI
+    input  sd_dat0,     // MISO
+    //output sd_dat1,   // 1
+    //output sd_dat2,   // 1
+    output sd_dat3,     // CS
 
     // "Magic" port names that the gowin compiler connects to the on-chip SDRAM
     output        O_sdram_clk,
@@ -272,6 +283,8 @@ module top #(
         .clk_14m_posedge(clk_14m_posedge_w)
     );
 
+    a2bus_control_if a2bus_control_if();
+
     wire sleep_w;
     wire data_in_strobe_w;
 
@@ -303,6 +316,7 @@ module top #(
         .IRQ_OUT_ENABLE(IRQ_OUT_ENABLE)
     ) apple_bus (
         .a2bus_if(a2bus_if),
+        .a2bus_control_if(a2bus_control_if),
 
         .a2_bridge_sel_o(a2_bridge_sel),
         .a2_bridge_bus_a_oe_n_o(a2_bridge_bus_a_oe_n),
@@ -355,6 +369,20 @@ module top #(
         .vgc_data_o(vgc_data_w)
     );
 
+    // Slots
+
+    slot_if slot_if();
+    slotmaker_config_if slotmaker_config_if();
+
+    slotmaker slotmaker (
+        .a2bus_if(a2bus_if),
+        .a2mem_if(a2mem_if),
+
+        .cfg_if(slotmaker_config_if),
+
+        .slot_if(slot_if)
+    );
+
 `ifdef PICOSOC
 
     // PicoSOC
@@ -365,7 +393,7 @@ module top #(
     wire picosoc_uart_rx_w;
     wire picosoc_uart_tx_w;
 
-    assign uart_tx = picosoc_uart_tx_w;
+    //assign uart_tx = picosoc_uart_tx_w;
     assign picosoc_uart_rx_w = uart_rx;
 
     wire picosoc_led;
@@ -397,7 +425,10 @@ module top #(
 
         .button_i(s2),
         .led_o(picosoc_led),
+        .ws2812_o(ws2812),
 
+        .a2bus_control_if(a2bus_control_if),
+        .slotmaker_config_if(slotmaker_config_if),
         .f18a_gpu_if(f18a_gpu_if),
         .video_control_if(video_control_if),
         .mem_if(mem_ports[SOC_MEM_PORT]),
@@ -413,10 +444,10 @@ module top #(
 
     DiskII #(
         .ENABLE(DISK_II_ENABLE),
-        .SLOT(DISK_II_SLOT)
+        .ID(DISK_II_ID)
     ) diskii (
         .a2bus_if(a2bus_if),
-        .a2mem_if(a2mem_if),
+        .slot_if(slot_if),
 
         .data_o(diskii_d_w),
         .rd_en_o(diskii_rd),
@@ -425,7 +456,9 @@ module top #(
 
         .volumes(volumes)
     );
+    
     `else
+
     assign diskii_d_w = 8'b0;
     assign diskii_rd = 1'b0;
 
@@ -448,6 +481,10 @@ module top #(
 `else
 
     // Stub out the external interfaces if not using PicoSOC
+
+    assign slotmaker_config_if.slot = 3'b0;
+    assign slotmaker_config_if.wr = 1'b0;
+    assign slotmaker_config_if.card_i = 8'b0;
 
     video_control_if video_control_if();
     assign video_control_if.enable = 1'b0;
@@ -482,6 +519,8 @@ module top #(
 
     wire [7:0] diskii_d_w = 8'b0;
     wire diskii_rd = 1'b0;
+
+    assign a2bus_control_if.ready = 1'b1;
 
 `endif
 
@@ -592,10 +631,11 @@ module top #(
 
     SuperSprite #(
         .ENABLE(SUPERSPRITE_ENABLE),
-        .SLOT(SUPERSPRITE_SLOT),
+        .ID(SUPERSPRITE_ID),
         .FORCE_VDP_OVERLAY(SUPERSPRITE_FORCE_VDP_OVERLAY)
     ) supersprite (
         .a2bus_if(a2bus_if),
+        .slot_if(slot_if),
 
         .data_o(ssp_d_w),
         .rd_en_o(ssp_rd),
@@ -635,10 +675,10 @@ module top #(
 
     Mockingboard #(
         .ENABLE(MOCKINGBOARD_ENABLE),
-        .SLOT(MOCKINGBOARD_SLOT)
+        .ID(MOCKINGBOARD_ID)
     ) mockingboard (
         .a2bus_if(a2bus_if),  // use system_reset_n
-        .a2mem_if(a2mem_if),
+        .slot_if(slot_if),
 
         .data_o(mb_d_w),
         .rd_en_o(mb_rd),
@@ -657,18 +697,22 @@ module top #(
 
     wire ssc_uart_rx;
     wire ssc_uart_tx;
-    `ifndef PICOSOC
-    assign ssc_uart_rx = uart_rx;
+    `ifdef PICOSOC
+    assign uart_tx = picosoc_uart_tx_w | ssc_uart_tx;
+    `else
     assign uart_tx = ssc_uart_tx;
     `endif
+    assign ssc_uart_rx = uart_rx;
 
     SuperSerial #(
         .CLOCK_SPEED_HZ(CLOCK_SPEED_HZ),
         .ENABLE(SUPERSERIAL_ENABLE),
-        .SLOT(SUPERSERIAL_SLOT)
+        .IRQ_ENABLE(SUPERSERIAL_IRQ_ENABLE),
+        .ID(SUPERSERIAL_ID)
     ) superserial (
         .a2bus_if(a2bus_if),
         .a2mem_if(a2mem_if),
+        .slot_if(slot_if),
 
         .data_o(ssc_d_w),
         .rd_en_o(ssc_rd),

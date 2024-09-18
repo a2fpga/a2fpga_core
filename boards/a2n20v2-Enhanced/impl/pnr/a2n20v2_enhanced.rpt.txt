@@ -12,27 +12,27 @@
   <Part Number>: GW2AR-LV18QN88C8/I7
   <Device>: GW2AR-18
   <Device Version>: C
-  <Created Time>:Sun Sep 08 21:29:15 2024
+  <Created Time>:Tue Sep 17 19:50:56 2024
 
 
 2. PnR Details
 
   Running placement:
     Placement Phase 0: CPU time = 0h 0m 2s, Elapsed time = 0h 0m 2s
-    Placement Phase 1: CPU time = 0h 0m 0.242s, Elapsed time = 0h 0m 0.242s
+    Placement Phase 1: CPU time = 0h 0m 0.291s, Elapsed time = 0h 0m 0.291s
     Placement Phase 2: CPU time = 0h 0m 4s, Elapsed time = 0h 0m 4s
-    Placement Phase 3: CPU time = 0h 0m 2s, Elapsed time = 0h 0m 2s
-    Total Placement: CPU time = 0h 0m 8s, Elapsed time = 0h 0m 8s
+    Placement Phase 3: CPU time = 0h 0m 3s, Elapsed time = 0h 0m 3s
+    Total Placement: CPU time = 0h 0m 9s, Elapsed time = 0h 0m 9s
  Running routing:
-    Routing Phase 0: CPU time = 0h 0m 0.002s, Elapsed time = 0h 0m 0.002s
-    Routing Phase 1: CPU time = 0h 0m 0.298s, Elapsed time = 0h 0m 0.298s
-    Routing Phase 2: CPU time = 0h 0m 6s, Elapsed time = 0h 0m 6s
+    Routing Phase 0: CPU time = 0h 0m 0.003s, Elapsed time = 0h 0m 0.003s
+    Routing Phase 1: CPU time = 0h 0m 0.324s, Elapsed time = 0h 0m 0.324s
+    Routing Phase 2: CPU time = 0h 0m 7s, Elapsed time = 0h 0m 7s
     Routing Phase 3: CPU time = 0h 0m 0s, Elapsed time = 0h 0m 0s
     Total Routing: CPU time = 0h 0m 7s, Elapsed time = 0h 0m 7s
  Generate output files:
     CPU time = 0h 0m 3s, Elapsed time = 0h 0m 3s
 
- Total Time and Memory Usage: CPU time = 0h 0m 17s, Elapsed time = 0h 0m 17s, Peak memory usage = 360MB
+ Total Time and Memory Usage: CPU time = 0h 0m 20s, Elapsed time = 0h 0m 20s, Peak memory usage = 379MB
 
 
 3. Resource Usage Summary
@@ -40,33 +40,33 @@
   ----------------------------------------------------------
   Resources                   | Usage
   ----------------------------------------------------------
-  Logic                       | 11071/20736  54%
-    --LUT,ALU,ROM16           | 10057(8400 LUT, 1657 ALU, 0 ROM16)
+  Logic                       | 11792/20736  57%
+    --LUT,ALU,ROM16           | 10778(9081 LUT, 1697 ALU, 0 ROM16)
     --SSRAM(RAM16)            | 169
-  Register                    | 5090/15915  32%
+  Register                    | 5521/15915  35%
     --Logic Register as Latch | 0/15552  0%
-    --Logic Register as FF    | 5016/15552  33%
+    --Logic Register as FF    | 5446/15552  36%
     --I/O Register as Latch   | 0/363  0%
-    --I/O Register as FF      | 74/363  21%
-  CLS                         | 7477/10368  73%
-  I/O Port                    | 36
-  I/O Buf                     | 31
-    --Input Buf               | 6
-    --Output Buf              | 17
+    --I/O Register as FF      | 75/363  21%
+  CLS                         | 7892/10368  77%
+  I/O Port                    | 41
+  I/O Buf                     | 36
+    --Input Buf               | 7
+    --Output Buf              | 21
     --Inout Buf               | 8
   IOLOGIC                     | 5%
     --OSER10                  | 3
-  BSRAM                       | 83%
+  BSRAM                       | 90%
     --SP                      | 10
     --SDPB                    | 17
-    --DPB                     | 8
+    --DPB                     | 9
     --DPX9B                   | 2
-    --pROM                    | 1
-  DSP                         | 67%
+    --pROM                    | 3
+  DSP                         | 75%
     --MULT9X9                 | 4
     --MULT18X18               | 4
     --MULT36X36               | 1
-    --MULTADDALU18X18         | 11
+    --MULTADDALU18X18         | 13
   PLL                         | 2/2  100%
   DCS                         | 0/8  0%
   DQCE                        | 0/24  0%
@@ -84,7 +84,7 @@
   -----------------------
   I/O Bank  | Usage       
   -----------------------
-  bank 0   | 0/8(0%)     
+  bank 0   | 5/8(62%)    
   bank 1   | 7/9(77%)    
   bank 2   | 0/4(0%)     
   bank 3   | 7/17(41%)   
@@ -120,12 +120,12 @@
   clk_pixel_w    | PRIMARY        |  TR TL BR BL
   n39_7          | LW             |  -
   n29_11         | LW             |  -
+  picosoc/gpio_peripheral/ws2812_inst/clk_count_31_10| LW             |  -
   picosoc/cpu/mem_xfer| LW             |  -
-  picosoc/cpu/n3617_3| LW             |  -
-  picosoc/cpu/cpu_state.cpu_state_fetch| LW             |  -
   supersprite/vdp/f18a_core/inst_cpu/n957_6| LW             |  -
   mockingboard/pb_l_o[2]| LW             |  -
   mockingboard/pb_r_o[2]| LW             |  -
+  superserial/COM2/n67_5| LW             |  -
   clk_hdmi_w     | HCLK           | BOTTOM[1]
   ===========================================
 
@@ -142,6 +142,7 @@ a2_reset_n            |           | 15/6          | Y          | in    | IOL47[A
 a2_phi1               |           | 31/5          | Y          | in    | IOB18[A] | LVCMOS33   | NA    | UP        | ON        | NONE       | NA         | NA         | NA              | NA            | 3.3       
 a2_7M                 |           | 73/1          | Y          | in    | IOT40[A] | LVCMOS33   | NA    | UP        | ON        | NONE       | NA         | NA         | NA              | NA            | 3.3       
 uart_rx               |           | 70/1          | Y          | in    | IOT44[B] | LVCMOS33   | NA    | UP        | ON        | NONE       | NA         | NA         | NA              | NA            | 3.3       
+sd_dat0               |           | 84/0          | Y          | in    | IOT6[A]  | LVCMOS33   | NA    | NONE      | ON        | NONE       | NA         | NA         | NA              | NA            | 3.3       
 a2_bridge_sel[0]      |           | 30/5          | Y          | out   | IOB14[B] | LVCMOS33   | 8     | UP        | NA        | NA         | OFF        | NA         | NA              | NA            | 3.3       
 a2_bridge_sel[1]      |           | 29/5          | Y          | out   | IOB14[A] | LVCMOS33   | 8     | UP        | NA        | NA         | OFF        | NA         | NA              | NA            | 3.3       
 a2_bridge_sel[2]      |           | 28/5          | Y          | out   | IOB8[B]  | LVCMOS33   | 8     | UP        | NA        | NA         | OFF        | NA         | NA              | NA            | 3.3       
@@ -158,7 +159,11 @@ led[1]                |           | 17/6          | Y          | out   | IOL49[A
 led[2]                |           | 18/6          | Y          | out   | IOL49[B] | LVCMOS33   | 8     | UP        | NA        | NA         | OFF        | NA         | OFF             | NA            | 3.3       
 led[3]                |           | 19/6          | Y          | out   | IOL51[A] | LVCMOS33   | 8     | UP        | NA        | NA         | OFF        | NA         | OFF             | NA            | 3.3       
 led[4]                |           | 20/6          | Y          | out   | IOL51[B] | LVCMOS33   | 8     | UP        | NA        | NA         | OFF        | NA         | OFF             | NA            | 3.3       
+ws2812                |           | 79/0          | Y          | out   | IOT27[B] | LVCMOS33   | 8     | UP        | NA        | NA         | OFF        | NA         | NA              | NA            | 3.3       
 uart_tx               |           | 69/1          | Y          | out   | IOT50[A] | LVCMOS33   | 8     | UP        | NA        | NA         | OFF        | NA         | NA              | NA            | 3.3       
+sd_clk                |           | 83/0          | Y          | out   | IOT6[B]  | LVCMOS33   | 8     | NONE      | NA        | NA         | OFF        | NA         | NA              | NA            | 3.3       
+sd_cmd                |           | 82/0          | Y          | out   | IOT17[A] | LVCMOS33   | 8     | NONE      | NA        | NA         | OFF        | NA         | NA              | NA            | 3.3       
+sd_dat3               |           | 81/0          | Y          | out   | IOT17[B] | LVCMOS33   | 8     | NONE      | NA        | NA         | OFF        | NA         | NA              | NA            | 3.3       
 a2_bridge_d[0]        |           | 72/1          | Y          | io    | IOT40[B] | LVCMOS33   | 8     | UP        | NA        | NONE       | OFF        | NA         | NA              | NA            | 3.3       
 a2_bridge_d[1]        |           | 49/3          | Y          | io    | IOR49[A] | LVCMOS33   | 8     | UP        | NA        | NONE       | OFF        | NA         | OFF             | NA            | 3.3       
 a2_bridge_d[2]        |           | 55/3          | Y          | io    | IOR36[B] | LVCMOS33   | 8     | UP        | NA        | NONE       | OFF        | NA         | OFF             | NA            | 3.3       
@@ -177,14 +182,14 @@ a2_bridge_d[7]        |           | 42/4          | Y          | io    | IOB42[B
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 Loc./Bank| Signal                | Dir.  | Site     | IO Type  | Drive | Pull Mode | PCI Clamp | Hysteresis | Open Drain | Vref       | Single Resistor | Diff Resistor | Bank Vccio
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
-86/0     | -                     | in    | IOT4[A]  | LVCMOS18 | NA    | UP        | ON        | NONE       | NA         | NA         | NA              | NA            | -    
-85/0     | -                     | in    | IOT4[B]  | LVCMOS18 | NA    | UP        | ON        | NONE       | NA         | NA         | NA              | NA            | -    
-84/0     | -                     | in    | IOT6[A]  | LVCMOS18 | NA    | UP        | ON        | NONE       | NA         | NA         | NA              | NA            | -    
-83/0     | -                     | in    | IOT6[B]  | LVCMOS18 | NA    | UP        | ON        | NONE       | NA         | NA         | NA              | NA            | -    
-82/0     | -                     | in    | IOT17[A] | LVCMOS18 | NA    | UP        | ON        | NONE       | NA         | NA         | NA              | NA            | -    
-81/0     | -                     | in    | IOT17[B] | LVCMOS18 | NA    | UP        | ON        | NONE       | NA         | NA         | NA              | NA            | -    
-80/0     | -                     | in    | IOT27[A] | LVCMOS18 | NA    | UP        | ON        | NONE       | NA         | NA         | NA              | NA            | -    
-79/0     | -                     | in    | IOT27[B] | LVCMOS18 | NA    | UP        | ON        | NONE       | NA         | NA         | NA              | NA            | -    
+86/0     | -                     | in    | IOT4[A]  | LVCMOS18 | NA    | UP        | ON        | NONE       | NA         | NA         | NA              | NA            | 3.3  
+85/0     | -                     | in    | IOT4[B]  | LVCMOS18 | NA    | UP        | ON        | NONE       | NA         | NA         | NA              | NA            | 3.3  
+84/0     | sd_dat0               | in    | IOT6[A]  | LVCMOS33 | NA    | NONE      | ON        | NONE       | NA         | NA         | NA              | NA            | 3.3  
+83/0     | sd_clk                | out   | IOT6[B]  | LVCMOS33 | 8     | NONE      | NA        | NA         | OFF        | NA         | NA              | NA            | 3.3  
+82/0     | sd_cmd                | out   | IOT17[A] | LVCMOS33 | 8     | NONE      | NA        | NA         | OFF        | NA         | NA              | NA            | 3.3  
+81/0     | sd_dat3               | out   | IOT17[B] | LVCMOS33 | 8     | NONE      | NA        | NA         | OFF        | NA         | NA              | NA            | 3.3  
+80/0     | -                     | in    | IOT27[A] | LVCMOS18 | NA    | UP        | ON        | NONE       | NA         | NA         | NA              | NA            | 3.3  
+79/0     | ws2812                | out   | IOT27[B] | LVCMOS33 | 8     | UP        | NA        | NA         | OFF        | NA         | NA              | NA            | 3.3  
 77/1     | a2_bridge_bus_d_oe_n  | out   | IOT30[A] | LVCMOS33 | 8     | UP        | NA        | NA         | OFF        | NA         | NA              | NA            | 3.3  
 76/1     | -                     | in    | IOT30[B] | LVCMOS18 | NA    | UP        | ON        | NONE       | NA         | NA         | NA              | NA            | 3.3  
 75/1     | -                     | in    | IOT34[A] | LVCMOS18 | NA    | UP        | ON        | NONE       | NA         | NA         | NA              | NA            | 3.3  

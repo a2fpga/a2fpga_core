@@ -41,13 +41,12 @@
 //
 
 module SuperSprite #(
-    parameter SLOT = 7,
+    parameter bit [7:0] ID = 1,
     parameter bit ENABLE = 1'b1,
-    parameter bit [15:0] IO_ADDRESS = 16'hC000 + (SLOT << 8),
-    parameter bit [15:0] DEVICE_ADDRESS = 16'hC080 + (SLOT << 4),
     parameter bit FORCE_VDP_OVERLAY = 1'b0
 ) (
     a2bus_if.slave a2bus_if,
+    slot_if.card slot_if,
 
     output [7:0] data_o,
     output rd_en_o,
@@ -77,22 +76,26 @@ module SuperSprite #(
 
 );
 
-    localparam VDP_VRAM_ADDRESS = DEVICE_ADDRESS;
-    localparam VDP_REGISTER_ADDRESS = DEVICE_ADDRESS + 16'h01;
-    localparam VDP_RESET_ADDRESS = DEVICE_ADDRESS + 16'h07;
+    wire card_sel = ENABLE && (slot_if.card_id == ID) && a2bus_if.phi0;
+    wire card_dev_sel = card_sel && !slot_if.devselect_n;
+    wire card_io_sel = card_sel && !slot_if.ioselect_n;
 
-    localparam SPEECH_ADDRESS = DEVICE_ADDRESS + 16'h02;
+    localparam [3:0] VDP_VRAM_ADDRESS = 4'h0;
+    localparam [3:0] VDP_REGISTER_ADDRESS = 4'h1;
+    localparam [3:0] VDP_RESET_ADDRESS = 4'h7;
 
-    localparam VIDEO_SWITCH_APPLE_OFF = DEVICE_ADDRESS + 16'h03;
-    localparam VIDEO_SWITCH_APPLE_ON = DEVICE_ADDRESS + 16'h04;
-    localparam VIDEO_SWITCH_APPLE_OUT = DEVICE_ADDRESS + 16'h05;
-    localparam VIDEO_SWITCH_MIX_OUT = DEVICE_ADDRESS + 16'h06;
+    localparam [3:0] SPEECH_ADDRESS = 4'h2;
 
-    localparam SOUND_DATA_WRITE = DEVICE_ADDRESS + 16'h0C;
-    localparam SOUND_DATA_READ_REG_WRITE = DEVICE_ADDRESS + 16'h0E;
+    localparam [3:0] VIDEO_SWITCH_APPLE_OFF = 4'h3;
+    localparam [3:0] VIDEO_SWITCH_APPLE_ON = 4'h4;
+    localparam [3:0] VIDEO_SWITCH_APPLE_OUT = 4'h5;
+    localparam [3:0] VIDEO_SWITCH_MIX_OUT = 4'h6;
 
-    wire ADDR_VDP = a2bus_if.addr[15:1] == DEVICE_ADDRESS[15:1];
-    wire ADDR_PSG = a2bus_if.addr[15:2] == SOUND_DATA_WRITE[15:2];
+    localparam [3:0] SOUND_DATA_WRITE = 4'hC;
+    localparam [3:0] SOUND_DATA_READ_REG_WRITE = 4'hE;
+
+    wire ADDR_VDP = a2bus_if.addr[3:1] == 3'b0;
+    wire ADDR_PSG = a2bus_if.addr[3:2] == SOUND_DATA_WRITE[3:2];
 
     reg  vdp_overlay_sw;
     reg  apple_video_sw;
@@ -102,26 +105,24 @@ module SuperSprite #(
         if (!a2bus_if.system_reset_n) begin
             vdp_overlay_sw <= FORCE_VDP_OVERLAY;
             apple_video_sw <= 1'b1;
-        end else if (ENABLE && (a2bus_if.phi1_posedge) && (a2bus_if.addr[15:4] == DEVICE_ADDRESS[15:4]) && !a2bus_if.rw_n && !a2bus_if.m2sel_n) begin
+        end else if (ENABLE && (slot_if.card_id == ID) && (a2bus_if.phi1_posedge) && !slot_if.devselect_n && !a2bus_if.rw_n) begin
             case (a2bus_if.addr[3:0])
-                VIDEO_SWITCH_APPLE_OFF[3:0]: apple_video_sw <= 1'b0;
-                VIDEO_SWITCH_APPLE_ON[3:0]:  apple_video_sw <= 1'b1;
-                VIDEO_SWITCH_APPLE_OUT[3:0]: vdp_overlay_sw <= FORCE_VDP_OVERLAY;
-                VIDEO_SWITCH_MIX_OUT[3:0]:   vdp_overlay_sw <= 1'b1;
+                VIDEO_SWITCH_APPLE_OFF: apple_video_sw <= 1'b0;
+                VIDEO_SWITCH_APPLE_ON:  apple_video_sw <= 1'b1;
+                VIDEO_SWITCH_APPLE_OUT: vdp_overlay_sw <= FORCE_VDP_OVERLAY;
+                VIDEO_SWITCH_MIX_OUT:   vdp_overlay_sw <= 1'b1;
             endcase
         end
     end
 
     // VDP Select when address is in range for SuperSprite or EZ-Color
-    wire vdp_sel_n = ~(a2bus_if.phi0 && ADDR_VDP && !a2bus_if.m2sel_n);
-    wire vdp_rd = ENABLE && a2bus_if.rw_n && !vdp_sel_n;
-    wire vdp_wr = ENABLE && !a2bus_if.rw_n && !vdp_sel_n;
+    wire vdp_rd = card_dev_sel && ADDR_VDP && a2bus_if.rw_n;
+    wire vdp_wr = card_dev_sel && ADDR_VDP && !a2bus_if.rw_n;
 
     // SuperSprite PSG Select when address is in range for SuperSprite
-    wire ssp_psg_sel_n = ~(a2bus_if.phi0 && ADDR_PSG && !a2bus_if.m2sel_n);
-    wire ssp_psg_data_rd = ENABLE && a2bus_if.rw_n && !ssp_psg_sel_n && a2bus_if.addr[1];
-    wire ssp_psg_data_wr = ENABLE && !a2bus_if.rw_n && !ssp_psg_sel_n && !a2bus_if.addr[1];
-    wire ssp_psg_address_wr = !a2bus_if.rw_n && !ssp_psg_sel_n && a2bus_if.addr[1];
+    wire ssp_psg_data_rd = card_dev_sel && ADDR_PSG && a2bus_if.rw_n && a2bus_if.addr[1];
+    wire ssp_psg_data_wr = card_dev_sel && ADDR_PSG && !a2bus_if.rw_n && !a2bus_if.addr[1];
+    wire ssp_psg_address_wr = card_dev_sel && ADDR_PSG && !a2bus_if.rw_n && a2bus_if.addr[1];
 
     wire vdp_csw;
     reg [3:0] vdp_csw_delay = 4'b0;

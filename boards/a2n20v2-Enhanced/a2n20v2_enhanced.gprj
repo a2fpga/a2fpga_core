@@ -6,6 +6,7 @@
     <Device name="GW2AR-18C" pn="GW2AR-LV18QN88C8/I7">gw2ar18c-000</Device>
     <FileList>
         <File path="../../hdl/bus/a2bus_if.sv" type="file.verilog" enable="1"/>
+        <File path="../../hdl/bus/a2bus_control_if.sv" type="file.verilog" enable="1"/>
         <File path="../../hdl/disk/apple_disk.sv" type="file.verilog" enable="1"/>
         <File path="../../hdl/disk/drive_ii.sv" type="file.verilog" enable="1"/>
         <File path="../../hdl/disk/drive_volume_if.sv" type="file.verilog" enable="1"/>
@@ -37,6 +38,8 @@
         <File path="../../hdl/mockingboard/mockingboard.sv" type="file.verilog" enable="1"/>
         <File path="../../hdl/picosoc/picorv32/picorv32.v" type="file.verilog" enable="1"/>
         <File path="../../hdl/picosoc/peripherals/a2fpga/picosoc_a2fpga.sv" type="file.verilog" enable="1"/>
+        <File path="../../hdl/picosoc/peripherals/a2disk/picosoc_a2disk.sv" type="file.verilog" enable="1"/>
+        <File path="../../hdl/picosoc/peripherals/a2slots/picosoc_a2slots.sv" type="file.verilog" enable="1"/>
         <File path="../../hdl/picosoc/peripherals/gpio/picosoc_gpio.sv" type="file.verilog" enable="1"/>
         <File path="../../hdl/picosoc/peripherals/sdcard/picosoc_sdcard.sv" type="file.verilog" enable="1"/>
         <File path="../../hdl/picosoc/peripherals/sdcard/spi_master.v" type="file.verilog" enable="1"/>
@@ -53,6 +56,10 @@
         <File path="../../hdl/sdram/sdram_port_if.sv" type="file.verilog" enable="1"/>
         <File path="../../hdl/sdram/sdram_ports.sv" type="file.verilog" enable="1"/>
         <File path="../../hdl/sdram/sdram.sv" type="file.verilog" enable="1"/>
+        <File path="../../hdl/slots/slot_if.sv" type="file.verilog" enable="1"/>
+        <File path="../../hdl/slots/slotmaker.sv" type="file.verilog" enable="1"/>
+        <File path="../../hdl/slots/slotmaker_config_if.sv" type="file.verilog" enable="1"/>
+        <File path="../../hdl/slots/slots.hex" type="file.other" enable="1"/>
         <File path="../../hdl/sound/doc5503_register_ram.sv" type="file.verilog" enable="1"/>
         <File path="../../hdl/sound/doc5503.sv" type="file.verilog" enable="1"/>
         <File path="../../hdl/sound/sound_glu.sv" type="file.verilog" enable="1"/>
@@ -73,6 +80,7 @@
         <File path="../../hdl/support/uart_tx.v" type="file.verilog" enable="1"/>
         <File path="../../hdl/support/via6522.vhd" type="file.vhdl" enable="1"/>
         <File path="../../hdl/support/YM2149.sv" type="file.verilog" enable="1"/>
+        <File path="../../hdl/support/ws2812.sv" type="file.verilog" enable="1"/>
         <File path="../../hdl/video/apple_video.sv" type="file.verilog" enable="1"/>
         <File path="../../hdl/video/vgc.sv" type="file.verilog" enable="1"/>
         <File path="../../hdl/video/video_control_if.sv" type="file.verilog" enable="1"/>

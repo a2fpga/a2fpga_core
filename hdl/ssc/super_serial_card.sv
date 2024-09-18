@@ -15,11 +15,13 @@
 
 module SuperSerial #(
     parameter int CLOCK_SPEED_HZ = 54_000_000,
-    parameter SLOT = 2,
+    parameter bit IRQ_ENABLE = 1'b1,
+    parameter bit [7:0] ID = 3,
     parameter bit ENABLE = 1'b1
 ) (
     a2bus_if.slave a2bus_if,
     a2mem_if.slave a2mem_if,
+    slot_if.card slot_if,
 
     output [7:0] data_o,
     output rd_en_o,
@@ -32,9 +34,10 @@ module SuperSerial #(
 
 );
 
-    wire IO_SELECT_N = a2bus_if.io_select_n(ENABLE, SLOT, a2mem_if.INTCXROM);
-    wire DEVICE_SELECT_N = a2bus_if.dev_select_n(ENABLE, SLOT);
-    wire IO_STROBE_N = a2bus_if.io_strobe_n(ENABLE, a2mem_if.INTCXROM, a2mem_if.INTC8ROM);
+    wire card_sel = ENABLE && (slot_if.card_id == ID) && a2bus_if.phi0;
+    wire card_dev_sel = card_sel && !slot_if.devselect_n;
+    wire card_io_sel = card_sel && !slot_if.ioselect_n;
+    wire card_io_strobe = !slot_if.iostrobe_n && a2bus_if.phi0;
 
     wire UART51_RTS;
     wire UART51_DTR;
@@ -60,17 +63,32 @@ module SuperSerial #(
     // DATA_SERIAL_OUT can contain Data, Status, command or control - because a2bus_if.addr[1:0] is passed to the serial chip - and it has a mux in the chip.
     // we need to HANDLE C081 - DIPSW1 and  C082 - DIPSW2 
 
-    assign SSC =
-        //      Bits 7=SW1-1 6=SW1-2 5=SW1-3 4=SW1-4 3=X     2=X     1=SW1-5 0=SW1-6
-        //        OFF     OFF     OFF     ON      1       1       ON      ON
-        //      | 9600 BAUD                     |               | SSC Firmware Mode
-        (a2bus_if.addr[3:0] == 4'h1) ? 8'b11101100 :
-        //(a2bus_if.addr[3:0]  == 4'h1) ? 8'b00001100 :
-        //      Bits 7=SW2-1 6=X     5=SW2-2 4=X     3=SW2-3 2=SW2=4 1=SW2-5 0=CTS
-        //        ON      1       ON      1       ON      ON      ON
-        //      |1 STOP |       |8 BITS |       | No Parity     |Add LF | CTS
-        (a2bus_if.addr[3:0]  == 4'h2) ? {7'b0101000, UART51_RTS}:
-        (a2bus_if.addr[3]    == 1'b1) ? DATA_SERIAL_OUT: 8'b11111111;
+    // Addr = 0h01           
+    // 7 - SW1-1 = OFF=1
+    // 6 - SW1-2 = OFF=1
+    // 5 - SW1-3 = OFF=1
+    // 4 - SW1-4 = ON=0
+    // 3 - X     = 1
+    // 2 - X     = 1
+    // 1 - SW1-5 = ON=0
+    // 0 - SW1-6 = ON=0
+    localparam [7:0] SW1_CONFIG = 8'b11101100;
+
+    // Addr = 0h02
+    // 7 - SW2-1 = ON=0
+    // 6 - X     = 1
+    // 5 - SW2-2 = ON=0
+    // 4 - X     = 1
+    // 3 - SW2-3 = ON=0
+    // 2 - SW2-4 = ON=0
+    // 1 - SW2-5 = ON=0
+    // 0 - CTS
+    localparam [6:0] SW2_CONFIG = 7'b0101000;
+
+    assign SSC =(a2bus_if.addr[3:0] == 4'h1) ? SW1_CONFIG:
+        (a2bus_if.addr[3:0]  == 4'h2) ? {SW2_CONFIG, UART51_RTS}:
+        (a2bus_if.addr[3]    == 1'b1) ? DATA_SERIAL_OUT:
+        8'b11111111;
 
     /*
         Map and Unmap the ROM - setup rom_en_o and ENA_C8S
@@ -105,10 +123,8 @@ module SuperSerial #(
     //assign data_o2 = ENA_C8S ? DOA_C8S : SSC;
 
     wire [10:0] ROM_ADDR = rom_en_o ? a2bus_if.addr[10:0] : {3'b111, a2bus_if.addr[7:0]};
-    assign data_o = !IO_SELECT_N ? DOA_C8S : (rom_en_o && !IO_STROBE_N) ? DOA_C8S : SSC;
-    //assign rd_en_o = a2bus_if.rw_n && (~IO_SELECT_N /* || (rom_en_o) */ || ~DEVICE_SELECT_N);
-    assign rd_en_o = ENABLE && a2bus_if.rw_n && (!IO_SELECT_N || (rom_en_o && !IO_STROBE_N) || !DEVICE_SELECT_N);
-    //assign rd_en_o = a2bus_if.rw_n && !DEVICE_SELECT_N;
+    assign data_o = card_io_sel ? DOA_C8S : (rom_en_o && card_io_strobe) ? DOA_C8S : SSC;
+    assign rd_en_o = ENABLE && a2bus_if.rw_n && (card_io_sel || (rom_en_o && card_io_strobe) || card_dev_sel);
 
     ssc_rom rom (
         .clk (a2bus_if.clk_logic),
@@ -120,7 +136,7 @@ module SuperSerial #(
     //  Serial Port
     //
 
-    assign irq_n_o = SER_IRQ || !ENABLE;
+    assign irq_n_o = SER_IRQ || !ENABLE || !IRQ_ENABLE;
     wire SER_IRQ;
 
     glb6551 #(
@@ -134,7 +150,7 @@ module SuperSerial #(
         .IRQ(SER_IRQ),
         // IS THIS DEVICE SELECT OR IO_SELECT?
         .CS({
-            !a2bus_if.addr[3], ~DEVICE_SELECT_N
+            !a2bus_if.addr[3], card_dev_sel
         }),  // C0A8-C0AF // we should be able to use IO_SELECT_N and it should reference our slot - and make it movable i think
         .RW_N(a2bus_if.rw_n),
         .RS(a2bus_if.addr[1:0]),

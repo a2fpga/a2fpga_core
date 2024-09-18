@@ -18,6 +18,7 @@ START_FILE = $(FIRMWARE_DIR)/boot.S
 C_FILES = \
 	main.c \
 	$(INCLUDE_DIR)/a2fpga/a2fpga.c \
+	$(INCLUDE_DIR)/a2slots/a2slots.c \
 	$(INCLUDE_DIR)/soc/soc.c \
 	$(INCLUDE_DIR)/uart/uart.c \
 	$(INCLUDE_DIR)/xprintf/xprintf.c \
@@ -29,7 +30,7 @@ C_FILES = \
 all: boot.bin
 
 boot.elf: $(C_FILES) 
-	$(GCC) -march=rv32i -mabi=ilp32 -nostartfiles \
+	$(GCC) -march=rv32im -mabi=ilp32 -nostartfiles \
 	-Wl,-Bstatic,-T,$(LDS_FILE),--strip-debug,-Map=boot.map,--cref \
 	-fno-zero-initialized-in-bss -ffreestanding -Os \
 	-o boot.elf \

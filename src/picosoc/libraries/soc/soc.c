@@ -38,5 +38,5 @@ void *_sbrk(ptrdiff_t incr)
 void soc_wait(uint32_t ms)
 {
     uint32_t current_time = reg_a2fpga_system_time;
-    while (reg_a2fpga_system_time - current_time < ms) ;
+    while ((reg_a2fpga_system_time - current_time) < ms) ;
 }

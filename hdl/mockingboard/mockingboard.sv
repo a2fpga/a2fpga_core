@@ -17,11 +17,11 @@
 //
 
 module Mockingboard #(
-    parameter SLOT = 4,
+    parameter bit [7:0] ID = 2,
     parameter bit ENABLE = 1'b1
 ) (
     a2bus_if.slave a2bus_if,
-    a2mem_if.slave a2mem_if,
+    slot_if.card slot_if,
 
     output [7:0] data_o,
     output rd_en_o,
@@ -30,6 +30,10 @@ module Mockingboard #(
     output [9:0] audio_l_o,
     output [9:0] audio_r_o
 );
+
+    wire card_sel = ENABLE && (slot_if.card_id == ID) && a2bus_if.phi0;
+    wire card_dev_sel = card_sel && !slot_if.devselect_n;
+    wire card_io_sel = card_sel && !slot_if.ioselect_n;
 
     wire [7:0] pb_l_o;
     wire [7:0] pb_r_o;
@@ -55,8 +59,7 @@ module Mockingboard #(
     wire irq_l_o;
     wire irq_r_o;
 
-    wire mb_iosel_n = a2bus_if.io_select_n(ENABLE, SLOT, a2mem_if.INTCXROM);
-    assign rd_en_o = !mb_iosel_n & a2bus_if.rw_n;
+    assign rd_en_o = card_io_sel & a2bus_if.rw_n;
 
     assign data_o  = (a2bus_if.addr[7] == 1'b0) ? data_l_o : data_r_o;
 
@@ -74,8 +77,8 @@ module Mockingboard #(
         .reset  (~a2bus_if.system_reset_n),
 
         .addr(a2bus_if.addr[3:0]),
-        .wen(!a2bus_if.rw_n & !a2bus_if.addr[7] & !mb_iosel_n & ENABLE),
-        .ren(a2bus_if.rw_n & !a2bus_if.addr[7] & !mb_iosel_n & ENABLE),
+        .wen(!a2bus_if.rw_n & !a2bus_if.addr[7] & card_io_sel & ENABLE),
+        .ren(a2bus_if.rw_n & !a2bus_if.addr[7] & card_io_sel & ENABLE),
         .data_in(a2bus_if.data),
         .data_out(data_l_o),
 
@@ -141,8 +144,8 @@ module Mockingboard #(
         .reset  (~a2bus_if.system_reset_n),
 
         .addr(a2bus_if.addr[3:0]),
-        .wen(!a2bus_if.rw_n & a2bus_if.addr[7] & !mb_iosel_n & ENABLE),
-        .ren(a2bus_if.rw_n & a2bus_if.addr[7] & !mb_iosel_n & ENABLE),
+        .wen(!a2bus_if.rw_n & a2bus_if.addr[7] & card_io_sel & ENABLE),
+        .ren(a2bus_if.rw_n & a2bus_if.addr[7] & card_io_sel & ENABLE),
         .data_in(a2bus_if.data),
         .data_out(data_r_o),
 

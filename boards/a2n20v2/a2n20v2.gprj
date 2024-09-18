@@ -33,6 +33,10 @@
         <File path="../../hdl/memory/a2mem_if.sv" type="file.verilog" enable="1"/>
         <File path="../../hdl/memory/apple_memory.sv" type="file.verilog" enable="1"/>
         <File path="../../hdl/mockingboard/mockingboard.sv" type="file.verilog" enable="1"/>
+        <File path="../../hdl/slots/slot_if.sv" type="file.verilog" enable="1"/>
+        <File path="../../hdl/slots/slotmaker.sv" type="file.verilog" enable="1"/>
+        <File path="../../hdl/slots/slotmaker_config_if.sv" type="file.verilog" enable="1"/>
+        <File path="../../hdl/slots/slots.hex" type="file.other" enable="1"/>
         <File path="../../hdl/sound/apple_speaker.sv" type="file.verilog" enable="1"/>
         <File path="../../hdl/sound/audio_out.v" type="file.verilog" enable="1"/>
         <File path="../../hdl/ssc/ssc_rom.vhd" type="file.vhdl" enable="1"/>

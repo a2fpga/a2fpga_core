@@ -1,10 +1,13 @@
 #include <stdint.h>
 #include <stdbool.h>
 #include <a2fpga/a2fpga.h>
+#include <a2slots/a2slots.h>
 #include <soc/soc.h>
+#include <gpio/gpio.h>
 #include <uart/uart.h>
 #include <xprintf/xprintf.h>
 #include <a2mem/a2mem.h>
+#include <a2disk/a2disk.h>
 #include <pff/pff.h>		/* Declarations of FatFs API */
 
 //
@@ -31,18 +34,23 @@
 // interface for debugging and a simple timer interrupt for blinking the LEDs.
 //
 
-#define gpio (*(volatile uint32_t*)0x03000000)
 
 void die (		/* Stop with dying message */
 	FRESULT rc	/* FatFs return value */
 )
 {
+	reg_a2fpga_a2bus_ready = 1;
 	reg_a2fpga_video_enable = 1;
 
-	xprintf("\nDisk error: %u", rc);
+	xprintf("\nDisk error: %u\n", rc);
+
+	//reg_ws2812 = 0x00FF0000;
 
 	soc_wait(10000);
+
 	reg_a2fpga_video_enable = 0;
+
+	reg_ws2812 = 0x00FF0000;
 
 	// idle forever on error
 	for (;;) ;
@@ -50,8 +58,8 @@ void die (		/* Stop with dying message */
 
 void update_leds()
 {
-	static uint32_t status = 1;
-	gpio = (status++) & 1;
+	static uint8_t status = 1;
+	reg_led = (status++) & 1;
 }
 
 void irq_handler(uint32_t irq_mask, uint32_t *regs)
@@ -115,9 +123,12 @@ void irq_handler(uint32_t irq_mask, uint32_t *regs)
 
 		// calling sbreak within the IRQ handler will halt the system
 		xputs("STOP.\n");
-		
+
+		reg_ws2812 = 0x00FF0000;
+
 		soc_wait(10000);
 		reg_a2fpga_video_enable = 0;
+		reg_a2fpga_a2bus_ready = 1;
 		
 		soc_sbreak();
 	}
@@ -139,6 +150,8 @@ void main() {
 	// set UART clock divider for 115200 baud
     reg_uart_clkdiv = 468; // 54000000 / 115200
 
+	reg_ws2812 = 0x00FFFF00;
+
 	//xdev_out(uart_putchar);
 	//for (int i = 0; i < 10; i++) xputs("Testing Serial Port\n");
 
@@ -155,14 +168,23 @@ void main() {
 	// start timer (IRQ 0)
 	soc_timer(10000000);
 
+	shadow_ram_init();
+
+	reg_a2fpga_a2bus_ready = 1;
+
     screen_clear();
-    xputs("        A2fpga Firmware v1.0b1\n\n");
+    xputs("        A2FPGA Firmware v1.0b1\n\n");
+
+	for (int i = 0; i < 8; i++)
+	{
+		xprintf("Slot: %u Card: %u\n", i, slots_get_card(i));
+	}
 
 	FATFS fatfs;			/* File system object */
 	UINT bw, br, i;
 	uint32_t *buff=(uint32_t *)0x04400000;
 
-	xputs("\nMounting SDCard\n");
+	xputs("\n\nMounting SDCard\n");
 
 	FRESULT rc = pf_mount(&fatfs);
 	if (rc) die(rc);
@@ -176,13 +198,15 @@ void main() {
 	if (rc) die(rc);
 	
     xputs("\nKernel loaded!\n");
-    gpio = 0x00000000;
+    reg_led = 0;
 
 	// disable IRQs
 	soc_maskirq(0xffffffff);
 
 	// unregister IRQ handler
 	soc_irq(0);
+
+	reg_ws2812 = 0x0000FF00;
 
 	void (*kernel_ptr)(soc_firmware_jump_table_t*) = (void *)0x04400000;
 
