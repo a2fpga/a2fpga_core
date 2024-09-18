@@ -37,8 +37,6 @@ module top #(
     parameter bit SUPERSERIAL_IRQ_ENABLE = 1,
     parameter bit [7:0] SUPERSERIAL_ID = 3,
 
-    parameter bit [7:0] SLOT_CARDS [7:0] = '{8'd0, SUPERSERIAL_ID, 8'd0, 8'd0, MOCKINGBOARD_ID, 8'd0, 8'd0, SUPERSPRITE_ID},
-
     parameter bit CLEAR_APPLE_VIDEO_RAM = 1,    // Clear video ram on startup
     parameter bit HDMI_SLEEP_ENABLE = 1,        // Sleep HDMI output on CPU stop
     parameter bit IRQ_OUT_ENABLE = 1,           // Allow driving IRQ to Apple bus

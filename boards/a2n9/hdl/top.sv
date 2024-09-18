@@ -26,10 +26,11 @@ module top #(
     parameter bit APPLE_SPEAKER_ENABLE = 0,
 
     parameter bit MOCKINGBOARD_ENABLE = 1,
-    parameter MOCKINGBOARD_SLOT = 4,
+    parameter bit [7:0] MOCKINGBOARD_ID = 2,
 
     parameter bit SUPERSERIAL_ENABLE = 0,
-    parameter SUPERSERIAL_SLOT = 2,
+    parameter bit SUPERSERIAL_IRQ_ENABLE = 1,
+    parameter bit [7:0] SUPERSERIAL_ID = 3,
 
     parameter bit CLEAR_APPLE_VIDEO_RAM = 1,    // Clear video ram on startup
     parameter bit HDMI_SLEEP_ENABLE = 1,        // Sleep HDMI output on CPU stop
@@ -229,6 +230,26 @@ module top #(
         .vgc_data_o()
     );
 
+    // Slots
+
+    slot_if slot_if();
+    slotmaker_config_if slotmaker_config_if();
+
+    slotmaker slotmaker (
+        .a2bus_if(a2bus_if),
+        .a2mem_if(a2mem_if),
+
+        .cfg_if(slotmaker_config_if),
+
+        .slot_if(slot_if)
+    );
+
+    assign slotmaker_config_if.slot = 3'b0;
+    assign slotmaker_config_if.wr = 1'b0;
+    assign slotmaker_config_if.card_i = 8'b0;
+
+    // Video
+
     video_control_if video_control_if();
     assign video_control_if.enable = 1'b0;
     assign video_control_if.TEXT_MODE = 1'b0;
@@ -283,9 +304,10 @@ module top #(
 
     Mockingboard #(
         .ENABLE(MOCKINGBOARD_ENABLE),
-        .SLOT(MOCKINGBOARD_SLOT)
+        .ID(MOCKINGBOARD_ID)
     ) mockingboard (
         .a2bus_if(a2bus_if),  // use system_reset_n
+        .slot_if(slot_if),
 
         .data_o(mb_d_w),
         .rd_en_o(mb_rd),
@@ -308,18 +330,20 @@ module top #(
     assign uart_tx = ssc_uart_tx;
 
     SuperSerial #(
+        .CLOCK_SPEED_HZ(CLOCK_SPEED_HZ),
         .ENABLE(SUPERSERIAL_ENABLE),
-        .SLOT(SUPERSERIAL_SLOT)
+        .IRQ_ENABLE(SUPERSERIAL_IRQ_ENABLE),
+        .ID(SUPERSERIAL_ID)
     ) superserial (
         .a2bus_if(a2bus_if),
         .a2mem_if(a2mem_if),
+        .slot_if(slot_if),
 
         .data_o(ssc_d_w),
         .rd_en_o(ssc_rd),
         .irq_n_o(ssc_irq_n),
 
         .rom_en_o(ssc_rom_en),
-
         .uart_rx_i(ssc_uart_rx),
         .uart_tx_o(ssc_uart_tx)
     );
