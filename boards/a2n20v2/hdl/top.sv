@@ -253,9 +253,7 @@ module top #(
     slot_if slot_if();
     slotmaker_config_if slotmaker_config_if();
 
-    slotmaker #(
-        .SLOT_CARDS(SLOT_CARDS)
-    ) slotmaker (
+    slotmaker slotmaker (
         .a2bus_if(a2bus_if),
         .a2mem_if(a2mem_if),
 
