@@ -2,8 +2,9 @@
 /*
  *
  */
-module picosoc_gpio
-(
+module picosoc_gpio #(
+	parameter int CLOCK_SPEED_HZ = 50_000_000
+) (
 	input resetn,
 	input clk,
 	input iomem_valid,
@@ -13,25 +14,39 @@ module picosoc_gpio
 	output reg iomem_ready,
 	input [31:0] iomem_wdata,
 	input button,
-	output led);
+	output reg led,
+	output ws2812);
 
-	reg [31:0] gpio;
-	assign led = gpio[0];
+    localparam ADDR_LED = 		8'h00;
+    localparam ADDR_RGB = 		8'h04;
+    localparam ADDR_BUTTON = 	8'h08;
+
+	reg [23:0] rgb;
 
 	always @(posedge clk) begin
-		if (!resetn) begin
-			gpio <= 0;
-		end else begin
-      		iomem_ready <= 0;
-			if (iomem_valid && !iomem_ready) begin
-        		iomem_ready <= 1;
-				if (iomem_wstrb[0]) gpio[ 7: 0] <= iomem_wdata[ 7: 0];
-				if (iomem_wstrb[1]) gpio[15: 8] <= iomem_wdata[15: 8];
-				if (iomem_wstrb[2]) gpio[23:16] <= iomem_wdata[23:16];
-				if (iomem_wstrb[3]) gpio[31:24] <= iomem_wdata[31:24];
-		    	iomem_rdata <= ~button;
-			end
-		end
+      	iomem_ready <= 0;
+        iomem_rdata <= 32'b0;
+        if (iomem_valid) begin
+            if (|iomem_wstrb) begin
+                case (iomem_addr[7:2])
+                    ADDR_LED[7:2]: led <= iomem_wdata[0];
+                    ADDR_RGB[7:2]: rgb <= iomem_wdata[23:0];
+                    default: ;
+                endcase
+            end else begin
+                case (iomem_addr[7:2])
+                    ADDR_BUTTON[7:2]: iomem_rdata <= {31'b0, button};
+                    default: ;
+                endcase
+            end
+            iomem_ready <= 1;
+        end
 	end
 
+	ws2812 #(.CLK_FRE(CLOCK_SPEED_HZ)) ws2812_inst (
+		.clk(clk),
+		.rgb(rgb),
+		.WS2812(ws2812)
+	);
+	
 endmodule

@@ -87,6 +87,8 @@ module top #(
     // leds
     output reg [4:0] led,
 
+    output ws2812,
+
     // uart
     output uart_tx,
     input  uart_rx,
@@ -423,6 +425,7 @@ module top #(
 
         .button_i(s2),
         .led_o(picosoc_led),
+        .ws2812_o(ws2812),
 
         .a2bus_control_if(a2bus_control_if),
         .slotmaker_config_if(slotmaker_config_if),

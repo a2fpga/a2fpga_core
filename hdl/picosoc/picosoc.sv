@@ -42,6 +42,7 @@ module picosoc #(
 
     input  button_i,
     output led_o,
+    output ws2812_o,
 
     a2bus_control_if.control a2bus_control_if,
     slotmaker_config_if.controller slotmaker_config_if,
@@ -195,7 +196,9 @@ module picosoc #(
     wire [31:0] gpio_iomem_rdata;
     wire gpio_iomem_ready;
 
-    picosoc_gpio gpio_peripheral (
+    picosoc_gpio #(
+        .CLOCK_SPEED_HZ(CLOCK_SPEED_HZ)
+    ) gpio_peripheral (
         .clk(a2bus_if.clk_logic),
         .resetn(a2bus_if.device_reset_n),
         .iomem_valid(iomem_valid && gpio_en),
@@ -205,7 +208,8 @@ module picosoc #(
         .iomem_rdata(gpio_iomem_rdata),
         .iomem_ready(gpio_iomem_ready),
         .button(button_i),
-        .led(led_o)
+        .led(led_o),
+        .ws2812(ws2812_o)
     );
 
     wire [31:0] a2fpga_iomem_rdata;

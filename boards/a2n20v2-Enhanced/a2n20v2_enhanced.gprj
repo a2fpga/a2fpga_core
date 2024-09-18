@@ -80,6 +80,7 @@
         <File path="../../hdl/support/uart_tx.v" type="file.verilog" enable="1"/>
         <File path="../../hdl/support/via6522.vhd" type="file.vhdl" enable="1"/>
         <File path="../../hdl/support/YM2149.sv" type="file.verilog" enable="1"/>
+        <File path="../../hdl/support/ws2812.sv" type="file.verilog" enable="1"/>
         <File path="../../hdl/video/apple_video.sv" type="file.verilog" enable="1"/>
         <File path="../../hdl/video/vgc.sv" type="file.verilog" enable="1"/>
         <File path="../../hdl/video/video_control_if.sv" type="file.verilog" enable="1"/>
