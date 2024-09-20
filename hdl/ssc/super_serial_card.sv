@@ -35,9 +35,9 @@ module SuperSerial #(
 );
 
     wire card_sel = ENABLE && (slot_if.card_id == ID) && a2bus_if.phi0;
-    wire card_dev_sel = card_sel && !slot_if.devselect_n;
-    wire card_io_sel = card_sel && !slot_if.ioselect_n;
-    wire card_io_strobe = !slot_if.iostrobe_n && a2bus_if.phi0;
+    wire card_dev_sel = card_sel && !slot_if.dev_select_n;
+    wire card_io_sel = card_sel && !slot_if.io_select_n;
+    wire card_io_strobe = !slot_if.io_strobe_n && a2bus_if.phi0;
 
     wire UART51_RTS;
     wire UART51_DTR;

@@ -45,16 +45,6 @@ module slotmaker (
             card_o <= slot_cards[cfg_if.slot];
         end 
 	end
-    /*
-    reg [7:0] card_o;
-	always @(posedge a2bus_if.clk_logic) begin
-        card_o <= slot_cards[cfg_if.slot];
-		if (cfg_if.wr) begin 
-            slot_cards[cfg_if.slot] <= cfg_if.card_i;
-        end 
-	end
-    */
-
     assign cfg_if.card_o = card_o;
 
     // 1111 1100 0000 0000
@@ -80,6 +70,9 @@ module slotmaker (
 
     localparam bit [4:0] SLOT_C8_SPACE = 5'b1100_1;
 
+    reg slot_config;
+    reg [2:0] config_slot_sel;
+
     logic [2:0] slot_sel;
     logic dev_sel;
     logic io_sel;
@@ -90,7 +83,10 @@ module slotmaker (
         dev_sel = 1'b0;
         io_sel = 1'b0;
         c8_sel = 1'b0;
-        if ((a2bus_if.addr[15:7] == SLOT_DEVICE_SPACE) & !a2bus_if.m2sel_n) begin  // 0xC080 - 0xC0FF
+
+        if (slot_config) begin
+            slot_sel = config_slot_sel;
+        end else if ((a2bus_if.addr[15:7] == SLOT_DEVICE_SPACE) & !a2bus_if.m2sel_n) begin  // 0xC080 - 0xC0FF
             slot_sel = a2bus_if.addr[6:4];
             dev_sel = 1'b1;
         end else if ((a2bus_if.addr[15:11] == SLOT_IO_SPACE) & !a2bus_if.m2sel_n) begin // 0xC100 - 0xC7FF
@@ -104,6 +100,38 @@ module slotmaker (
     reg [7:0] slot_card;
     always @(posedge a2bus_if.clk_logic) begin
         slot_card <= slot_cards[slot_sel];
+    end
+
+    reg [31:0] slot_config_data;
+    wire card_enable = slot_config & |slot_card;
+    reg config_data_ready;
+
+    reg reconfig_prev;
+    wire reconfig_req = cfg_if.reconfig & !reconfig_prev;
+
+    always @(posedge a2bus_if.clk_logic) begin
+        if (!a2bus_if.system_reset_n | reconfig_req) begin
+            slot_config <= 1'b1;
+            config_slot_sel <= 3'b0;
+            slot_config_data = 'h0;
+            card_enable = 1'b0;
+            config_data_ready = 1'b0;
+        end else begin
+            reconfig_prev <= cfg_if.reconfig;
+            if (slot_config) begin
+                config_data_ready <= !config_data_ready;
+                if (config_data_ready) begin
+                    card_enable <= |slot_card;
+                    config_slot_sel <= config_slot_sel + 3'b1;
+                    if (config_slot_sel == 3'd7) begin
+                        slot_config <= 1'b0;
+                        config_slot_sel <= 3'b0;
+                        slot_config_data = 'h0;
+                        card_enable = 1'b0;
+                    end
+                end
+            end
+        end
     end
 
     logic disabled;
@@ -120,9 +148,12 @@ module slotmaker (
 
     assign slot_if.slot = slot_sel;
     assign slot_if.card_id = slot_card;
-    assign slot_if.ioselect_n = slot_ioselect_n;
-    assign slot_if.devselect_n = slot_devselect_n;
-    assign slot_if.iostrobe_n = slot_iostrobe_n;
+    assign slot_if.io_select_n = slot_ioselect_n;
+    assign slot_if.dev_select_n = slot_devselect_n;
+    assign slot_if.io_strobe_n = slot_iostrobe_n;
+    assign slot_if.config_select_n = !(slot_config & config_data_ready);
+    assign slot_if.card_config = slot_config_data;
+    assign slot_if.card_enable = card_enable;
 
 endmodule
 

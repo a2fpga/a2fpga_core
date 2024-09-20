@@ -32,8 +32,8 @@ module Mockingboard #(
 );
 
     wire card_sel = ENABLE && (slot_if.card_id == ID) && a2bus_if.phi0;
-    wire card_dev_sel = card_sel && !slot_if.devselect_n;
-    wire card_io_sel = card_sel && !slot_if.ioselect_n;
+    wire card_dev_sel = card_sel && !slot_if.dev_select_n;
+    wire card_io_sel = card_sel && !slot_if.io_select_n;
 
     wire [7:0] pb_l_o;
     wire [7:0] pb_r_o;
