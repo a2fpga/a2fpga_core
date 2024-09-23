@@ -40,7 +40,7 @@ module SuperSerial #(
         if (!a2bus_if.system_reset_n) begin
             card_enable <= 1'b0;
         end else if (!slot_if.config_select_n) begin
-            if (slot_if.card_id == 8'd0) begin  // disable all cards if no card is selected
+            if (slot_if.slot == 3'd0) begin  // disable all cards when slot 0 is selected for configuration
                 card_enable <= 1'b0;
             end else if (slot_if.card_id == ID) begin // enable this card
                 card_enable <= slot_if.card_enable && ENABLE;

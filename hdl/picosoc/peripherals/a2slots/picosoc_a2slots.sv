@@ -47,7 +47,18 @@ module picosoc_a2slots (
     assign slotmaker_config_if.slot = slot;
     assign slotmaker_config_if.card_i = card;
     assign slotmaker_config_if.wr = wr;
-    assign slotmaker_config_if.reconfig = wr && iomem_addr[8];
+
+    // trigger the slotmaker to reconfigure on write
+    //
+    // reconfiguration takes 16 clock cycles but can
+    // be restarted at any time so it's safe to do this
+    //
+    // PicoRV32 takes 4 cycles per instruction so a
+    // very tight loop might restart the reconfiguration
+    // before it completes, although it's unlikely
+    // and should be harmless if it does
+    //
+    assign slotmaker_config_if.reconfig = wr;
 
     always @(posedge clk)
         iomem_rdata <= {24'b0, slotmaker_config_if.card_o};
