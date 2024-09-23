@@ -113,21 +113,18 @@ module slotmaker (
         if (!a2bus_if.system_reset_n | reconfig_req) begin
             slot_config <= 1'b1;
             config_slot_sel <= 3'b0;
-            slot_config_data = 'h0;
-            card_enable = 1'b0;
-            config_data_ready = 1'b0;
+            slot_config_data <= 'h0;
+            config_data_ready <= 1'b0;
         end else begin
             reconfig_prev <= cfg_if.reconfig;
             if (slot_config) begin
                 config_data_ready <= !config_data_ready;
                 if (config_data_ready) begin
-                    card_enable <= |slot_card;
                     config_slot_sel <= config_slot_sel + 3'b1;
                     if (config_slot_sel == 3'd7) begin
                         slot_config <= 1'b0;
                         config_slot_sel <= 3'b0;
-                        slot_config_data = 'h0;
-                        card_enable = 1'b0;
+                        slot_config_data <= 'h0;
                     end
                 end
             end

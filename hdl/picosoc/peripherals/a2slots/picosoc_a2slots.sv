@@ -47,6 +47,7 @@ module picosoc_a2slots (
     assign slotmaker_config_if.slot = slot;
     assign slotmaker_config_if.card_i = card;
     assign slotmaker_config_if.wr = wr;
+    assign slotmaker_config_if.reconfig = wr && iomem_addr[8];
 
     always @(posedge clk)
         iomem_rdata <= {24'b0, slotmaker_config_if.card_o};

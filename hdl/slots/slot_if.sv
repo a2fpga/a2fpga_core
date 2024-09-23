@@ -16,7 +16,7 @@ interface slot_if ();
         output card_id,
         output io_select_n,
         output dev_select_n,
-        output io_strobe_n
+        output io_strobe_n,
 
         output config_select_n,
         output card_config,
@@ -28,7 +28,7 @@ interface slot_if ();
         input card_id,
         input io_select_n,
         input dev_select_n,
-        input io_strobe_n
+        input io_strobe_n,
 
         input config_select_n,
         input card_config,
