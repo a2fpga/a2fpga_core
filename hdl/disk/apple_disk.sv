@@ -30,7 +30,21 @@ module DiskII #(
 
 );
 
-    wire card_sel = ENABLE && (slot_if.card_id == ID) && a2bus_if.phi0;
+    reg card_enable;
+
+    always @(posedge a2bus_if.clk_logic) begin
+        if (!a2bus_if.system_reset_n) begin
+            card_enable <= 1'b0;
+        end else if (!slot_if.config_select_n) begin
+            if (slot_if.card_id == 8'd0) begin  // disable all cards if no card is selected
+                card_enable <= 1'b0;
+            end else if (slot_if.card_id == ID) begin // enable this card
+                card_enable <= slot_if.card_enable && ENABLE;
+            end
+        end
+    end
+
+    wire card_sel = card_enable && (slot_if.card_id == ID) && a2bus_if.phi0;
     wire card_dev_sel = card_sel && !slot_if.dev_select_n;
     wire card_io_sel = card_sel && !slot_if.io_select_n;
 
