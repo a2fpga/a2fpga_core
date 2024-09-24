@@ -34,10 +34,24 @@ module SuperSerial #(
 
 );
 
-    wire card_sel = ENABLE && (slot_if.card_id == ID) && a2bus_if.phi0;
-    wire card_dev_sel = card_sel && !slot_if.devselect_n;
-    wire card_io_sel = card_sel && !slot_if.ioselect_n;
-    wire card_io_strobe = !slot_if.iostrobe_n && a2bus_if.phi0;
+    reg card_enable;
+
+    always @(posedge a2bus_if.clk_logic) begin
+        if (!a2bus_if.system_reset_n) begin
+            card_enable <= 1'b0;
+        end else if (!slot_if.config_select_n) begin
+            if (slot_if.slot == 3'd0) begin  // disable all cards when slot 0 is selected for configuration
+                card_enable <= 1'b0;
+            end else if (slot_if.card_id == ID) begin // enable this card
+                card_enable <= slot_if.card_enable && ENABLE;
+            end
+        end
+    end
+
+    wire card_sel = card_enable && (slot_if.card_id == ID) && a2bus_if.phi0;
+    wire card_dev_sel = card_sel && !slot_if.dev_select_n;
+    wire card_io_sel = card_sel && !slot_if.io_select_n;
+    wire card_io_strobe = !slot_if.io_strobe_n && a2bus_if.phi0;
 
     wire UART51_RTS;
     wire UART51_DTR;
@@ -124,7 +138,7 @@ module SuperSerial #(
 
     wire [10:0] ROM_ADDR = rom_en_o ? a2bus_if.addr[10:0] : {3'b111, a2bus_if.addr[7:0]};
     assign data_o = card_io_sel ? DOA_C8S : (rom_en_o && card_io_strobe) ? DOA_C8S : SSC;
-    assign rd_en_o = ENABLE && a2bus_if.rw_n && (card_io_sel || (rom_en_o && card_io_strobe) || card_dev_sel);
+    assign rd_en_o = card_enable && a2bus_if.rw_n && (card_io_sel || (rom_en_o && card_io_strobe) || card_dev_sel);
 
     ssc_rom rom (
         .clk (a2bus_if.clk_logic),
@@ -136,7 +150,7 @@ module SuperSerial #(
     //  Serial Port
     //
 
-    assign irq_n_o = SER_IRQ || !ENABLE || !IRQ_ENABLE;
+    assign irq_n_o = SER_IRQ || !card_enable || !IRQ_ENABLE;
     wire SER_IRQ;
 
     glb6551 #(
