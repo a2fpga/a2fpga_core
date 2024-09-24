@@ -2,14 +2,15 @@
 * text=auto
 
 *.gprj linguist-vendored
+*.fs linguist-vendored
 impl/** linguist-vendored
 boards/a2n9/impl/** linguist-vendored
 boards/a2n20v1/impl/** linguist-vendored
 boards/a2n20v2/impl/** linguist-vendored
 boards/a2n20v2_enhanced/impl/** linguist-vendored
+releases/** linguist-vendored
 
 src/picosoc/libraries/ff/** linguist-vendored
 src/picosoc/libraries/pff/** linguist-vendored
 src/picosoc/libraries/xprintf/** linguist-vendored
 
-releases/** linguist-vendored
