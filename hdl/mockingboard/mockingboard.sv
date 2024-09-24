@@ -31,9 +31,23 @@ module Mockingboard #(
     output [9:0] audio_r_o
 );
 
-    wire card_sel = ENABLE && (slot_if.card_id == ID) && a2bus_if.phi0;
-    wire card_dev_sel = card_sel && !slot_if.devselect_n;
-    wire card_io_sel = card_sel && !slot_if.ioselect_n;
+    reg card_enable;
+
+    always @(posedge a2bus_if.clk_logic) begin
+        if (!a2bus_if.system_reset_n) begin
+            card_enable <= 1'b0;
+        end else if (!slot_if.config_select_n) begin
+            if (slot_if.slot == 3'd0) begin  // disable all cards when slot 0 is selected for configuration
+                card_enable <= 1'b0;
+            end else if (slot_if.card_id == ID) begin // enable this card
+                card_enable <= slot_if.card_enable && ENABLE;
+            end
+        end
+    end
+
+    wire card_sel = card_enable && (slot_if.card_id == ID) && a2bus_if.phi0;
+    wire card_dev_sel = card_sel && !slot_if.dev_select_n;
+    wire card_io_sel = card_sel && !slot_if.io_select_n;
 
     wire [7:0] pb_l_o;
     wire [7:0] pb_r_o;
@@ -66,7 +80,7 @@ module Mockingboard #(
     // Contrary to some schematics, Mockingboards and Phasors only use IRQ, not NMI
     // Possibly some some versions of the Mockingboard used NMI, but inspected boards
     // do not have the NMI line connected.
-    assign irq_n_o = (~(irq_l_o | irq_r_o)) | (~ENABLE);
+    assign irq_n_o = (~(irq_l_o | irq_r_o)) | (~card_enable);
 
     // Left Channel
 
@@ -77,8 +91,8 @@ module Mockingboard #(
         .reset  (~a2bus_if.system_reset_n),
 
         .addr(a2bus_if.addr[3:0]),
-        .wen(!a2bus_if.rw_n & !a2bus_if.addr[7] & card_io_sel & ENABLE),
-        .ren(a2bus_if.rw_n & !a2bus_if.addr[7] & card_io_sel & ENABLE),
+        .wen(!a2bus_if.rw_n & !a2bus_if.addr[7] & card_io_sel & card_enable),
+        .ren(a2bus_if.rw_n & !a2bus_if.addr[7] & card_io_sel & card_enable),
         .data_in(a2bus_if.data),
         .data_out(data_l_o),
 
@@ -111,7 +125,7 @@ module Mockingboard #(
 
     YM2149 psg_left (
         .CLK(a2bus_if.clk_logic),
-        .CE(a2bus_if.phi1_negedge & ENABLE),
+        .CE(a2bus_if.phi1_negedge & card_enable),
         .RESET(~pb_l_o[2]),
         .BDIR(pb_l_o[1]),
         .BC(pb_l_o[0]),
@@ -144,8 +158,8 @@ module Mockingboard #(
         .reset  (~a2bus_if.system_reset_n),
 
         .addr(a2bus_if.addr[3:0]),
-        .wen(!a2bus_if.rw_n & a2bus_if.addr[7] & card_io_sel & ENABLE),
-        .ren(a2bus_if.rw_n & a2bus_if.addr[7] & card_io_sel & ENABLE),
+        .wen(!a2bus_if.rw_n & a2bus_if.addr[7] & card_io_sel & card_enable),
+        .ren(a2bus_if.rw_n & a2bus_if.addr[7] & card_io_sel & card_enable),
         .data_in(a2bus_if.data),
         .data_out(data_r_o),
 
@@ -178,7 +192,7 @@ module Mockingboard #(
 
     YM2149 psg_right (
         .CLK(a2bus_if.clk_logic),
-        .CE(a2bus_if.phi1_negedge & ENABLE),
+        .CE(a2bus_if.phi1_negedge & card_enable),
         .RESET(~pb_r_o[2]),
         .BDIR(pb_r_o[1]),
         .BC(pb_r_o[0]),

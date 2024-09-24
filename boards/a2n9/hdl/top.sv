@@ -247,6 +247,7 @@ module top #(
     assign slotmaker_config_if.slot = 3'b0;
     assign slotmaker_config_if.wr = 1'b0;
     assign slotmaker_config_if.card_i = 8'b0;
+    assign slotmaker_config_if.reconfig = 1'b0;
 
     // Video
 

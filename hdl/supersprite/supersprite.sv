@@ -76,9 +76,23 @@ module SuperSprite #(
 
 );
 
-    wire card_sel = ENABLE && (slot_if.card_id == ID) && a2bus_if.phi0;
-    wire card_dev_sel = card_sel && !slot_if.devselect_n;
-    wire card_io_sel = card_sel && !slot_if.ioselect_n;
+    reg card_enable;
+
+    always @(posedge a2bus_if.clk_logic) begin
+        if (!a2bus_if.system_reset_n) begin
+            card_enable <= 1'b0;
+        end else if (!slot_if.config_select_n) begin
+            if (slot_if.slot == 3'd0) begin  // disable all cards when slot 0 is selected for configuration
+                card_enable <= 1'b0;
+            end else if (slot_if.card_id == ID) begin // enable this card
+                card_enable <= slot_if.card_enable && ENABLE;
+            end
+        end
+    end
+
+    wire card_sel = card_enable && (slot_if.card_id == ID) && a2bus_if.phi0;
+    wire card_dev_sel = card_sel && !slot_if.dev_select_n;
+    wire card_io_sel = card_sel && !slot_if.io_select_n;
 
     localparam [3:0] VDP_VRAM_ADDRESS = 4'h0;
     localparam [3:0] VDP_REGISTER_ADDRESS = 4'h1;
@@ -105,7 +119,7 @@ module SuperSprite #(
         if (!a2bus_if.system_reset_n) begin
             vdp_overlay_sw <= FORCE_VDP_OVERLAY;
             apple_video_sw <= 1'b1;
-        end else if (ENABLE && (slot_if.card_id == ID) && (a2bus_if.phi1_posedge) && !slot_if.devselect_n && !a2bus_if.rw_n) begin
+        end else if (card_enable && (slot_if.card_id == ID) && (a2bus_if.phi1_posedge) && !slot_if.dev_select_n && !a2bus_if.rw_n) begin
             case (a2bus_if.addr[3:0])
                 VIDEO_SWITCH_APPLE_OFF: apple_video_sw <= 1'b0;
                 VIDEO_SWITCH_APPLE_ON:  apple_video_sw <= 1'b1;
@@ -132,7 +146,7 @@ module SuperSprite #(
     wire [0:7] vdp_d_o;
 
     wire vdp_irq_n_o;
-    assign irq_n_o = vdp_irq_n_o || !ENABLE;
+    assign irq_n_o = vdp_irq_n_o || !card_enable;
 
     wire [3:0] vdp_r;
     wire [3:0] vdp_g;
@@ -176,7 +190,7 @@ module SuperSprite #(
 
     YM2149 ssp_psg (
         .CLK(a2bus_if.clk_logic),
-        .CE(a2bus_if.phi1_negedge & ENABLE),
+        .CE(a2bus_if.phi1_negedge & card_enable),
         .RESET(!a2bus_if.system_reset_n),
         .BDIR(ssp_psg_address_wr || ssp_psg_data_wr),
         .BC(ssp_psg_data_rd || ssp_psg_address_wr),
@@ -219,7 +233,7 @@ module SuperSprite #(
     wire vdp_black = (vdp_r == 4'b0) && (vdp_g == 4'b0) && (vdp_b == 4'b0);
 
     // use the vdp pixel when either the vdp is in ext video mode and not transparent or in ssp overlay mode and not black
-    wire vdp_pixel_en = ENABLE && vdp_overlay_sw && ((vdp_ext_video && !vdp_transparent) || (!vdp_ext_video && !vdp_black));
+    wire vdp_pixel_en = card_enable && vdp_overlay_sw && ((vdp_ext_video && !vdp_transparent) || (!vdp_ext_video && !vdp_black));
 
     assign ssp_r_o = vdp_pixel_en ? {vdp_r, 4'b0} : video_in_r;
     assign ssp_g_o = vdp_pixel_en ? {vdp_g, 4'b0} : video_in_g;
