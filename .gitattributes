@@ -11,3 +11,5 @@ boards/a2n20v2_enhanced/impl/** linguist-vendored
 src/picosoc/libraries/ff/** linguist-vendored
 src/picosoc/libraries/pff/** linguist-vendored
 src/picosoc/libraries/xprintf/** linguist-vendored
+
+releases/** linguist-vendored
