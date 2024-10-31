@@ -54,8 +54,8 @@ You will need the following:
         - Run `openfpgaloader -b tangnano20k -f a2n20v2.fs`
 
 - For updating the bitstream on the A2FPGA on Windows, or rebuilding or developing the A2FPGA project on Windows or Linux, you will need the Gowin V1.9.9Beta-4 Education Edition IDE (or later)
-    - [Windows](https://cdn.gowinsemi.com.cn/Gowin_V1.9.9Beta-4_Education_win.zip) 
-    - [Linux](https://cdn.gowinsemi.com.cn/Gowin_V1.9.9Beta-4_Education.tar.gz)
+    - [Windows](https://cdn.gowinsemi.com.cn/Gowin_V1.9.9.03_Education_x64_win.zip) 
+    - [Linux](https://cdn.gowinsemi.com.cn/Gowin_V1.9.9.03_Education_linux.tar.gz)
     - For updating the *A2N20v2* card using the Gowin Programmer from the above downloads, do the following:
         - Download the [a2n20v2.fs](boards/a2n20v2/impl/pnr/a2n20v2.fs) bitstream file by right-clicking on the link and choosing *Save Link As...*
         - Attach a USB cable from your PC to the Tang Nano 20K USB-C socket
