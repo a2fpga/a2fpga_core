@@ -53,9 +53,9 @@ You will need the following:
         - Make sure you've connected the Tang Nano 20K module via USC-C to your Mac or Linux computer
         - Run `openfpgaloader -b tangnano20k -f a2n20v2.fs`
 
-- For updating the bitstream on the A2FPGA on Windows, or rebuilding or developing the A2FPGA project on Windows or Linux, you will need the Gowin V1.9.9Beta-4 Education Edition IDE (or later)
-    - [Windows](https://cdn.gowinsemi.com.cn/Gowin_V1.9.9.03_Education_x64_win.zip) 
-    - [Linux](https://cdn.gowinsemi.com.cn/Gowin_V1.9.9.03_Education_linux.tar.gz)
+- For updating the bitstream on the A2FPGA on Windows, or rebuilding or developing the A2FPGA project on Windows or Linux, you will need the Gowin V1.9.8.11 Education Edition IDE. Please note that later versions do not yet function properly:
+    - [Windows](https://dl.sipeed.com/shareURL/TANG/gowin_ide) 
+    - [Linux](https://dl.sipeed.com/shareURL/TANG/gowin_ide)
     - For updating the *A2N20v2* card using the Gowin Programmer from the above downloads, do the following:
         - Download the [a2n20v2.fs](boards/a2n20v2/impl/pnr/a2n20v2.fs) bitstream file by right-clicking on the link and choosing *Save Link As...*
         - Attach a USB cable from your PC to the Tang Nano 20K USB-C socket
@@ -76,7 +76,7 @@ those cards disabled in top.v.
 (Current version, recommended for most users)
 
 - Compatible with the II, II+, //e, and IIgs
-- Supports 40/80 column text, lo-res, hi-res, and super-hires graphics
+- Supports 40/80 column text, lo-res, double lo-res, hi-res, double hi-res, and super-hires graphics
 - For use with a IIgs, set DIP switch 4 to on.  For all other models, DIP switch 4 must be off.
 - Provides video and sound output as well as providing Supersprite compatibility
 - Uses the larger [Tang Nano 20K](https://wiki.sipeed.com/hardware/en/tang/tang-nano-20k/nano-20k.html)
@@ -133,7 +133,7 @@ For ROM 00/01 IIgs models (such as the Woz edition), the A2N20v2 must be placed 
 ## HDMI Apple II Graphics
 
 The Multicard core provides an 720x480 HDMI output of the Apple II, //e, and IIgs
-display.  It supports 40 and 80 column text as well as lo-res, hi-res, double-hires, and
+display.  It supports 40 and 80 column text as well as lo-res, hi-res, double-hires, double-lores, and
 super-hires graphics modes (IIgs modes currently only available on A2N20v2 cards).
 
 The Multicard code has a custom graphics pipeline that attempts to provide
