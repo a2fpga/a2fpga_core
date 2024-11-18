@@ -68,9 +68,9 @@ You will need the following:
 Install the A2FPGA card into any slot in your Apple II or //e.  IIgs users with ROM 00/01 models will need to install the card in slot 3.  Please note that
 the default configuration assumes that slots 4 and 7 are empty as it uses
 the memory addresses for these to support Mockingboard and
-SuperSprite software.  If you are using a build that provides Super Serial Card support, you'll need Slot 1 empty as well.  If you already have cards in those slots and plan to
+SuperSprite software.  If you are using a build that provides Super Serial Card support, you'll need Slot 2 empty as well.  If you already have cards in those slots and plan to
 continue using them, you'll need to build a version of the Multicard core with
-those cards disabled in top.v.
+those cards disabled in top.sv.
 
 ### Using the A2N20 Version 2
 (Current version, recommended for most users)
@@ -180,7 +180,7 @@ although TMS5220 voice support is not currently implemented.
 
 By default, the Multicard core emulates a SuperSprite card in slot 7 although the A2FPGA
 card can physically be in any slot.  The slot configuration can be changed
-in the top.v file.
+in the top.sv file.
 
 ## Mockingboard
 
@@ -198,7 +198,7 @@ SC-01](https://en.wikipedia.org/wiki/Votrax) used on the Mockingboard.
 
 By default, the Multicard emulates a Mockingboard in slot 4 although the A2FPGA
 card can physically be in any slot.  Slot position is configurable in the
-top.v file.
+top.sv file.
 
 ## Apple II and IIgs Sound
 
