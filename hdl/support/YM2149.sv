@@ -77,7 +77,7 @@ reg env_reset;
 always @(posedge CLK) begin
 	if(RESET) begin
 		ymreg     <= '{default:0};
-		ymreg[7]  <= '1;
+		//ymreg[7]  <= '1;
 		addr      <= '0;
 		env_reset <= 0;
 		address_latched <= 0;
