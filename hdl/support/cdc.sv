@@ -24,13 +24,13 @@ module cdc (
             i_stable <= 1'b0;
     end
 
-    reg [2:0] fifo = 3'b0  /*synthesis syn_keep=1*/;
+    reg [1:0] fifo = 2'b0  /*synthesis syn_keep=1*/;
 
-    always @(posedge clk) fifo <= {fifo[1:0], i_stable};
+    always @(posedge clk) fifo <= {fifo[0], i_stable};
 
-    assign o   = fifo[2];
-    assign o_n = !fifo[2];
-    assign o_posedge   = (fifo[2:1] == 2'b01);
-    assign o_negedge = (fifo[2:1] == 2'b10);
+    assign o   = fifo[1];
+    assign o_n = !fifo[1];
+    assign o_posedge   = (fifo == 2'b01);
+    assign o_negedge = (fifo == 2'b10);
 
 endmodule
