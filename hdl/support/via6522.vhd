@@ -381,7 +381,7 @@ begin
             when X"D" => -- IFR
                 data_out  <= irq_out & irq_flags;
             when X"E" => -- IER
-                data_out  <= '0' & irq_mask;
+                data_out  <= '1' & irq_mask;
             when X"F" => -- ORA
                 data_out  <= ira;
             when others =>
@@ -441,8 +441,8 @@ begin
                 ca2_pulse_o     <= '1';
                 cb2_handshake_o <= '1';
                 cb2_pulse_o     <= '1';
-                timer_a_latch  <= latch_reset_pattern;
-                timer_b_latch  <= latch_reset_pattern;
+                --timer_a_latch  <= latch_reset_pattern;
+                --timer_b_latch  <= latch_reset_pattern;
             end if;
         end if;
     end process;

@@ -68,6 +68,7 @@ assign ACTIVE  = ~ymreg[7][5:0];
 assign IOA_out = ymreg[14];
 assign IOB_out = ymreg[15];
 
+reg address_latched;
 reg [7:0] addr;
 reg [7:0] ymreg[16];
 
@@ -76,14 +77,17 @@ reg env_reset;
 always @(posedge CLK) begin
 	if(RESET) begin
 		ymreg     <= '{default:0};
-		ymreg[7]  <= '1;
+		//ymreg[7]  <= '1;
 		addr      <= '0;
 		env_reset <= 0;
+		address_latched <= 0;
 	end else begin
 		env_reset <= 0;
 		if(BDIR) begin
-			if(BC) addr <= DI;
-			else if(!addr[7:4]) begin
+			if(BC) begin
+				addr <= DI;
+				address_latched <= 1;
+			end else if(address_latched & !addr[7:4]) begin
 				ymreg[addr[3:0]] <= DI;
 				env_reset <= (addr == 13);
 			end
@@ -96,7 +100,7 @@ assign DO = dout;
 reg [7:0] dout;
 always_comb begin
 	dout = 8'hFF;
-	if(~BDIR & BC & !addr[7:4]) begin
+	if(address_latched & ~BDIR & BC & !addr[7:4]) begin
 		case(addr[3:0])
 			 0: dout = ymreg[0];
 			 1: dout = ymreg[1][3:0];

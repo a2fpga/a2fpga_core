@@ -108,15 +108,15 @@ module Mockingboard #(
 
         .ca1_i(1'b1),
         .ca2_o(),
-        .ca2_i(1'b1),
+        .ca2_i(1'b0),
         .ca2_t(),
 
         .cb1_o(),
-        .cb1_i(1'b1),
+        .cb1_i(1'b0),
         .cb1_t(),
 
         .cb2_o(),
-        .cb2_i(1'b1),
+        .cb2_i(1'b0),
         .cb2_t(),
 
         .irq(irq_l_o)
@@ -175,15 +175,15 @@ module Mockingboard #(
 
         .ca1_i(1'b1),
         .ca2_o(),
-        .ca2_i(1'b1),
+        .ca2_i(1'b0),
         .ca2_t(),
 
         .cb1_o(),
-        .cb1_i(1'b1),
+        .cb1_i(1'b0),
         .cb1_t(),
 
         .cb2_o(),
-        .cb2_i(1'b1),
+        .cb2_i(1'b0),
         .cb2_t(),
 
         .irq(irq_r_o)
