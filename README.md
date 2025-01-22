@@ -93,7 +93,7 @@ The A2N20v2 has a 4-switch DIP switch that controls the following settings:
 3. Power-on-Reset Hold - Delay Apple II start-up until FPGA is initialized and running
 4. Apple IIgs - Set to on when installed in an Apple IIgs
 
-For ROM 00/01 IIgs models (such as the Woz edition), the A2N20v2 must be placed in Slot 3.  For ROM 03 models, it should work in any slot. This is because it requires the M2B0 signal which is only present in Slot 3 of the original IIgs models, but which is present in slots 1 to size of the ROM 03 model. 
+For ROM 00/01 IIgs models (such as the Woz edition), the A2N20v2 must be placed in Slot 3.  For ROM 03 models, it should work in any slot. This is because it requires the M2B0 signal which is only present in Slot 3 of the original IIgs models, but which is present in slots 1-6 of the ROM 03 model. 
 
 [A2N20v2 Board Support Project (Schematics, Project Files)](boards/a2n20v2/)
 
