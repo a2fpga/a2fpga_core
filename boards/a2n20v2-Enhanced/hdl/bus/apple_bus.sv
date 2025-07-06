@@ -30,13 +30,14 @@
 
 module apple_bus #(
     parameter bit IRQ_OUT_ENABLE = 1,
+    parameter bit INH_OUT_ENABLE = 1,
     parameter bit BUS_DATA_OUT_ENABLE = 1,
-    parameter int CLOCK_SPEED_HZ = 50_000_000,
+    parameter int CLOCK_SPEED_HZ = 54_000_000,
     parameter int APPLE_HZ = 14_318_181,
     parameter int CPU_HZ = APPLE_HZ / 14,                   // 1_022_727
-    parameter int CYCLE_COUNT = CLOCK_SPEED_HZ / CPU_HZ,    // 49
-    parameter int PHASE_COUNT = CYCLE_COUNT / 2,            // 24
-    parameter int READ_COUNT = CYCLE_COUNT / 3,             // 16
+    parameter int CYCLE_COUNT = CLOCK_SPEED_HZ / CPU_HZ,    // 52
+    parameter int PHASE_COUNT = CYCLE_COUNT / 2,            // 26
+    parameter int READ_COUNT = CYCLE_COUNT / 3,             // 17
     parameter int WRITE_COUNT = CYCLE_COUNT / 5             // 10
 ) (
     a2bus_if.master a2bus_if,
@@ -55,6 +56,8 @@ module apple_bus #(
     input [7:0] data_out_i,
 
     input irq_n_i,
+
+    input inh_n_i,
 
     output reg [3:0] dip_switches_n_o,
 
@@ -78,9 +81,17 @@ module apple_bus #(
         if (!a2bus_if.device_reset_n) begin
             control_out_r <= 8'hFF;
         end else begin
+            control_out_r[1] <=  inh_n_i || !INH_OUT_ENABLE;
             control_out_r[2] <=  irq_n_i || !IRQ_OUT_ENABLE;
         end
     end
+
+    assign a2bus_if.control_inh_n = control_in_r[1];
+    assign a2bus_if.control_irq_n = control_in_r[2];
+    assign a2bus_if.control_rdy_n = control_in_r[3];
+    assign a2bus_if.control_dma_n = control_in_r[4];
+    assign a2bus_if.control_nmi_n = control_in_r[5];
+    assign a2bus_if.control_reset_n = control_in_r[6];
 
     wire sw_gs_w = !dip_switches_n_o[3];
     assign a2bus_if.sw_gs = sw_gs_w;
@@ -122,6 +133,8 @@ module apple_bus #(
     wire io_state_pending = (next_io_state != IO_IDLE);
     reg [2:0] io_cycle = 0;
 
+    reg [15:0] next_addr_r;
+
     always @(posedge a2bus_if.clk_logic) begin
 
         if (!a2bus_if.device_reset_n) begin
@@ -144,15 +157,17 @@ module apple_bus #(
         end else begin
             data_in_strobe_r <= 1'b0;
 
-            if (a2bus_if.phi1 && (phase_cycles_r == READ_COUNT)) begin
-                next_io_state <= IO_READ_ADDR;
-            end else if (a2bus_if.phi0 && (phase_cycles_r == WRITE_COUNT) && data_out_en_i) begin
-                next_io_state <= IO_WRITE_DATA;
-            end else if (a2bus_if.phi0 && (phase_cycles_r == READ_COUNT)) begin
-                next_io_state <= IO_READ_DATA;
-            end else if (!io_state_pending && (control_out_r != prev_control_out_r)) begin
-                next_io_state <= IO_WRITE_GPIO;
-                prev_control_out_r <= control_out_r;
+            if (io_state != IO_INIT) begin
+                if (a2bus_if.phi1 && (phase_cycles_r == READ_COUNT)) begin
+                    next_io_state <= IO_READ_ADDR;
+                end else if (a2bus_if.phi0 && (phase_cycles_r == WRITE_COUNT) && data_out_en_i) begin
+                    next_io_state <= IO_WRITE_DATA;
+                end else if (a2bus_if.phi0 && (phase_cycles_r == READ_COUNT)) begin
+                    next_io_state <= IO_READ_DATA;
+                end else if (!io_state_pending && (control_out_r != prev_control_out_r)) begin
+                    next_io_state <= IO_WRITE_GPIO;
+                    prev_control_out_r <= control_out_r;
+                end
             end
 
             case (io_state) 
@@ -207,15 +222,17 @@ module apple_bus #(
                         a2_bridge_sel_o <= 3'd2;
                         a2_bridge_rd_n_o <= 1'b0;
                     end else if (io_cycle == 3'd1) begin
-                        addr_r[7:0] <= a2_bridge_d_i;
+                        next_addr_r[7:0] <= a2_bridge_d_i;
                         a2_bridge_sel_o <= 3'd3;
                     end else if (io_cycle == 3'd2) begin
-                        addr_r[15:8] <= a2_bridge_d_i;
+                        next_addr_r[15:8] <= a2_bridge_d_i;
                         a2_bridge_sel_o <= 3'd0;
                     end else if (io_cycle == 3'd3) begin
                         rw_n_r <= a2_bridge_d_i[0];
                         a2_bridge_sel_o <= 3'd4;
                     end else if (io_cycle == 3'd4) begin
+                        // update all address-related lines on the same cycle
+                        addr_r <= next_addr_r;
                         m2b0_r <= a2_bridge_d_i[0];
                         m2sel_n_r <= a2_bridge_d_i[1];
                         a2_bridge_rd_n_o <= 1'b1;

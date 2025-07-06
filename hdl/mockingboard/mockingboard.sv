@@ -147,7 +147,8 @@ module Mockingboard #(
         .IOB_out()
     );
 
-    assign audio_l_o = (({2'b00, psg_al_o}) + ({2'b00, psg_bl_o}) + ({2'b00, psg_cl_o}));
+    // maximum value is 10 bits (255 + 255 + 255)
+    assign audio_l_o = psg_al_o + psg_bl_o + psg_cl_o;
 
     // Right Channel
 
@@ -214,6 +215,6 @@ module Mockingboard #(
         .IOB_out()
     );
 
-    assign audio_r_o = (({2'b00, psg_ar_o}) + ({2'b00, psg_br_o}) + ({2'b00, psg_cr_o}));
+    assign audio_r_o = psg_ar_o + psg_br_o + psg_cr_o;
 
 endmodule

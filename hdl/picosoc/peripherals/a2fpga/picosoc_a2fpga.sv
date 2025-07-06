@@ -33,6 +33,9 @@ module picosoc_a2fpga #(parameter int CLOCK_SPEED_HZ = 54_000_000)
 	output reg iomem_ready,
 	input [31:0] iomem_wdata,
 
+    input cardrom_active_i,
+    output cardrom_release_o,
+
     a2bus_if.slave a2bus_if,
     a2mem_if.slave a2mem_if,
     a2bus_control_if.control a2bus_control_if,
@@ -60,6 +63,15 @@ module picosoc_a2fpga #(parameter int CLOCK_SPEED_HZ = 54_000_000)
     localparam ADDR_A2_DATA =                   8'h48;      // 
     localparam ADDR_COUNTDOWN =                 8'h4C;      // 
     localparam ADDR_A2BUS_READY =               8'h50;      //
+    localparam ADDR_CARDROM_RELEASE =           8'h54;      //
+    localparam ADDR_CARDROM_ACTIVE =            8'h58;      //
+    localparam ADDR_A2_RESET =                  8'h5C;      //
+    localparam ADDR_A2BUS_INH_N =               8'h60;      //
+    localparam ADDR_A2BUS_IRQ_N =               8'h64;      //
+    localparam ADDR_A2BUS_RDY_N =               8'h68;      //
+    localparam ADDR_A2BUS_DMA_N =               8'h6C;      //
+    localparam ADDR_A2BUS_NMI_N =               8'h70;      //
+    localparam ADDR_A2BUS_RESET_N =             8'h74;      //
 
     reg [7:0] keycode_r;
 
@@ -109,6 +121,11 @@ module picosoc_a2fpga #(parameter int CLOCK_SPEED_HZ = 54_000_000)
     reg a2bus_ready_r;
     assign a2bus_control_if.ready = a2bus_ready_r;
 
+    reg cardrom_release_r;
+    assign cardrom_release_o = cardrom_release_r;
+
+    reg a2_reset_r;
+
     assign video_control_if.enable = video_enable_r;
     assign video_control_if.TEXT_MODE = text_mode_r;
     assign video_control_if.MIXED_MODE = mixed_mode_r;
@@ -127,6 +144,23 @@ module picosoc_a2fpga #(parameter int CLOCK_SPEED_HZ = 54_000_000)
     assign video_control_if.MONOCHROME_DHIRES_MODE = monochrome_dhires_mode_r;
     assign video_control_if.SHRG_MODE = shrg_mode_r;
 
+    wire a2_reset_debounced_w;
+    debounce #(
+        .DEBOUNCE_TIME(10000)
+    ) debounce_a2reset (
+        .clk(clk),
+        .rst(~a2bus_if.device_reset_n),
+        .i(a2bus_if.system_reset_n),
+        .o(a2_reset_debounced_w)
+    );
+
+    wire system_reset_release_w;
+    rising_edge system_reset_release (
+        .clk(clk),
+        .i(a2_reset_debounced_w),
+        .o(system_reset_release_w)
+    );
+
 	always @(posedge clk) begin
         if (a2mem_if.keypress_strobe) begin
             keycode_r <= a2mem_if.keycode;
@@ -139,6 +173,12 @@ module picosoc_a2fpga #(parameter int CLOCK_SPEED_HZ = 54_000_000)
         if (!a2bus_if.rw_n && a2bus_if.data_in_strobe && (a2bus_if.addr == 16'hC7FF)) begin
             a2_cmd_r <= a2bus_if.data;
         end
+
+        if (system_reset_release_w) begin
+            a2_reset_r <= 1;
+        end
+
+        cardrom_release_r <= 0;
 
       	iomem_ready <= 0;
         iomem_rdata <= 32'b0;
@@ -164,6 +204,8 @@ module picosoc_a2fpga #(parameter int CLOCK_SPEED_HZ = 54_000_000)
                     ADDR_SHRG_MODE[7:2]: shrg_mode_r <= iomem_wdata[0];
                     ADDR_A2_CMD[7:2]: a2_cmd_r <= iomem_wdata[7:0];
                     ADDR_A2BUS_READY[7:2]: a2bus_ready_r <= iomem_wdata[0];
+                    ADDR_CARDROM_RELEASE[7:2]: cardrom_release_r <= 1;
+                    ADDR_A2_RESET[7:2]: a2_reset_r <= 0;
                     default: ;
                 endcase
             end else begin
@@ -188,12 +230,22 @@ module picosoc_a2fpga #(parameter int CLOCK_SPEED_HZ = 54_000_000)
                     ADDR_A2_CMD[7:2]: iomem_rdata <= {24'b0, a2_cmd_r};
                     ADDR_COUNTDOWN[7:2]: iomem_rdata <= countdown_w;
                     ADDR_A2BUS_READY[7:2]: iomem_rdata <= {31'b0, a2bus_ready_r};
+                    ADDR_CARDROM_RELEASE[7:2]: iomem_rdata <= {31'b0, cardrom_release_r};
+                    ADDR_CARDROM_ACTIVE[7:2]: iomem_rdata <= {31'b0, cardrom_active_i};
+                    ADDR_A2_RESET[7:2]: iomem_rdata <= {31'b0, a2_reset_r};
+                    ADDR_A2BUS_INH_N[7:2]: iomem_rdata <= {31'b0, a2bus_if.control_inh_n};
+                    ADDR_A2BUS_IRQ_N[7:2]: iomem_rdata <= {31'b0, a2bus_if.control_irq_n};
+                    ADDR_A2BUS_RDY_N[7:2]: iomem_rdata <= {31'b0, a2bus_if.control_rdy_n};
+                    ADDR_A2BUS_DMA_N[7:2]: iomem_rdata <= {31'b0, a2bus_if.control_dma_n};
+                    ADDR_A2BUS_NMI_N[7:2]: iomem_rdata <= {31'b0, a2bus_if.control_nmi_n};
+                    ADDR_A2BUS_RESET_N[7:2]: iomem_rdata <= {31'b0, a2bus_if.control_reset_n};
                     default: ;
                 endcase
             end
 
             iomem_ready <= 1;
         end
+
 	end
 
 endmodule

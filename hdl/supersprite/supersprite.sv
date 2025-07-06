@@ -72,7 +72,7 @@ module SuperSprite #(
 
     f18a_gpu_if.master f18a_gpu_if,
 
-    output [15:0] ssp_audio_o
+    output [9:0] ssp_audio_o
 
 );
 
@@ -212,10 +212,8 @@ module SuperSprite #(
         .IOB_out()
     );
 
-    assign ssp_audio_o = (
-        ({4'b00, ssp_psg_ch_a_o, 4'b00}) + 
-        ({4'b00, ssp_psg_ch_b_o, 4'b00}) + 
-        ({4'b00, ssp_psg_ch_c_o, 4'b00}));
+    // maximum value is 10 bits (255 + 255 + 255)
+    assign ssp_audio_o = ssp_psg_ch_a_o + ssp_psg_ch_b_o + ssp_psg_ch_c_o;
 
     assign data_o = ssp_psg_data_rd ? ssp_psg_d_o : vdp_d_o;
     assign rd_en_o = ssp_psg_data_rd || vdp_rd;

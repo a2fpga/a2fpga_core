@@ -1,6 +1,7 @@
 module cdc_fifo 
 #(
-    parameter WIDTH = 8
+    parameter WIDTH = 8,
+    parameter DEPTH = 3
 )
 (
     input  clk,
@@ -8,14 +9,14 @@ module cdc_fifo
     output [WIDTH-1:0] o
 );
 
-    reg [WIDTH-1:0] fifo[3] /*synthesis syn_keep=1*/;
+    reg [WIDTH-1:0] fifo[DEPTH-1:0] /*synthesis syn_keep=1*/;
 
     always @(posedge clk) begin
-        fifo[0] <= i;
-        fifo[1] <= fifo[0];
-        fifo[2] <= fifo[1];
+        // Shift the FIFO contents
+        fifo <= {fifo[DEPTH-2:0], i};
     end
 
-    assign o   = fifo[2];
+    // Output the last element in the FIFO
+    assign o   = fifo[DEPTH-1];
 
 endmodule

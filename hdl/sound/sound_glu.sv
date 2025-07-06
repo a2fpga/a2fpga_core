@@ -27,10 +27,13 @@ module sound_glu #(
 
     output [7:0] data_o,
     output rd_en_o,
-    output irq_n_o,
 
     output [15:0] audio_l_o,
     output [15:0] audio_r_o,
+
+    output [7:0] debug_osc_en_o,  // Debug output for oscillator enable register
+    output [1:0] debug_osc_mode_o[8], // Debug output for oscillator mode register;
+    output [7:0] debug_osc_halt_o, // Debug output for oscillator halt register
 
     sdram_port_if.client glu_mem_if,
     sdram_port_if.client doc_mem_if
@@ -82,32 +85,60 @@ module sound_glu #(
     // and for future standalone IIgs core
     assign glu_mem_if.rd = '0;
     // DOC memory is at 0x4_0000/8 or 0x1_0000/32
-    assign glu_mem_if.addr = {4'b0, 1'b1, 2'b0, sound_ptr_hi_r, sound_ptr_lo_r[7:2]};
-    assign glu_mem_if.wr = ENABLE && glu_sel_w && access_ram_w && !a2bus_if.rw_n && a2bus_if.data_in_strobe;
-    assign glu_mem_if.byte_en = 1'b1 << sound_ptr_lo_r[1:0];
+    reg [20:0] glu_mem_addr_r;
+    assign glu_mem_if.addr = glu_mem_addr_r;
+    reg glu_mem_wr_r;
+    assign glu_mem_if.wr = glu_mem_wr_r;
+    reg [3:0] glu_mem_byte_en_r;
+    assign glu_mem_if.byte_en = glu_mem_byte_en_r;
     assign glu_mem_if.data = {a2bus_if.data, a2bus_if.data, a2bus_if.data, a2bus_if.data};
+
+    reg doc_wr_r;
+    reg [7:0] doc_addr_r;
 
     always_ff @(posedge a2bus_if.clk_logic) begin
 
         if (!a2bus_if.system_reset_n) begin
+            glu_mem_wr_r <= 1'b0;
+            glu_mem_addr_r <= 21'h0;
+            glu_mem_byte_en_r <= 4'b1111;
             sound_control_r <= 8'h0F;
             sound_data_r <= 8'h00;
             sound_ptr_lo_r <= 8'h00;
             sound_ptr_hi_r <= 8'h00;
         end else begin
-
-            if (ENABLE && glu_sel_w && !a2bus_if.rw_n && a2bus_if.data_in_strobe) begin
-                case (a2bus_if.addr[1:0])
-                    2'b00: sound_control_r <= a2bus_if.data;
-                    2'b01: begin
-                        sound_data_r <= a2bus_if.data;
+            glu_mem_wr_r <= 1'b0;
+            doc_wr_r <= 1'b0;
+            if (ENABLE && glu_sel_w && a2bus_if.data_in_strobe) begin
+                if (!a2bus_if.rw_n) begin
+                    case (a2bus_if.addr[1:0])
+                        2'b00: sound_control_r <= a2bus_if.data;
+                        2'b01: begin
+                            sound_data_r <= a2bus_if.data;
+                            if (access_ram_w) begin
+                                // write to sound RAM
+                                glu_mem_wr_r <= 1'b1;
+                                glu_mem_addr_r <= {4'b0, 1'b1, 2'b0, sound_ptr_hi_r, sound_ptr_lo_r[7:2]};
+                                glu_mem_byte_en_r <= 1'b1 << sound_ptr_lo_r[1:0];
+                            end else if (access_doc_w) begin
+                                // write to DOC
+                                doc_wr_r <= 1'b1;
+                                doc_addr_r <= sound_ptr_lo_r;
+                            end
+                            if (auto_inc_w) begin
+                                {sound_ptr_hi_r, sound_ptr_lo_r} <= {sound_ptr_hi_r, sound_ptr_lo_r} + 1'd1;
+                            end
+                        end
+                        2'b10: sound_ptr_lo_r <= a2bus_if.data;
+                        2'b11: sound_ptr_hi_r <= a2bus_if.data;
+                    endcase
+                end else begin
+                    if (a2bus_if.addr[1:0] == 2'b01) begin
                         if (auto_inc_w) begin
                             {sound_ptr_hi_r, sound_ptr_lo_r} <= {sound_ptr_hi_r, sound_ptr_lo_r} + 1'd1;
                         end
                     end
-                    2'b10: sound_ptr_lo_r <= a2bus_if.data;
-                    2'b11: sound_ptr_hi_r <= a2bus_if.data;
-                endcase
+                end
             end
 
         end
@@ -149,18 +180,23 @@ module sound_glu #(
     wire signed [15:0] right_mix_w;
     //wire signed [15:0] channel_w[15:0]; 
 
+    // Debug: Capture and expose the oscillator enable register
+    wire [7:0] debug_doc_osc_en_w;
+    assign debug_osc_en_o = debug_doc_osc_en_w;
+
+    wire [1:0] debug_osc_mode_w[8];
+    assign debug_osc_mode_o = debug_osc_mode_w;
+    wire [7:0] debug_osc_halt_w;
+    assign debug_osc_halt_o = debug_osc_halt_w;
+
     doc5503 #(
-        .OUTPUT_CHANNEL_MIX(0),
-        .OUTPUT_MONO_MIX(0),
-        .OUTPUT_STEREO_MIX(1)
     ) doc5503 (
         .clk_i(a2bus_if.clk_logic),
         .reset_n_i(a2bus_if.system_reset_n),
         .clk_en_i(a2bus_if.clk_7m_posedge),
-        .irq_n_o(irq_n_o),
-        .cs_n_i(~(sd_sel_w & access_doc_w & !a2bus_if.rw_n & a2bus_if.data_in_strobe)),
+        .cs_n_i(~doc_wr_r),
         .we_n_i(1'b0),
-        .addr_i(sound_ptr_lo_r),
+        .addr_i(doc_addr_r),
         .data_i(a2bus_if.data),
         .data_o(doc_data_o_w),
         .wave_address_o(wave_addr_w),
@@ -170,14 +206,32 @@ module sound_glu #(
         .left_mix_o(left_mix_w),
         .right_mix_o(right_mix_w),
         .mono_mix_o(),
-        .channel_o()
+        .channel_o(),
+        .ready_o(),
+        .debug_osc_en_o(debug_doc_osc_en_w),
+        .debug_osc_mode_o(debug_osc_mode_w),
+        .debug_osc_halt_o(debug_osc_halt_w)
     );
 
-    logic [3:0] volume_shift_w = volume_w ^ 4'hF;
-    //assign audio_l_o = left_mix_w >>> volume_shift_w[3:2];
-    //assign audio_r_o = right_mix_w >>> volume_shift_w[3:2];
-    assign audio_l_o = left_mix_w;
-    assign audio_r_o = right_mix_w;
+    // Volume is inverted for right shift (0 is min volume, 15 is max volume)
+    // IIgs volume control ranges from 0-15, invert for right shift (0=lots of shift, 15=no shift)
+    logic [3:0] volume_shift_w = volume_w < 12 ? 4'd4 - {2'b0, volume_w[3:2]} : 4'd0;
+    
+    // Output registers for audio with zero-centering preserved
+    reg signed [15:0] audio_l_reg;
+    reg signed [15:0] audio_r_reg;
+    
+    // Assign outputs from registers
+    assign audio_l_o = audio_l_reg;
+    assign audio_r_o = audio_r_reg;
+    
+    always_ff @(posedge a2bus_if.clk_logic) begin
+        // Apply volume control by right shifting the mix values
+        //audio_l_reg <= left_mix_w >>> volume_shift_w;
+        //audio_r_reg <= right_mix_w >>> volume_shift_w;
+        audio_l_reg <= left_mix_w;
+        audio_r_reg <= right_mix_w;
+    end
     //assign audio_l_o = channel_w[0] >>> (4'd15 - volume_w);
     //assign audio_r_o = channel_w[0] >>> (4'd15 - volume_w);
     //assign audio_l_o = channel_w[1] >>> (4'd15 - volume_w);

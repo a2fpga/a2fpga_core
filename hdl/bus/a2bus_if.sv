@@ -44,6 +44,13 @@ interface a2bus_if (
     logic [7:0] data;
     logic data_in_strobe;
 
+    logic control_inh_n;
+    logic control_irq_n;
+    logic control_rdy_n;
+    logic control_dma_n;
+    logic control_nmi_n;
+    logic control_reset_n;
+    
     modport master (
         input clk_logic,
         input clk_pixel,
@@ -65,7 +72,14 @@ interface a2bus_if (
         output m2b0,
         output data,
         output data_in_strobe,
-        output sw_gs
+        output sw_gs,
+
+        output control_inh_n,
+        output control_irq_n,
+        output control_rdy_n,
+        output control_dma_n,
+        output control_nmi_n,
+        output control_reset_n
     );
 
     modport slave (
@@ -90,6 +104,13 @@ interface a2bus_if (
         input data,
         input data_in_strobe,
         input sw_gs,
+
+        input control_inh_n,
+        input control_irq_n,
+        input control_rdy_n,
+        input control_dma_n,
+        input control_nmi_n,
+        input control_reset_n,
 
         import io_select_n,
         import dev_select_n,

@@ -33,3 +33,7 @@ temp
 
 src/picosoc/firmware/firmware.hex
 !src/picosoc/boot/boot.bin
+src/cardrom/cardrom_Output.txt
+src/cardrom/_FileInformation.txt
+src/cardrom/cardrom
+/.claude

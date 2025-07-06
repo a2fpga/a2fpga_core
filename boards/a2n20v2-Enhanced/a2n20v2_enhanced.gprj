@@ -7,6 +7,9 @@
     <FileList>
         <File path="../../hdl/bus/a2bus_if.sv" type="file.verilog" enable="1"/>
         <File path="../../hdl/bus/a2bus_control_if.sv" type="file.verilog" enable="1"/>
+        <File path="../../hdl/cardrom/cardrom.sv" type="file.verilog" enable="1"/>
+        <File path="../../hdl/cardrom/cardrom.hex" type="file.other" enable="1"/>
+        <File path="../../hdl/debug/debugoverlay.sv" type="file.verilog" enable="1"/>
         <File path="../../hdl/disk/apple_disk.sv" type="file.verilog" enable="1"/>
         <File path="../../hdl/disk/drive_ii.sv" type="file.verilog" enable="1"/>
         <File path="../../hdl/disk/drive_volume_if.sv" type="file.verilog" enable="1"/>
@@ -60,17 +63,21 @@
         <File path="../../hdl/slots/slotmaker.sv" type="file.verilog" enable="1"/>
         <File path="../../hdl/slots/slotmaker_config_if.sv" type="file.verilog" enable="1"/>
         <File path="../../hdl/slots/slots.hex" type="file.other" enable="1"/>
-        <File path="../../hdl/sound/doc5503_register_ram.sv" type="file.verilog" enable="1"/>
         <File path="../../hdl/sound/doc5503.sv" type="file.verilog" enable="1"/>
         <File path="../../hdl/sound/sound_glu.sv" type="file.verilog" enable="1"/>
         <File path="../../hdl/ssc/ssc_rom.vhd" type="file.vhdl" enable="1"/>
         <File path="../../hdl/ssc/super_serial_card.sv" type="file.verilog" enable="1"/>
         <File path="../../hdl/supersprite/supersprite.sv" type="file.verilog" enable="1"/>
-        <File path="../../hdl/support/cdc.sv" type="file.verilog" enable="1"/>
+        <File path="../../hdl/support/cdc_denoise.sv" type="file.verilog" enable="1"/>
+        <File path="../../hdl/support/cdc_fifo.sv" type="file.verilog" enable="1"/>
+        <File path="../../hdl/support/cdc_sampling.sv" type="file.verilog" enable="1"/>
         <File path="../../hdl/support/clock_enable_counter.sv" type="file.verilog" enable="1"/>
         <File path="../../hdl/support/countdown.sv" type="file.verilog" enable="1"/>
+        <File path="../../hdl/support/debounce.sv" type="file.verilog" enable="1"/>
+        <File path="../../hdl/support/rising_edge.sv" type="file.verilog" enable="1"/>
         <File path="../../hdl/support/iir_filter.v" type="file.verilog" enable="1"/>
         <File path="../../hdl/support/pulse_crossing.v" type="file.verilog" enable="1"/>
+        <File path="../../hdl/support/pulse_generator.v" type="file.verilog" enable="1"/>
         <File path="../../hdl/support/rom.v" type="file.verilog" enable="1"/>
         <File path="../../hdl/support/sdpram32.sv" type="file.verilog" enable="1"/>
         <File path="../../hdl/support/srff.v" type="file.verilog" enable="1"/>

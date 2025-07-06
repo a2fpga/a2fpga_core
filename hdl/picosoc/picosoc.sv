@@ -32,6 +32,9 @@ module picosoc #(
     output rd_en_o,
     output irq_n_o,
 
+    input  cardrom_active_i,
+    output cardrom_release_o,
+
     input  uart_rx_i,
     output uart_tx_o,
 
@@ -226,6 +229,8 @@ module picosoc #(
         .iomem_rdata(a2fpga_iomem_rdata),
         .iomem_ready(a2fpga_iomem_ready),
         .iomem_wdata(iomem_wdata),
+        .cardrom_active_i(cardrom_active_i),
+        .cardrom_release_o(cardrom_release_o),
         .a2bus_if(a2bus_if),
         .a2mem_if(a2mem_if),
         .a2bus_control_if(a2bus_control_if),
@@ -288,7 +293,7 @@ module picosoc #(
         .COMPRESSED_ISA(0),
         .ENABLE_MUL(0),
         .ENABLE_DIV(0),
-        .ENABLE_FAST_MUL(1),
+        .ENABLE_FAST_MUL(0),
         .ENABLE_IRQ(1),
         .STACKADDR(STACKADDR)
     ) cpu (
