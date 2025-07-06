@@ -1,15 +1,17 @@
-// Nano 9K Clock & RC Power-On-Reset/Button S1
+// Nano 20K Clock & RC Power-On-Reset/Button S1
 IO_LOC "clk" 4; 
+IO_PORT "clk" IO_TYPE=LVCMOS33 PULL_MODE=NONE;
 
+// PLL Clock Lines
 //IO_LOC "clk_1" 10;
 //IO_LOC "clk_2" 11; 
 //IO_LOC "clk_3" 13;
 
 IO_LOC "s1" 88;
-IO_PORT "s1" PULL_MODE=NONE;
+IO_PORT "s1" IO_TYPE=LVCMOS33 PULL_MODE=NONE;
 
 IO_LOC "s2" 87;
-IO_PORT "s2" PULL_MODE=NONE;
+IO_PORT "s2" IO_TYPE=LVCMOS33 PULL_MODE=NONE;
 
 // Nano 20K UART
 

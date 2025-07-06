@@ -16,8 +16,6 @@
 // OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 //
 
-`define GW_IDE
-
 module top #(
     parameter int CLOCK_SPEED_HZ = 54_000_000,
     parameter int MEM_MHZ = CLOCK_SPEED_HZ / 1_000_000,

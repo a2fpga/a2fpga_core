@@ -77,6 +77,13 @@ module apple_bus #(
         end
     end
 
+    assign a2bus_if.control_inh_n = control_in_r[1];
+    assign a2bus_if.control_irq_n = control_in_r[2];
+    assign a2bus_if.control_rdy_n = control_in_r[3];
+    assign a2bus_if.control_dma_n = control_in_r[4];
+    assign a2bus_if.control_nmi_n = control_in_r[5];
+    assign a2bus_if.control_reset_n = control_in_r[6];
+
     wire sw_gs_w = !dip_switches_n_o[3];
     assign a2bus_if.sw_gs = sw_gs_w;
 
@@ -141,6 +148,7 @@ module apple_bus #(
         end else begin
             data_in_strobe_r <= 1'b0;
 
+            if (io_state != IO_INIT) begin
             if (a2bus_if.phi1 && (phase_cycles_r == READ_COUNT)) begin
                 next_io_state <= IO_READ_ADDR;
             end else if (a2bus_if.phi0 && (phase_cycles_r == WRITE_COUNT) && data_out_en_i) begin
@@ -150,6 +158,7 @@ module apple_bus #(
             end else if (!io_state_pending && (control_out_r != prev_control_out_r)) begin
                 next_io_state <= IO_WRITE_GPIO;
                 prev_control_out_r <= control_out_r;
+            end
             end
 
             case (io_state) 

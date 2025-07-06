@@ -62,57 +62,59 @@ module drive_ii (
         automatic logic [3:0] rel_phase_temp;
         if (!a2bus_if.system_reset_n) phase_r <= 70;
         else begin
-            if (drive_active) begin
-                phase_change_temp = 0;
-                new_phase_temp = phase_r;
-                rel_phase_temp = motor_phase_i;
-                case (phase_r[2:1])
-                    2'b00:   rel_phase_temp = {rel_phase_temp[1:0], rel_phase_temp[3:2]};
-                    2'b01:   rel_phase_temp = {rel_phase_temp[2:0], rel_phase_temp[3]};
-                    2'b10:   ;
-                    2'b11:   rel_phase_temp = {rel_phase_temp[0], rel_phase_temp[3:1]};
-                    default: ;
-                endcase
-
-                if (phase_r[0] == 1'b1)
-                    case (rel_phase_temp)
-                        4'b0000: phase_change_temp = 0;
-                        4'b0001: phase_change_temp = -3;
-                        4'b0010: phase_change_temp = -1;
-                        4'b0011: phase_change_temp = -2;
-                        4'b0100: phase_change_temp = 1;
-                        4'b0101: phase_change_temp = -1;
-                        4'b0110: phase_change_temp = 0;
-                        4'b0111: phase_change_temp = -1;
-                        4'b1000: phase_change_temp = 3;
-                        4'b1001: phase_change_temp = 0;
-                        4'b1010: phase_change_temp = 1;
-                        4'b1011: phase_change_temp = -3;
-                        4'b1111: phase_change_temp = 0;
-                        default: ;
-                    endcase
-                else
-                    case (rel_phase_temp)
-                        4'b0000: phase_change_temp = 0;
-                        4'b0001: phase_change_temp = -2;
-                        4'b0010: phase_change_temp = 0;
-                        4'b0011: phase_change_temp = -1;
-                        4'b0100: phase_change_temp = 2;
-                        4'b0101: phase_change_temp = 0;
-                        4'b0110: phase_change_temp = 1;
-                        4'b0111: phase_change_temp = 0;
-                        4'b1000: phase_change_temp = 0;
-                        4'b1001: phase_change_temp = 1;
-                        4'b1010: phase_change_temp = 2;
-                        4'b1011: phase_change_temp = -2;
-                        4'b1111: phase_change_temp = 0;
+            if (a2bus_if.clk_14m_posedge) begin
+                if (drive_active) begin
+                    phase_change_temp = 0;
+                    new_phase_temp = phase_r;
+                    rel_phase_temp = motor_phase_i;
+                    case (phase_r[2:1])
+                        2'b00:   rel_phase_temp = {rel_phase_temp[1:0], rel_phase_temp[3:2]};
+                        2'b01:   rel_phase_temp = {rel_phase_temp[2:0], rel_phase_temp[3]};
+                        2'b10:   ;
+                        2'b11:   rel_phase_temp = {rel_phase_temp[0], rel_phase_temp[3:1]};
                         default: ;
                     endcase
 
-                if (new_phase_temp + phase_change_temp <= 0) new_phase_temp = 0;
-                else if (new_phase_temp + phase_change_temp > 139) new_phase_temp = 139;
-                else new_phase_temp = new_phase_temp + phase_change_temp;
-                phase_r <= 8'(new_phase_temp);
+                    if (phase_r[0] == 1'b1)
+                        case (rel_phase_temp)
+                            4'b0000: phase_change_temp = 0;
+                            4'b0001: phase_change_temp = -3;
+                            4'b0010: phase_change_temp = -1;
+                            4'b0011: phase_change_temp = -2;
+                            4'b0100: phase_change_temp = 1;
+                            4'b0101: phase_change_temp = -1;
+                            4'b0110: phase_change_temp = 0;
+                            4'b0111: phase_change_temp = -1;
+                            4'b1000: phase_change_temp = 3;
+                            4'b1001: phase_change_temp = 0;
+                            4'b1010: phase_change_temp = 1;
+                            4'b1011: phase_change_temp = -3;
+                            4'b1111: phase_change_temp = 0;
+                            default: ;
+                        endcase
+                    else
+                        case (rel_phase_temp)
+                            4'b0000: phase_change_temp = 0;
+                            4'b0001: phase_change_temp = -2;
+                            4'b0010: phase_change_temp = 0;
+                            4'b0011: phase_change_temp = -1;
+                            4'b0100: phase_change_temp = 2;
+                            4'b0101: phase_change_temp = 0;
+                            4'b0110: phase_change_temp = 1;
+                            4'b0111: phase_change_temp = 0;
+                            4'b1000: phase_change_temp = 0;
+                            4'b1001: phase_change_temp = 1;
+                            4'b1010: phase_change_temp = 2;
+                            4'b1011: phase_change_temp = -2;
+                            4'b1111: phase_change_temp = 0;
+                            default: ;
+                        endcase
+
+                    if (new_phase_temp + phase_change_temp <= 0) new_phase_temp = 0;
+                    else if (new_phase_temp + phase_change_temp > 139) new_phase_temp = 139;
+                    else new_phase_temp = new_phase_temp + phase_change_temp;
+                    phase_r <= 8'(new_phase_temp);
+                end
             end
         end
     end

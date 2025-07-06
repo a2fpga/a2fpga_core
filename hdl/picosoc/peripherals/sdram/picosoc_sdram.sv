@@ -38,15 +38,16 @@ module picosoc_sdram
     wire [31:0] cache_data;
 
     wire mem_wr = iomem_valid & (iomem_wstrb != 4'h0);
-    wire mem_rd = iomem_valid & (iomem_wstrb == 4'h0) & ~(iomem_instr & cache_hit);
+    wire mem_rd = iomem_valid & (iomem_wstrb == 4'h0) /* & ~(iomem_instr & cache_hit) */;
     assign mem_if.addr = iomem_addr[22:2];
     assign mem_if.data = iomem_wdata;
     assign mem_if.wr = mem_wr;
     assign mem_if.rd = mem_rd;
     assign mem_if.byte_en = iomem_wstrb;
-    assign iomem_rdata = iomem_instr ? cache_data : mem_if.q;
-    assign iomem_ready = iomem_instr ? iomem_valid & cache_hit : mem_if.ready;
+    assign iomem_rdata = /* iomem_instr ? cache_data : */ mem_if.q;
+    assign iomem_ready = /* iomem_instr ? iomem_valid & cache_hit : */ mem_if.ready;
 
+/*
     fast_cache #(
         .DATA_WIDTH(32),
         .ADDR_WIDTH(21),
@@ -60,5 +61,5 @@ module picosoc_sdram
         .data_i(mem_if.q),
         .hit(cache_hit)
     );
-
+*/
 endmodule
