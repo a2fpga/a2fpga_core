@@ -21,7 +21,8 @@
 //
 
 module sound_glu #(
-    parameter bit ENABLE = 1'b1
+    parameter bit ENABLE = 1'b1,
+    parameter bit MONO_MIX = 1'b0 // If true, mono mix is used instead of stereo
 ) (
     a2bus_if.slave a2bus_if,
 
@@ -175,7 +176,7 @@ module sound_glu #(
         end
     end
 
-    //wire signed [15:0] mono_mix_w;
+    wire signed [15:0] mono_mix_w;
     wire signed [15:0] left_mix_w;
     wire signed [15:0] right_mix_w;
     //wire signed [15:0] channel_w[15:0]; 
@@ -205,7 +206,7 @@ module sound_glu #(
         .wave_data_i(wave_data_r),
         .left_mix_o(left_mix_w),
         .right_mix_o(right_mix_w),
-        .mono_mix_o(),
+        .mono_mix_o(mono_mix_w),
         .channel_o(),
         .ready_o(),
         .debug_osc_en_o(debug_doc_osc_en_w),
@@ -229,8 +230,15 @@ module sound_glu #(
         // Apply volume control by right shifting the mix values
         //audio_l_reg <= left_mix_w >>> volume_shift_w;
         //audio_r_reg <= right_mix_w >>> volume_shift_w;
-        audio_l_reg <= left_mix_w;
-        audio_r_reg <= right_mix_w;
+
+        if (MONO_MIX) begin
+            audio_l_reg <= mono_mix_w;
+            audio_r_reg <= mono_mix_w; 
+        end else begin
+            audio_l_reg <= left_mix_w;
+            audio_r_reg <= right_mix_w;
+        end
+
     end
     //assign audio_l_o = channel_w[0] >>> (4'd15 - volume_w);
     //assign audio_r_o = channel_w[0] >>> (4'd15 - volume_w);

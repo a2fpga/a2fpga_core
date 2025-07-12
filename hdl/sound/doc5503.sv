@@ -916,9 +916,9 @@ module doc5503 #(
         // Add to left/right mix based on channel number
         // Channel 0,2,4,etc. go to right, 1,3,5,etc. go to left
         if (curr_ca_w[0]) 
-            next_left_mix_r <= next_left_mix_r + curr_output_r;
-        else 
             next_right_mix_r <= next_right_mix_r + curr_output_r;
+        else 
+            next_left_mix_r <= next_left_mix_r + curr_output_r;
         
         osc_state_r <= OSC_ACC;
     endtask: osc_mix

@@ -49,6 +49,7 @@ module top #(
     parameter bit [7:0] DISK_II_ID = 4,
 
     parameter bit ENSONIQ_ENABLE = 1,
+    parameter bit ENSONIQ_MONO_MIX = 0, // If true, mono mix is used instead of stereo
 
     parameter bit CLEAR_APPLE_VIDEO_RAM = 1,    // Clear video ram on startup
     parameter bit SHADOW_ALL_MEMORY = 0,        // Shadoow all memory in SDRAM, not just video ram
@@ -643,7 +644,8 @@ wire picosoc_led;
     wire [7:0]  doc_osc_halt_w;
 
     sound_glu #(
-        .ENABLE(ENSONIQ_ENABLE)
+        .ENABLE(ENSONIQ_ENABLE),
+        .MONO_MIX(ENSONIQ_MONO_MIX) // If true, mono mix is used instead of stereo
     ) sg (
         .a2bus_if(a2bus_if),
         .data_o(sg_d_w),                 
