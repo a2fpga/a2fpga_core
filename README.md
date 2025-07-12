@@ -38,6 +38,8 @@ on Tindie and eBay.
 
 ## Getting Started
 
+#### GS Users Please Note: The a2n20v2-Enhanced source tree is experimental and is NOT an official release at this time. This build does provide Ensoniq audio output, however we are still working on development and testing prior to inclusion in a future Release Build. ####
+  
 You will need the following:
 
 - A2FPGA Apple II Fpga Co-Processor Card, A2N20 versions 2 recommended.
