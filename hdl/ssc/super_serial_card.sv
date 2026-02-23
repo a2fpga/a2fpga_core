@@ -117,7 +117,7 @@ module SuperSerial #(
     always @(posedge a2bus_if.clk_logic) begin
         if (!a2bus_if.system_reset_n) begin
             C8S2 <= 1'b0;
-        end else begin
+        end else if (a2bus_if.phi0) begin
             case (a2bus_if.addr[15:8])
                 8'hC2: begin
                     if (!a2mem_if.INTCXROM)  // SSC ROM
@@ -132,7 +132,8 @@ module SuperSerial #(
         end
     end
 
-    assign ENA_C8S  = {(C8S2 & !a2mem_if.INTCXROM), a2bus_if.addr[15:11]} == 6'b111001;
+    assign ENA_C8S  = {(C8S2 & !a2mem_if.INTCXROM), a2bus_if.addr[15:11]} == 6'b111001
+                     && (a2mem_if.SLOTROM == 3'd2);
     assign rom_en_o = ENA_C8S;
     //assign data_o2 = ENA_C8S ? DOA_C8S : SSC;
 
