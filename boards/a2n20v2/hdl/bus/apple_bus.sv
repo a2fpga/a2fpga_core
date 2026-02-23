@@ -288,7 +288,25 @@ module apple_bus #(
 
     end
 
-    assign a2_bridge_bus_d_oe_n_o = ~(data_out_en_i & BUS_DATA_OUT_ENABLE);
+    // Early OE cutoff: Release bus transceiver before CDC-delayed phi0 drop.
+    //
+    // The CDC denoise pipeline delays phi0 by ~CDC_DELAY clk_logic cycles
+    // (~100ns at 54 MHz). Without cutoff, the CPLD bus driver stays active
+    // for the full CDC delay into phi1, creating ~100ns of bus contention
+    // when the 6502 is already in its next cycle. A real slot card's 74LS245
+    // releases within ~10-20ns of phi0 dropping.
+    //
+    // The phase counter resets on each CDC-delayed phi edge. Real phi0 drops
+    // at approximately PHASE_COUNT - CDC_DELAY counts into the phi0 half.
+    // OE_CUTOFF fires at cycle 22, approximately 37ns after the estimated
+    // real phi0 drop. IO_WRITE_DATA triggers at cycle 10 and completes by
+    // cycle 13, so all card data is latched well before cutoff.
+    localparam int CDC_DELAY = 6;   // CDC denoise: 2 sync + 3 debounce + 1 FIFO
+    localparam int OE_MARGIN = 2;   // Cycles past estimated real phi0 drop
+    localparam int OE_CUTOFF = PHASE_COUNT - CDC_DELAY + OE_MARGIN;  // = 22
+
+    wire oe_early_cutoff = a2bus_if.phi0 && (phase_cycles_r >= OE_CUTOFF[5:0]);
+    assign a2_bridge_bus_d_oe_n_o = ~(data_out_en_i & BUS_DATA_OUT_ENABLE & ~oe_early_cutoff);
 
     assign a2bus_if.data_in_strobe = data_in_strobe_r;
 
