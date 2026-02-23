@@ -142,7 +142,10 @@ module apple_memory #(
             INTC8ROM <= 1'b0;
             SLOTROM <= 3'b0;
         end else if ((a2bus_if.phi1_posedge) && (a2bus_if.addr >= 16'hC100) && (a2bus_if.addr < 16'hC800) && !a2bus_if.m2sel_n) begin
-            if (!a2mem_if.SLOTC3ROM && (a2bus_if.addr[15:8] == 8'hC3)) INTC8ROM <= 1'b1; // Slot C3 ROM  
+            if (!a2mem_if.SLOTC3ROM && (a2bus_if.addr[15:8] == 8'hC3))
+                INTC8ROM <= 1'b1;
+            else
+                INTC8ROM <= 1'b0;  // Clear on non-C3 slot access (real IIe behavior)
             SLOTROM <= a2bus_if.addr[10:8];
         end
     end

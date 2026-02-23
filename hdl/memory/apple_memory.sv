@@ -69,6 +69,18 @@ module apple_memory #(
     reg [2:0] SLOTROM;
     assign a2mem_if.SLOTROM = SLOTROM;
 
+    // Runtime Apple ][+ vs IIe detection: the IIe boot ROM writes to $C00x
+    // soft switches within milliseconds of startup. A ][+ never touches these
+    // addresses. Used to gate IIe-only INTC8ROM logic.
+    reg is_iie;
+    always @(posedge a2bus_if.clk_logic or negedge a2bus_if.system_reset_n) begin
+        if (!a2bus_if.system_reset_n)
+            is_iie <= 1'b0;
+        else if (!a2bus_if.rw_n && (a2bus_if.phi1_posedge) &&
+                 (a2bus_if.addr[15:4] == 12'hC00) && !a2bus_if.m2sel_n)
+            is_iie <= 1'b1;
+    end
+
     // capture the soft switches
     always @(posedge a2bus_if.clk_logic or negedge a2bus_if.system_reset_n) begin
         if (!a2bus_if.system_reset_n) begin
@@ -138,7 +150,14 @@ module apple_memory #(
             INTC8ROM <= 1'b0;
             SLOTROM <= 3'b0;
         end else if ((a2bus_if.phi1_posedge) && (a2bus_if.addr >= 16'hC100) && (a2bus_if.addr < 16'hC800) && !a2bus_if.m2sel_n) begin
-            if (!a2mem_if.SLOTC3ROM && (a2bus_if.addr[15:8] == 8'hC3)) INTC8ROM <= 1'b1; // Slot C3 ROM  
+            // INTC8ROM is IIe-only: routes $C800-$CFFF to internal 80-col firmware.
+            // On ][+, SLOTC3ROM doesn't exist (defaults to 0), so without the is_iie
+            // guard, INTC8ROM would be permanently set after any $C3xx access, blocking
+            // io_strobe_n for ALL cards' expansion ROM reads.
+            if (is_iie && !a2mem_if.SLOTC3ROM && (a2bus_if.addr[15:8] == 8'hC3))
+                INTC8ROM <= 1'b1;
+            else
+                INTC8ROM <= 1'b0;  // Clear on non-C3 slot access (real IIe behavior)
             SLOTROM <= a2bus_if.addr[10:8];
         end
     end
