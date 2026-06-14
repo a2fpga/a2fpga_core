@@ -7,6 +7,10 @@
 
 **New here?** Start with the wiki index: **[docs/README.md](docs/README.md)**.
 
+**Setting up a new environment?** Run the **`/setup`** skill (or ask the agent to "set up the
+build environment") — it detects what's installed and guides the rest. Reference:
+**[docs/getting-started.md](docs/getting-started.md)**.
+
 ## Inviolable rules (do not violate without explicit user sign-off)
 
 1. **FPGA builds use `gw_sh` via the pipe method only.** Never `gw_sh -exit -e` or
@@ -24,6 +28,7 @@
 
 | You need to… | Go to |
 |---|---|
+| Set up your environment / install toolchains (first run) | [docs/getting-started.md](docs/getting-started.md), or run `/setup` |
 | Set up the Gowin CLI (esp. macOS) | [docs/setup-gowin-cli.md](docs/setup-gowin-cli.md) |
 | Understand how the codebase is organized | [docs/architecture.md](docs/architecture.md) |
 | Know which board is which (chip, status, quirks) | [docs/boards.md](docs/boards.md) |

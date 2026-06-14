@@ -9,16 +9,18 @@ follow links into the topic you need.
 
 ## Onboarding path (read in this order)
 
-1. [setup-gowin-cli.md](setup-gowin-cli.md) — get the Gowin toolchain running for headless/agentic builds (macOS-focused).
-2. [architecture.md](architecture.md) — how the code is organized: shared `hdl/` vs per-board, the video/sound/bus pipelines, key file map.
-3. [boards.md](boards.md) — the board matrix: which board uses which chip/memory, status, and quirks.
-4. [conventions.md](conventions.md) — coding style, `.gprj` rules, how to add files.
-5. [gotchas.md](gotchas.md) — hard-won lessons and traps that will silently cost you days.
+1. [getting-started.md](getting-started.md) — first-run environment setup: which toolchains you need and how to install them (or run `/setup`).
+2. [setup-gowin-cli.md](setup-gowin-cli.md) — get the Gowin toolchain running for headless/agentic builds (macOS-focused).
+3. [architecture.md](architecture.md) — how the code is organized: shared `hdl/` vs per-board, the video/sound/bus pipelines, key file map.
+4. [boards.md](boards.md) — the board matrix: which board uses which chip/memory, status, and quirks.
+5. [conventions.md](conventions.md) — coding style, `.gprj` rules, how to add files.
+6. [gotchas.md](gotchas.md) — hard-won lessons and traps that will silently cost you days.
 
 ## Reference topics
 
 | Doc | What's in it |
 |---|---|
+| [getting-started.md](getting-started.md) | First-run environment setup — toolchain matrix, per-board needs, the `/setup` skill |
 | [setup-gowin-cli.md](setup-gowin-cli.md) | Installing Gowin, the macOS CLI fix, `gw_sh` invocation, timing checks |
 | [architecture.md](architecture.md) | Module organization, the subsystems, where things live |
 | [video-pipeline.md](video-pipeline.md) | The two display paths, `pixel_stream_if`, how to add a video generator |

@@ -9,6 +9,12 @@ in order to drive a 480p HDMI display as well a providing the functionality of
 a number of popular peripheral cards in a single Apple II slot.  The A2FPGA
 has been tested with Apple II, II+, //e, and IIgs models.
 
+> **Contributing with AI coding agents:** This project is organized to make authoring
+> contributions with agentic coding tools (Claude Code and similar) easy. Clone the repo, start
+> your agent **in the top-level project directory**, and run `/setup` (or ask it to set up the
+> build environment). See **[AGENTS.md](AGENTS.md)** and the **[docs wiki](docs/README.md)**;
+> first-time toolchain setup is in **[docs/getting-started.md](docs/getting-started.md)**.
+
 Basic functionality provided:
 
 - 720x480 HDMI output supporting all Apple II, //e, & IIgs display modes
