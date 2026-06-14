@@ -1,16 +1,17 @@
 //Copyright (C)2014-2025 Gowin Semiconductor Corporation.
 //All rights reserved.
 //File Title: Template file for instantiation
-//Tool Version: V1.9.11.02
+//Tool Version: V1.9.12.01
+//IP Version: 6.0
 //Part Number: GW5AT-LV60PG484AC1/I0
 //Device: GW5AT-60
 //Device Version: B
-//Created Time: Sun Jun  1 18:48:00 2025
+//Created Time: Sun Apr  5 22:01:55 2026
 
 //Change the instance name and port connections to the signal names
 //--------Copy here to design--------
 
-	DDR3 your_instance_name(
+	DDR3_Memory_Interface_Top your_instance_name(
 		.clk(clk), //input clk
 		.pll_stop(pll_stop), //output pll_stop
 		.memory_clk(memory_clk), //input memory_clk
