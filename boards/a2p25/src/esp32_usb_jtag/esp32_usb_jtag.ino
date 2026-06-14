@@ -135,6 +135,9 @@ void setup()
   //digitalWrite(PIN_FPGA_DONE, HIGH);
   Serial.begin(); // usb-serial
   Serial1.begin(BAUD, SERIAL_8N1, PIN_RXD, PIN_TXD); // hardware serial
+
+  Serial.println("ESP32-USB-JTAG Bridge");
+  Serial.println("Setup complete");
 }
 
 void loop() {
@@ -151,5 +154,5 @@ void loop() {
   int value = digitalRead(PIN_FPGA_DONE);  // Read input
   digitalWrite(PIN_LED0, value);     // Set output
   value = digitalRead(9);  // Read input
-  digitalWrite(PIN_LED1, value);     // Set output
+  digitalWrite(PIN_LED1, !value);     // Set output
 }

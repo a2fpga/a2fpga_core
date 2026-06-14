@@ -1,5 +1,5 @@
 //
-// Top module for Tang Mega 60K and A2Mega Apple II card
+// Top module for Tang Primer 25K and A2P25 Apple II card
 //
 // (c) 2023,2024,2025 Ed Anuff <ed@a2fpga.com> 
 //
@@ -16,8 +16,11 @@
 // OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 //
 
+`include "datetime.svh"
+
 module top #(
     parameter int CLOCK_SPEED_HZ = 54_000_000,
+    parameter int PIXEL_SPEED_HZ = CLOCK_SPEED_HZ / 2,
     parameter int MEM_MHZ = CLOCK_SPEED_HZ / 1_000_000,
 
     parameter bit SCANLINES_ENABLE = 0,
@@ -34,6 +37,10 @@ module top #(
     parameter bit SUPERSERIAL_IRQ_ENABLE = 1,
     parameter bit [7:0] SUPERSERIAL_ID = 3,
 
+    parameter int GS = 1,                       // Apple IIgs mode
+    parameter int ENABLE_ESP32_AUDIO = 1,       // Enable audio input from ESP32
+    parameter int ENABLE_FILTER = 0,            // Enable audio filtering
+    parameter int ENABLE_BUS_STREAM = 1,        // Enable bus streaming to ESP32
     parameter bit CLEAR_APPLE_VIDEO_RAM = 1,    // Clear video ram on startup
     parameter bit HDMI_SLEEP_ENABLE = 0,        // Sleep HDMI output on CPU stop
     parameter bit IRQ_OUT_ENABLE = 1,           // Allow driving IRQ to Apple bus
@@ -77,7 +84,17 @@ module top #(
     output [2:0] tmds_d_p,
     output [2:0] tmds_d_n,
 
-    output ESP32_GPIO_0,
+    input esp32_spi_sclk,
+    input esp32_spi_mosi,
+    output esp32_spi_miso,
+
+    output esp32_parl_frame,
+    output esp32_parl_clk,
+    output [3:0] esp32_parl_d,
+
+    output esp32_i2s_bclk,
+    output esp32_i2s_lrclk,
+    input esp32_i2s_data,
 
     // uart
     output  uart_tx,
@@ -85,98 +102,87 @@ module top #(
 
 );
 
+    // Clocks
 
-    reg led_r;
-    reg [25:0] led_counter_r;
+    wire clk_logic_w;
+    wire clk_lock_w;
+    wire clk_pixel_w;
+    wire clk_hdmi_w;
+    wire clk_27M_w;
 
-    always @(posedge clk) begin
-        if (led_counter_r == 26'd24_999_999) begin
+    Gowin_PLL clocks_pll (
+        .lock(clk_lock_w), //output  lock
+        .clkout0(clk_27M_w), //output  clkout0
+        .clkout1(clk_hdmi_w), //output  clkout1
+        .clkout2(clk_logic_w), //output  clkout2
+        .clkin(clk), //input  clkin
+        .mdclk(clk) //input  mdclk
+    );
+
+    CLKDIV clkdiv_inst (
+        .HCLKIN(clk_hdmi_w),
+        .RESETN(clk_lock_w),
+        .CALIB(1'b0),
+        .CLKOUT(clk_pixel_w)
+    );
+    defparam clkdiv_inst.DIV_MODE="5";
+
+    // LED blinking logic with ES5503 counter indication
+    reg led_r = 1'b0;
+    reg [25:0] led_counter_r = 26'd0;
+    reg [15:0] prev_es5503_counter_r = 16'd0;
+    reg        es5503_activity_r = 1'b0;
+
+    always @(posedge clk_logic_w) begin
+        // Track ES5503 counter changes for activity indication
+        prev_es5503_counter_r <= es5503_counter_w;
+        if (es5503_counter_w != prev_es5503_counter_r) begin
+            es5503_activity_r <= 1'b1;
+        end
+        
+        if (led_counter_r == 26'd09_999_999) begin
             led_counter_r <= 0;
-            led_r <= ~led_r;  // Toggle LED every 0.5s, so full blink is 1s
+            // If ES5503 is active, use fast blink (counter value dependent)
+            // Otherwise use slow heartbeat blink
+            if (es5503_activity_r) begin
+                led_r <= es5503_counter_w[8];  // Blink based on counter bit 8 for ES5503 activity
+                es5503_activity_r <= 1'b0;    // Clear activity flag
+            end else begin
+                led_r <= ~led_r;  // Normal heartbeat every 0.5s
+            end
         end else begin
             led_counter_r <= led_counter_r + 1;
         end
     end
 
-    assign ESP32_GPIO_0 = !led_r;
+    // Power-on reset generation
+    localparam RESET_CYCLES = 100;  // Number of clock cycles to hold reset
+    
+    reg rstn_r = 1'b0;
+    reg [$clog2(RESET_CYCLES+1)-1:0] reset_counter_r = '0;
 
-
-    // Clocks
-
-    wire clk_lock_w;
-    wire clk_pixel_w;
-    wire clk_logic_w;
-    wire clk_hdmi_w;
-
-    Gowin_PLL your_instance_name(
-        .clkin(clk), //input  clkin
-        .clkout0(clk_pixel_w), //output  clkout0
-        .clkout1(clk_logic_w), //output  clkout1
-        .clkout2(clk_hdmi_w), //output  clkout2
-        .lock(clk_lock_w), //output  lock
-        .mdclk(clk), //input  mdclk
-        .reset(1'b0) //input  reset
-    );
+    always @(posedge clk_logic_w) begin
+        if (reset_counter_r == RESET_CYCLES) begin
+            rstn_r <= 1'b1;  // Release reset after RESET_CYCLES clocks
+        end else begin
+            reset_counter_r <= reset_counter_r + 1;
+        end
+    end
 
     // Reset
 
-    wire device_reset_n_w;
-    Reset_Sync u_Reset_Sync (
-		.resetn(device_reset_n_w),
-		.ext_reset(clk_lock_w),
-		.clk(clk_logic_w)
-	);
+    wire device_reset_n_w = rstn_r; // Use reset signal from power-on reset logic
 
     //wire device_reset_n_w = ~rst;
 
-    wire system_reset_n_w = device_reset_n_w;
-
-    // Translate Phi1 into the clk_logic clock domain and derive Phi0 and edges
-    // delays Phi1 by 2 cycles = 40ns
-    wire phi1;
-    wire phi0;
-    wire phi1_posedge;
-    wire phi1_negedge;
-    cdc_denoise cdc_phi1 (
-        .clk(clk_logic_w),
-        .i(a2_phi1),
-        .o(phi1),
-        .o_n(phi0),
-        .o_posedge(phi1_posedge),
-        .o_negedge(phi1_negedge)
-    );
-
-    wire clk_2m_w;
-    wire clk_2m_posedge_w;
-    wire clk_2m_negedge_w;
-    cdc_denoise cdc_2m (
-        .clk(clk_logic_w),
-        .i(a2_q3),
-        .o(clk_2m_w),
-        .o_n(),
-        .o_posedge(clk_2m_posedge_w),
-        .o_negedge(clk_2m_negedge_w)
-    );
-
-    wire clk_7m_w;
-    wire clk_7m_posedge_w;
-    wire clk_7m_negedge_w;
-    wire clk_14m_posedge_w = clk_7m_posedge_w | clk_7m_negedge_w;
-    cdc_denoise cdc_7m (
-        .clk(clk_logic_w),
-        .i(a2_7M),
-        .o(clk_7m_w),
-        .o_n(),
-        .o_posedge(clk_7m_posedge_w),
-        .o_negedge(clk_7m_negedge_w)
-    );
+    wire system_reset_n_w = device_reset_n_w & a2_reset_n;
 
     // Interface to Apple II
 
     // Buffer/level shifters are held in tri-state
     // during FPGA configuration to ensure no interference
     // with the Apple II bus.
-    assign a2_bus_oe = 1'b1;
+    assign a2_bus_oe = 1'b0;
 
     // Address bus is input-only unless performing DMA
     // 0 = from Apple II bus to FPGA, 1 = from FPGA to Apple II bus
@@ -184,31 +190,15 @@ module top #(
 
     // data and address latches on input
 
-    a2bus_if a2bus_if (
-        .clk_logic(clk_logic_w),
-        .clk_pixel(clk_pixel_w),
-        .system_reset_n(system_reset_n_w),
-        .device_reset_n(device_reset_n_w),
-        .phi0(phi0),
-        .phi1(phi1),
-        .phi1_posedge(phi1_posedge),
-        .phi1_negedge(phi1_negedge),
-        .clk_2m_posedge(clk_2m_posedge_w),
-        .clk_7m(clk_7m_w),
-        .clk_7m_posedge(clk_7m_posedge_w),
-        .clk_7m_negedge(clk_7m_negedge_w),
-        .clk_14m_posedge(clk_14m_posedge_w)
-    );
+    a2bus_if a2bus_if ();
 
     wire sleep_w;
 
     wire irq_n_w;
-    assign a2_irq_n = IRQ_OUT_ENABLE ? irq_n_w : 1'b1;
+    assign a2_irq_n = IRQ_OUT_ENABLE && !irq_n_w ? 1'b0 : 1'bz;
 
     wire sw_scanlines_w = '1;
     wire sw_apple_speaker_w = '1;
-    wire sw_slot_7_w = '0;
-    wire sw_gs_w = '0;
 
     wire [7:0] a2_d_buf_w;
     wire data_out_en_w;
@@ -223,15 +213,22 @@ module top #(
     );
 
     apple_bus #(
+        .GS(GS),
         .CLOCK_SPEED_HZ(CLOCK_SPEED_HZ)
     ) apple_bus (
+        .clk_logic_i(clk_logic_w),
+        .clk_pixel_i(clk_pixel_w),
+        .system_reset_n_i(system_reset_n_w),
+        .device_reset_n_i(device_reset_n_w),
+        .a2_phi1_i(a2_phi1),
+        .a2_q3_i(a2_q3),
+        .a2_7M_i(a2_7M),
+
         .a2bus_if(a2bus_if),
 
         .a2_a_i(a2_a),
         .a2_d_i(a2_d_buf_w),
         .a2_rw_n_i(a2_rw_n),
-
-        .clk_2m_negedge_i(clk_2m_negedge_w),
         
         .a2_inh_n(a2_inh_n),
         .a2_rdy_n(a2_rdy_n),
@@ -250,6 +247,34 @@ module top #(
 
         .sleep_o(sleep_w)
     );
+
+    // LED indicators for phi1 and 2M clock
+    
+    wire led_phi1_w;
+    reg [10:0]led_phi1_ctr_r;
+    always @(posedge clk_logic_w) begin
+        if (a2bus_if.phi1_posedge) led_phi1_ctr_r <= led_phi1_ctr_r + 1;
+    end
+    assign led_phi1_w = led_phi1_ctr_r[10];
+
+    wire led_2m_w;
+    reg [10:0]led_2m_ctr_r;
+    always @(posedge clk_logic_w) begin
+        if (a2bus_if.clk_q3_posedge) led_2m_ctr_r <= led_2m_ctr_r + 1;
+    end
+    assign led_2m_w = led_2m_ctr_r[10];
+
+    // Reset and TEXT_COLOR diagnostics
+    reg reset_occurred_r = 1'b0;
+    reg device_reset_occurred_r = 1'b0;
+    always @(posedge clk_logic_w) begin
+        if (!system_reset_n_w) begin
+            reset_occurred_r <= 1'b1;  // Latch that system reset occurred
+        end
+        if (!device_reset_n_w) begin
+            device_reset_occurred_r <= 1'b1;  // Latch that device reset occurred
+        end
+    end
 
     // Memory
 
@@ -279,6 +304,70 @@ module top #(
         .vgc_address_i(vgc_address_w),
         .vgc_rd_i(vgc_rd_w),
         .vgc_data_o(vgc_data_w)
+    );
+
+    // Apple II Bus Stream to ESP32 CAM Interface
+
+    wire [3:0] cam_data_w;
+    wire cam_sync_w;
+    wire cam_pclk_w;
+    wire activity_led_w;
+    wire overflow_led_w;
+    wire [7:0] debug_status_w;
+    wire [15:0] es5503_counter_w;
+    wire [15:0] es5503_access_counter_w;
+    wire [15:0] packets_dropped_counter_w;
+    wire        cam_overwrite_flag_w;
+
+    // Heartbeat generator for testing when Apple II bus is inactive
+    reg [23:0] heartbeat_counter_r;  
+    wire heartbeat_pulse_w = (heartbeat_counter_r == 24'd0);
+    always @(posedge clk_logic_w) begin
+        if (!system_reset_n_w) begin
+            heartbeat_counter_r <= 24'd0;
+        end else begin
+            heartbeat_counter_r <= heartbeat_counter_r + 1;
+        end
+    end
+
+    a2bus_stream #(
+        .ENABLE(ENABLE_BUS_STREAM)
+    ) a2bus_stream (
+        .a2bus_if(a2bus_if),
+        
+        .cam_pclk(cam_pclk_w),
+        .cam_sync(cam_sync_w),
+        .cam_data(cam_data_w),
+        
+        .capture_enable(1'b1),           // Always enabled
+        .capture_mode(3'b111),           // ES5503 only (changed from speaker)
+        .heartbeat_pulse(heartbeat_pulse_w),
+        .activity_led(activity_led_w),
+        .overflow_led(overflow_led_w),
+        .debug_status(debug_status_w),
+        .es5503_counter(es5503_counter_w),
+        .es5503_access_counter(es5503_access_counter_w),
+        .packets_dropped_counter(packets_dropped_counter_w),
+        .cam_overwrite_flag(cam_overwrite_flag_w)
+    );
+
+    // Connect CAM interface signals to ESP32 pins
+    assign esp32_parl_clk = cam_pclk_w;      // CAM PCLK
+    assign esp32_parl_frame = cam_sync_w;    // CAM SYNC 
+    assign esp32_parl_d = cam_data_w;        // CAM 4-bit parallel data
+
+
+    esp32_spi_connector esp32_spi_connector (
+        .clk(clk_logic_w),
+        .rst_n(system_reset_n_w),
+        .miso(esp32_spi_miso),
+        .mosi(esp32_spi_mosi),
+        .sclk(esp32_spi_sclk),
+        .i2s_sample_l(i2s_sample_l),
+        .i2s_sample_r(i2s_sample_r),
+        .es5503_access_counter(es5503_access_counter_w),
+        .es5503_tx_counter(es5503_counter_w),
+        .cam_overwrite_flag(cam_overwrite_flag_w)
     );
 
     // Slots
@@ -389,7 +478,7 @@ module top #(
     wire vdp_transparent;
     wire vdp_ext_video;
     wire vdp_irq_n;
-    wire [15:0] ssp_audio_w;
+    wire [9:0] ssp_audio_w;
     wire vdp_unlocked_w;
     wire [3:0] vdp_gmode_w;
     wire scanlines_w;
@@ -524,6 +613,43 @@ module top #(
         .speaker_o(speaker_audio_w)
     );
 
+    // Extend all the unsigned audio signals to 13 bits
+    wire [12:0] speaker_audio_ext_w = {speaker_audio_w, 12'b0};
+    wire [12:0] ssp_audio_ext_w = {ssp_audio_w, 3'b0};
+    wire [12:0] mb_audio_l_ext_w = {mb_audio_l, 3'b0};
+    wire [12:0] mb_audio_r_ext_w = {mb_audio_r, 3'b0};
+
+    wire signed [15:0] core_audio_l_w;
+    wire signed [15:0] core_audio_r_w;
+    // Combine all the audio sources into a single 16-bit signed audio signal
+    assign core_audio_l_w = ssp_audio_ext_w + mb_audio_l_ext_w + speaker_audio_ext_w;
+    assign core_audio_r_w = ssp_audio_ext_w + mb_audio_r_ext_w + speaker_audio_ext_w;
+
+    // CDC FIFO to shift audio to the pixel clock domain from the logic clock domain
+
+    wire [15:0] cdc_audio_l;
+    wire [15:0] cdc_audio_r;
+
+    cdc_sampling #(
+        .WIDTH(16)
+    ) audio_cdc_left (
+        .rst_n(device_reset_n_w),
+        .clk_fast(clk_logic_w),
+        .clk_slow(clk_pixel_w),
+        .data_in(core_audio_l_w),
+        .data_out(cdc_audio_l)
+    );
+
+    cdc_sampling #(
+        .WIDTH(16)
+    ) audio_cdc_right (
+        .rst_n(device_reset_n_w),
+        .clk_fast(clk_logic_w),
+        .clk_slow(clk_pixel_w),
+        .data_in(core_audio_r_w),
+        .data_out(cdc_audio_r)
+    );
+
     localparam [31:0] aflt_rate = 7_056_000;
     localparam [39:0] acx  = 4258969;
     localparam  [7:0] acx0 = 3;
@@ -533,13 +659,51 @@ module top #(
     localparam [23:0] acy1 =  24'd6143386;
     localparam [23:0] acy2 = -24'd2023767;
 
-    localparam AUDIO_RATE = 44100;
+    localparam AUDIO_RATE = 44100;  // Match MP3 stream sample rate
     localparam AUDIO_BIT_WIDTH = 16;
+    // I2S format: 0=left-justified, 1=standard I2S (1-bit delay)
+    localparam I2S_FORMAT = 1'b0;  // Use left-justified (simpler timing)
     wire clk_audio_w;
+	wire i2s_data_shift_strobe;
+	wire i2s_data_load_strobe;
+    audio_timing #(
+        .CLK_RATE(PIXEL_SPEED_HZ),
+        .AUDIO_RATE(AUDIO_RATE),
+        .I2S_STANDARD(I2S_FORMAT)
+    ) audio_timing (
+        .reset(~device_reset_n_w),
+        .clk(clk_pixel_w),
+        .audio_clk(clk_audio_w),
+        .i2s_bclk(esp32_i2s_bclk),
+        .i2s_lrclk(esp32_i2s_lrclk),
+        .i2s_data_shift_strobe(i2s_data_shift_strobe),
+        .i2s_data_load_strobe(i2s_data_load_strobe)
+    );
+
+    wire signed [15:0] i2s_sample_l;
+    wire signed [15:0] i2s_sample_r;
+    i2s_receiver i2s_receiver (
+        .reset(~device_reset_n_w),
+        .clk(clk_pixel_w),
+
+        .i2s_bclk(esp32_i2s_bclk),
+        .i2s_lrclk(esp32_i2s_lrclk),
+        .i2s_data(esp32_i2s_data),
+        .i2s_data_shift_strobe(i2s_data_shift_strobe),
+        .i2s_data_load_strobe(i2s_data_load_strobe),
+        .i2s_sample_l(i2s_sample_l),
+        .i2s_sample_r(i2s_sample_r)
+    );
+
+    wire signed [15:0] out_audio_l_w = $signed(cdc_audio_l) + (ENABLE_ESP32_AUDIO ? i2s_sample_l : 0);
+    wire signed [15:0] out_audio_r_w = $signed(cdc_audio_r) + (ENABLE_ESP32_AUDIO ? i2s_sample_r : 0);
+
     wire [15:0] audio_sample_word[1:0];
+
     audio_out #(
-        .CLK_RATE(CLOCK_SPEED_HZ / 2),
-        .AUDIO_RATE(AUDIO_RATE)
+        .CLK_RATE(PIXEL_SPEED_HZ),
+        .AUDIO_RATE(AUDIO_RATE),
+        .ENABLE(ENABLE_FILTER)
     ) audio_out
     (
         .reset(~device_reset_n_w),
@@ -554,21 +718,62 @@ module top #(
         .cy1(acy1),
         .cy2(acy2),
 
-        .is_signed(1'b0),
-        .core_l(ssp_audio_w + {mb_audio_l, 5'b00} + {speaker_audio_w, 13'b0}),
-        .core_r(ssp_audio_w + {mb_audio_r, 5'b00} + {speaker_audio_w, 13'b0}),
-
+        .is_signed(1'b1),
+        .core_l(out_audio_l_w),
+        .core_r(out_audio_r_w),
         .audio_clk(clk_audio_w),
         .audio_l(audio_sample_word[0]),
         .audio_r(audio_sample_word[1])
     );
+    
+    //assign audio_sample_word[0] = cdc_audio_l;
+    //assign audio_sample_word[1] = cdc_audio_r;
 
     // HDMI
 
+    wire scanline_en = scanlines_w && hdmi_y[0];
+
+    wire show_debug_overlay_r = 1'b1;
+
+    wire [7:0] debug_r_w;
+    wire [7:0] debug_g_w;
+    wire [7:0] debug_b_w;
+    DebugOverlay #(
+        .VERSION(`BUILD_DATETIME),  // 14-digit timestamp version
+        .ENABLE(1'b1)
+    ) debug_overlay (
+        .clk_i          (clk_pixel_w),
+        .reset_n (device_reset_n_w),
+        .enable_i(show_debug_overlay_r),
+
+        .hex_values ({
+            es5503_access_counter_w[15:8], // ES5503 access counter high byte (detected)
+            es5503_access_counter_w[7:0],  // ES5503 access counter low byte (detected)
+            es5503_counter_w[15:8],        // ES5503 transmission counter high byte (sent)
+            es5503_counter_w[7:0],         // ES5503 transmission counter low byte (sent)
+            packets_dropped_counter_w[15:8], // Packets dropped counter high byte
+            packets_dropped_counter_w[7:0],  // Packets dropped counter low byte
+            {7'b0, cam_overwrite_flag_w}, // CAM overwrite flag (should be 0 if no overwrites)
+            {4'b0, a2mem_if.BACKGROUND_COLOR} // Current BACKGROUND_COLOR value     
+        }), 
+
+        .debug_bits_0_i ({a2mem_if.SHRG_MODE, a2mem_if.TEXT_MODE, a2mem_if.MIXED_MODE, a2mem_if.HIRES_MODE, a2mem_if.RAMWRT, a2mem_if.STORE80, a2bus_if.system_reset_n, a2bus_if.device_reset_n}),
+        .debug_bits_1_i ({1'b0, 1'b0, 1'b0, 1'b0, 1'b0, led_2m_w, led_phi1_w, led_r}),
+
+        .screen_x_i     (hdmi_x),
+        .screen_y_i     (hdmi_y),
+
+        .r_i            (scanline_en ? {1'b0, rgb_r_w[7:1]} : rgb_r_w),
+        .g_i            (scanline_en ? {1'b0, rgb_g_w[7:1]} : rgb_g_w),
+        .b_i            (scanline_en ? {1'b0, rgb_b_w[7:1]} : rgb_b_w),
+
+        .r_o            (debug_r_w),
+        .g_o            (debug_g_w),
+        .b_o            (debug_b_w)
+    );  
+
     logic [2:0] tmds;
     wire tmdsClk;
-
-    wire scanline_en = scanlines_w && hdmi_y[0];
 
     hdmi #(
         .VIDEO_ID_CODE(2),
@@ -587,9 +792,9 @@ module top #(
         .clk_pixel(clk_pixel_w),
         .clk_audio(clk_audio_w),
         .rgb({
-            scanline_en ? {1'b0, rgb_r_w[7:1]} : rgb_r_w,
-            scanline_en ? {1'b0, rgb_g_w[7:1]} : rgb_g_w,
-            scanline_en ? {1'b0, rgb_b_w[7:1]} : rgb_b_w
+            debug_r_w,
+            debug_g_w,
+            debug_b_w
         }),
         /*
         .rgb({
@@ -644,24 +849,5 @@ module top #(
     end
     */
 
-
-endmodule
-
-module Reset_Sync (
-    input clk,
-    input ext_reset,
-    output resetn
-);
-
-    reg [3:0] reset_cnt = 0;
-
-    always @(posedge clk or negedge ext_reset) begin
-        if (~ext_reset)
-            reset_cnt <= 4'b0;
-        else
-            reset_cnt <= reset_cnt + !resetn;
-    end
-
-    assign resetn = &reset_cnt;
 
 endmodule

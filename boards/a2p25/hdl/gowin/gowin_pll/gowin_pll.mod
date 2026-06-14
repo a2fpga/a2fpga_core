@@ -35,7 +35,7 @@
 -clkout0_dt_step 0
 -en_clkout1 true
 -clkout1_bypass false
--odiv1_sel 25
+-odiv1_sel 10
 -clkout1_dt_dir 1
 -clkout1_dt_step 0
 -dyn_pe1_sel false
@@ -44,7 +44,7 @@
 -de1_en false
 -en_clkout2 true
 -clkout2_bypass false
--odiv2_sel 10
+-odiv2_sel 25
 -clkout2_dt_dir 1
 -clkout2_dt_step 0
 -dyn_pe2_sel false

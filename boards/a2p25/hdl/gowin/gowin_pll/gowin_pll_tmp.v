@@ -14,8 +14,7 @@
         .clkout1(clkout1), //output  clkout1
         .clkout2(clkout2), //output  clkout2
         .lock(lock), //output  lock
-        .mdclk(mdclk), //input  mdclk
-        .reset(reset) //input  reset
+        .mdclk(mdclk) //input  mdclk
 );
 
 

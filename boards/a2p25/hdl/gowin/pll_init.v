@@ -2,7 +2,7 @@
 
 
 module PLL_INIT #
-(   parameter       CLK_PERIOD  = 20       //! ns; >= 50
+(   parameter       CLK_PERIOD  = 20       
 ,   parameter       MULTI_FAC   = 24
 )
 (   input           I_RST
@@ -19,10 +19,10 @@ module PLL_INIT #
 ,   output          O_LOCK
 
 ,   input PLL_INIT_BYPASS
-,   output [7:0]MDRDO
-,   input [1:0]MDOPC
+,   output [7:0] MDRDO
+,   input [1:0] MDOPC
 ,   input MDAINC
-,   input [7:0]MDWDI
+,   input [7:0] MDWDI
 
 
 );
@@ -123,12 +123,12 @@ localparam  ROM_FILE = "";
 
 reg  [  27:0]   rRomDReg    = 'b0;
 
-/*synthesis syn_romstyle="distributed_rom"*/
+
 reg    [27:0]  rRom    [63:0];
 
 
-always @ (posedge I_RST or posedge I_MD_CLK) begin
-    if (I_RST)  rEnable <=`DL 2'b00;
+always @ (posedge PLL_INIT_BYPASS or posedge I_MD_CLK or posedge I_RST) begin
+    if (PLL_INIT_BYPASS || I_RST)  rEnable <=`DL 2'b00;
     else        rEnable <=`DL {rEnable[0], 1'b1};
 end
 
@@ -142,8 +142,8 @@ if (ROM_FILE != "") begin: ram_init_file
         rRomDReg    <=`DL rRom[rRomAddr[5:0]];
     end
 end else begin : ram_init
-    always @ (posedge I_RST or posedge I_MD_CLK) begin
-        if (I_RST) begin
+    always @ (posedge I_MD_CLK) begin
+        if (~rEnable[1]) begin
             rRomDReg    <=`DL 28'h000_0000;
 //1
             rRom[00]    <=`DL (MULTI_FAC > 34)  ? 28'h10B_3F03
@@ -394,4 +394,5 @@ assign  MDRDO       = (PLL_INIT_BYPASS == 1'b1) ? I_MD_RD_DATA : 8'b0000_0000;
 /////////////////////////////////////
 
 endmodule//: PLL_INIT
+
 
