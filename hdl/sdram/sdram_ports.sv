@@ -27,6 +27,7 @@ module sdram_ports #(
     parameter BURST_LENGTH = 1,  // 1, 2, 4, 8 words per read
     parameter BURST_TYPE   = 0,  // 1 for interleaved
     parameter WRITE_BURST  = 0,  // 1 to enable write bursting
+    parameter READ_BURST_LENGTH = 4,  // Bytes returned when port burst bit is set
 
     parameter CAS_LATENCY = 2,  // 1, 2, or 3 cycle delays
 
@@ -80,7 +81,12 @@ module sdram_ports #(
 
     parameter PORT_ADDR_WIDTH = 25,
     parameter PORT_BURST_LENGTH = BURST_LENGTH,  // 1, 2, 4, 8 words per read
-    parameter PORT_OUTPUT_WIDTH = PORT_BURST_LENGTH * DATA_WIDTH
+    parameter PORT_OUTPUT_WIDTH = PORT_BURST_LENGTH * DATA_WIDTH,
+
+    // Per-port base address in word-address space.
+    // Clients address from 0; the wrapper adds this offset before
+    // passing addresses to the SDRAM controller.
+    parameter [PORT_ADDR_WIDTH-1:0] PORT_BASE_ADDR [NUM_PORTS] = '{NUM_PORTS{0}}
 ) (
     input wire clk,
     input wire sdram_clk,
@@ -88,7 +94,7 @@ module sdram_ports #(
     output wire init_complete,  // SDRAM is done initializing
 
     // Ports
-    sdram_port_if.controller ports[NUM_PORTS-1:0],
+    mem_port_if.controller ports[NUM_PORTS-1:0],
 
     inout  wire [DATA_WIDTH-1:0] SDRAM_DQ,    // Bidirectional data bus
     output reg  [ ROW_WIDTH-1:0] SDRAM_A,     // Address bus
@@ -108,17 +114,19 @@ module sdram_ports #(
     wire [PORT_OUTPUT_WIDTH-1:0] port_q[NUM_PORTS-1:0];
     wire port_wr[NUM_PORTS-1:0];
     wire port_rd[NUM_PORTS-1:0];
+    wire port_burst[NUM_PORTS-1:0];
     wire port_available[NUM_PORTS-1:0];
     wire port_ready[NUM_PORTS-1:0];
 
     generate
         for (genvar i = 0; i < NUM_PORTS; i++) begin : port_interface_loop
-            assign port_addr[i] = ports[i].addr;
+            assign port_addr[i] = PORT_BASE_ADDR[i] + ports[i].addr;
             assign port_data[i] = ports[i].data;
             assign port_byte_en[i] = ports[i].byte_en;
             assign ports[i].q = port_q[i];
             assign port_wr[i] = ports[i].wr;
             assign port_rd[i] = ports[i].rd;
+            assign port_burst[i] = ports[i].burst;
             assign ports[i].available = port_available[i];
             assign ports[i].ready = port_ready[i];
         end
@@ -130,6 +138,7 @@ module sdram_ports #(
         .BURST_LENGTH(BURST_LENGTH),
         .BURST_TYPE  (BURST_TYPE),
         .WRITE_BURST (WRITE_BURST),
+        .READ_BURST_LENGTH(READ_BURST_LENGTH),
 
         .CAS_LATENCY(CAS_LATENCY),
 
@@ -197,6 +206,7 @@ module sdram_ports #(
         .port_q(port_q),
         .port_wr(port_wr),
         .port_rd(port_rd),
+        .port_burst(port_burst),
         .port_available(port_available),
         .port_ready(port_ready),
 

@@ -39,6 +39,33 @@ module apple_memory #(
 
     wire write_strobe = !a2bus_if.rw_n && a2bus_if.data_in_strobe;
     wire read_strobe = a2bus_if.rw_n && a2bus_if.data_in_strobe;
+    wire video_read_active = video_rd_i && !vgc_active_i;
+    wire vgc_read_active = vgc_rd_i && vgc_active_i;
+    wire vram_read_active = video_read_active || vgc_read_active;
+    wire hires_aux_read_enable = (VGC_MEMORY && vgc_active_i) ? vgc_read_active : video_read_active;
+    logic write_strobe_vram;
+    logic write_strobe_vram_pending;
+
+    // Avoid BRAM read/write collisions by deferring shadow-memory writes
+    // until the active video read strobe deasserts.
+    always_ff @(posedge a2bus_if.clk_logic or negedge a2bus_if.system_reset_n) begin
+        if (!a2bus_if.system_reset_n) begin
+            write_strobe_vram <= 1'b0;
+            write_strobe_vram_pending <= 1'b0;
+        end else begin
+            write_strobe_vram <= 1'b0;
+
+            if (write_strobe_vram_pending) begin
+                if (!vram_read_active) begin
+                    write_strobe_vram <= 1'b1;
+                    write_strobe_vram_pending <= 1'b0;
+                end
+            end else if (write_strobe) begin
+                if (vram_read_active) write_strobe_vram_pending <= 1'b1;
+                else write_strobe_vram <= 1'b1;
+            end
+        end
+    end
 
    // II Soft switches
     reg SWITCHES_II[8];
@@ -256,10 +283,10 @@ module apple_memory #(
         .clk(a2bus_if.clk_logic),
         .write_addr(text_write_offset[11:2]),
         .write_data(write_word),
-        .write_enable(write_strobe && bus_addr_0400_0BFF),
+        .write_enable(write_strobe_vram && bus_addr_0400_0BFF),
         .byte_enable(4'(1 << text_write_offset[1:0])),
         .read_addr(text_read_offset),
-        .read_enable(1'b1),
+        .read_enable(video_read_active),
         .read_data(text_data)
     );
 
@@ -270,7 +297,7 @@ module apple_memory #(
     wire [3:0] hires_byte_enable = 4'(1 << hires_write_offset[1:0]);
 
     wire [11:0] write_offset_main_2000_5FFF = hires_write_offset[13:2];
-    wire write_enable_main_2000_5FFF = write_strobe && bus_addr_2000_5FFF && !E1;
+    wire write_enable_main_2000_5FFF = write_strobe_vram && bus_addr_2000_5FFF && !E1;
 
     sdpram32 #(
         .ADDR_WIDTH(12)
@@ -281,7 +308,7 @@ module apple_memory #(
         .write_enable(write_enable_main_2000_5FFF),
         .byte_enable(hires_byte_enable),
         .read_addr(hires_main_read_offset),
-        .read_enable(1'b1),
+        .read_enable(video_read_active),
         .read_data(hires_data_main)
     );  
 
@@ -325,28 +352,28 @@ module apple_memory #(
 
         if (VGC_MEMORY) begin
             if (a2mem_if.LINEARIZE_MODE) begin
-                write_enable_aux_2000_5FFF = write_strobe && bus_addr_2000_9FFF && E1;
+                write_enable_aux_2000_5FFF = write_strobe_vram && bus_addr_2000_9FFF && E1;
                 write_offset_aux_2000_5FFF = hires_write_offset[14:3];
                 hires_byte_enable_aux_2000_5FFF = hires_write_offset[0] ? 4'b0 : 4'(1 << hires_write_offset[2:1]);
 
-                write_enable_aux_6000_9FFF = write_strobe && bus_addr_2000_9FFF && E1;
+                write_enable_aux_6000_9FFF = write_strobe_vram && bus_addr_2000_9FFF && E1;
                 write_offset_aux_6000_9FFF = hires_write_offset[14:3];
                 hires_byte_enable_aux_6000_9FFF = hires_write_offset[0] ? 4'(1 << hires_write_offset[2:1]) : 4'b0;
 
             end else begin
                 if (bus_addr_2000_5FFF) begin
-                    write_enable_aux_2000_5FFF = write_strobe && bus_addr_2000_5FFF && E1;
+                    write_enable_aux_2000_5FFF = write_strobe_vram && bus_addr_2000_5FFF && E1;
                     write_offset_aux_2000_5FFF = hires_write_offset[13:2];
                     hires_byte_enable_aux_2000_5FFF = hires_byte_enable;
                 end else if (bus_addr_6000_9FFF) begin
-                    write_enable_aux_6000_9FFF = write_strobe && bus_addr_6000_9FFF && E1;
+                    write_enable_aux_6000_9FFF = write_strobe_vram && bus_addr_6000_9FFF && E1;
                     write_offset_aux_6000_9FFF = hires_write_offset[13:2];
                     hires_byte_enable_aux_6000_9FFF = hires_byte_enable;
                 end
             end
         end else begin
             // only write to the aux 2000-5FFF bank when VGC_MEMORY is not set
-            write_enable_aux_2000_5FFF = write_strobe && bus_addr_2000_5FFF && E1;
+            write_enable_aux_2000_5FFF = write_strobe_vram && bus_addr_2000_5FFF && E1;
             write_offset_aux_2000_5FFF = hires_write_offset[13:2];
             hires_byte_enable_aux_2000_5FFF = hires_byte_enable;
         end
@@ -361,7 +388,7 @@ module apple_memory #(
         .write_enable(write_enable_aux_2000_5FFF),
         .byte_enable(hires_byte_enable_aux_2000_5FFF),
         .read_addr(hires_aux_read_offset),
-        .read_enable(1'b1),
+        .read_enable(hires_aux_read_enable),
         .read_data(hires_data_aux)
     );
 
@@ -376,7 +403,7 @@ module apple_memory #(
                 .write_enable(write_enable_aux_6000_9FFF),
                 .byte_enable(hires_byte_enable_aux_6000_9FFF),
                 .read_addr(hires_aux_read_offset),
-                .read_enable(1'b1),
+                .read_enable(vgc_read_active),
                 .read_data(hires_data_aux_6000_9FFF)
             );
         end else begin

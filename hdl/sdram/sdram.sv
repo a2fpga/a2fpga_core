@@ -30,6 +30,7 @@ module sdram #(
     parameter BURST_LENGTH = 1,  // 1, 2, 4, 8 words per read
     parameter BURST_TYPE   = 0,  // 1 for interleaved
     parameter WRITE_BURST  = 0,  // 1 to enable write bursting
+    parameter READ_BURST_LENGTH = 4,  // Bytes returned when port burst bit is set
 
     parameter CAS_LATENCY = 2,  // 1, 2, or 3 cycle delays
 
@@ -98,6 +99,7 @@ module sdram #(
 
     input wire port_wr[NUM_PORTS-1:0],
     input wire port_rd[NUM_PORTS-1:0],
+    input wire port_burst[NUM_PORTS-1:0],
 
     output wire port_available[NUM_PORTS-1:0],  // The port is able to be used
     output reg  port_ready     [NUM_PORTS-1:0],  // The port has finished its task. Will rise for a single cycle
@@ -166,6 +168,12 @@ module sdram #(
     wire [12:0] configured_mode = {
         3'b0, ~WRITE_BURST[0], 2'b0, CAS_LATENCY[2:0], BURST_TYPE[0], concrete_burst_length
     };
+    localparam integer WORD_BYTES = DATA_WIDTH / 8;
+    localparam integer READ_BURST_WORDS_UNCLAMPED =
+        (READ_BURST_LENGTH + WORD_BYTES - 1) / WORD_BYTES;
+    localparam integer READ_BURST_WORDS =
+        (READ_BURST_WORDS_UNCLAMPED < 1) ? 1 :
+        ((READ_BURST_WORDS_UNCLAMPED > BURST_LENGTH) ? BURST_LENGTH : READ_BURST_WORDS_UNCLAMPED);
 
     typedef struct packed {
         reg [COL_WIDTH-1:0]  port_addr;
@@ -176,6 +184,7 @@ module sdram #(
     // nCS, nRAS, nCAS, nWE
     typedef enum bit [3:0] {
         COMMAND_NOP           = 4'b0111,
+        COMMAND_BURST_TERMINATE = 4'b0110,
         COMMAND_ACTIVE        = 4'b0011,
         COMMAND_READ          = 4'b0101,
         COMMAND_WRITE         = 4'b0100,
@@ -233,9 +242,12 @@ module sdram #(
     // Cache the signals we received, potentially while busy
     reg port_wr_queue[NUM_PORTS-1:0];
     reg port_rd_queue[NUM_PORTS-1:0];
+    reg port_burst_queue[NUM_PORTS-1:0];
     reg [DQM_WIDTH-1:0] port_byte_en_queue[NUM_PORTS-1:0];
     reg [PORT_ADDR_WIDTH-1:0] port_addr_queue[NUM_PORTS-1:0];
     reg [DATA_WIDTH-1:0] port_data_queue[NUM_PORTS-1:0];
+
+    reg [3:0] read_expected_words;
 
     wire port_queue[NUM_PORTS-1:0];
 
@@ -328,6 +340,7 @@ module sdram #(
 
                 port_wr_queue[i] <= 0;
                 port_rd_queue[i] <= 0;
+                port_burst_queue[i] <= 0;
 
                 port_ready[i] <= 0;
 
@@ -351,9 +364,15 @@ module sdram #(
                     port_data_queue[i] <= port_data[i];
                 end else if (port_rd_req[i]  /*&& current_io_operation != IO_READ*/) begin
                     port_rd_queue[i]   <= 1;
+                    port_burst_queue[i] <= port_burst[i];
 
                     port_addr_queue[i] <= port_addr[i];
                 end
+            end
+
+            // ready pulses for one cycle whenever a transaction beat completes.
+            for (int i = 0; i < NUM_PORTS; i++) begin
+                port_ready[i] <= 0;
             end
 
             // Default to NOP at all times in between commands
@@ -401,10 +420,6 @@ module sdram #(
                 IDLE: begin
                     // Stop outputting on DQ and hold in high Z
                     dq_output <= 0;
-
-                    for (int i = 0; i < NUM_PORTS; i++) begin
-                        port_ready[i] <= 0;
-                    end
 
                     current_io_operation <= IO_NONE;
 
@@ -477,6 +492,11 @@ module sdram #(
                 READ: begin
                     // Read to the selected row
                     port_selection active_port_entries;
+                    logic [3:0] expected_words_w;
+
+                    expected_words_w = port_burst_queue[active_port] ? 4'(READ_BURST_WORDS) : 4'd1;
+                    read_expected_words <= expected_words_w;
+                    read_counter <= 0;
 
                     if (CAS_LATENCY == 1 && ~SETTING_USE_FAST_INPUT_REGISTER) begin
                         // Go directly to read
@@ -484,8 +504,6 @@ module sdram #(
                     end else begin
                         state <= DELAY;
                         delay_state <= READ_OUTPUT;
-
-                        read_counter <= 0;
 
                         // Takes one cycle to go to read data, and one to actually read the data
                         // Fast input register delays operation by a cycle
@@ -496,6 +514,7 @@ module sdram #(
 
                     // Clear queued action
                     port_rd_queue[active_port] <= 0;
+                    port_burst_queue[active_port] <= 0;
 
                     sdram_command <= COMMAND_READ;
 
@@ -509,44 +528,22 @@ module sdram #(
                     SDRAM_DQM <= 0;
                 end
                 READ_OUTPUT: begin
-                    /*
-                    reg [(8*DATA_WIDTH)-1:0] temp;
-                    reg [  3:0] expected_count;
-
-                    temp = 0;
-                    temp[PORT_OUTPUT_WIDTH-1:0] = port_q[active_port];
-
-                    expected_count = PORT_BURST_LENGTH;
-
-                    if (read_counter < expected_count) begin
-                      read_counter <= read_counter + 4'h1;
-                    end else begin
-                      // We've read everything, and are done
-                      state <= IDLE;
-                    end
-
-                    case (read_counter)
-                      0: temp[DATA_WIDTH-1:0] = SDRAM_DQ;
-                      1: temp[(2*DATA_WIDTH)-1:DATA_WIDTH] = SDRAM_DQ;
-                      2: temp[(3*DATA_WIDTH)-1:(2*DATA_WIDTH)] = SDRAM_DQ;
-                      3: temp[(4*DATA_WIDTH)-1:(3*DATA_WIDTH)] = SDRAM_DQ;
-                      4: temp[(5*DATA_WIDTH)-1:(4*DATA_WIDTH)] = SDRAM_DQ;
-                      5: temp[(6*DATA_WIDTH)-1:(5*DATA_WIDTH)] = SDRAM_DQ;
-                      6: temp[(7*DATA_WIDTH)-1:(6*DATA_WIDTH)] = SDRAM_DQ;
-                      7: temp[(8*DATA_WIDTH)-1:(7*DATA_WIDTH)] = SDRAM_DQ;
-                    endcase
-
-
-                    port_q[active_port] <= temp[PORT_OUTPUT_WIDTH-1:0];
-
-                    if (read_counter == expected_count) begin
-                      port_ready[active_port] <= 1;
-                    end
-                    */
-
+                    // Read data beat is available.
                     port_q[active_port] <= SDRAM_DQ;
-                    state <= IDLE;
                     port_ready[active_port] <= 1;
+                    read_counter <= read_counter + 4'd1;
+
+                    // End burst once requested beat count has been returned.
+                    if (read_counter + 4'd1 >= read_expected_words) begin
+                        state <= IDLE;
+                    end
+
+                    // If device burst mode is wider than this request, terminate now.
+                    if ((BURST_LENGTH > 1) &&
+                        (read_counter + 4'd1 == read_expected_words) &&
+                        (read_expected_words < BURST_LENGTH)) begin
+                        sdram_command <= COMMAND_BURST_TERMINATE;
+                    end
 
                 end
             endcase

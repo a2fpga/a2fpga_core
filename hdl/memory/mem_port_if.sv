@@ -1,7 +1,7 @@
 //
-// SystemVerilog interface for a SDRAM port
+// SystemVerilog interface for a memory port
 //
-// (c) 2023,2024 Ed Anuff <ed@a2fpga.com> 
+// (c) 2023,2024 Ed Anuff <ed@a2fpga.com>
 //
 // Permission to use, copy, modify, and/or distribute this software for any
 // purpose with or without fee is hereby granted, provided that the above
@@ -17,10 +17,10 @@
 //
 // Description:
 //
-// SystemVerilog interface for a SDRAM port
+// SystemVerilog interface for a memory port
 //
 
-interface sdram_port_if #(
+interface mem_port_if #(
     parameter PORT_ADDR_WIDTH = 12,
     parameter DATA_WIDTH = 16,
     parameter DQM_WIDTH = 2,
@@ -34,9 +34,10 @@ interface sdram_port_if #(
 
     logic wr;
     logic rd;
+    logic burst;  // Read request uses controller burst length when high
 
     logic available;                 // The port is able to be used
-    logic ready;                      // The port has finished its task. Will rise for a single cycle
+    logic ready;                      // Read data beat or write completion pulse
 
     modport controller (
         input addr,
@@ -46,6 +47,7 @@ interface sdram_port_if #(
 
         input wr,
         input rd,
+        input burst,
 
         output available,
         output ready
@@ -59,9 +61,10 @@ interface sdram_port_if #(
 
         output wr,
         output rd,
+        output burst,
 
         input available,
         input ready
     );
 
-endinterface: sdram_port_if
+endinterface: mem_port_if
