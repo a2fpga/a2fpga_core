@@ -70,6 +70,12 @@ module SuperSprite #(
     output vdp_unlocked_o,
     output [3:0] vdp_gmode_o,
 
+    // VDP border color — sampled from VDP output in the margin area
+    output [3:0] vdp_border_r_o,
+    output [3:0] vdp_border_g_o,
+    output [3:0] vdp_border_b_o,
+    output       vdp_border_active_o,
+
     f18a_gpu_if.master f18a_gpu_if,
 
     output [9:0] ssp_audio_o
@@ -238,5 +244,24 @@ module SuperSprite #(
     assign ssp_b_o = vdp_pixel_en ? {vdp_b, 4'b0} : video_in_b;
 
     assign vdp_ext_video_o = vdp_ext_video;
+
+    // VDP border color: sample raw VDP output at a known margin position
+    // (screen_x=4, before XSTART=24 in f18a_counters_fb). Uses the same
+    // overlay logic as vdp_pixel_en to determine if the VDP border should
+    // override the Apple II border.
+    reg [3:0] vdp_border_r_r, vdp_border_g_r, vdp_border_b_r;
+    reg        vdp_border_active_r;
+    always @(posedge a2bus_if.clk_logic) begin
+        if (screen_x_i == 10'd4) begin
+            vdp_border_r_r <= vdp_r;
+            vdp_border_g_r <= vdp_g;
+            vdp_border_b_r <= vdp_b;
+            vdp_border_active_r <= vdp_pixel_en;
+        end
+    end
+    assign vdp_border_r_o = vdp_border_r_r;
+    assign vdp_border_g_o = vdp_border_g_r;
+    assign vdp_border_b_o = vdp_border_b_r;
+    assign vdp_border_active_o = vdp_border_active_r;
 
 endmodule

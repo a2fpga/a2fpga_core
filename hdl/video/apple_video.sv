@@ -546,7 +546,7 @@ module apple_video (
         12'hff0, // 13  Yellow
         12'h4f9, // 14  Aquamarine
         12'hfff  // 15  White
-    };
+    } /* synthesis syn_romstyle = "distributed_rom" */;
 
     // Apple II color artifact_r table from MAME, reduced to 4 bits
     // https://github.com/mamedev/mame/blob/master/src/mame/apple/apple2video.cpp#L225
