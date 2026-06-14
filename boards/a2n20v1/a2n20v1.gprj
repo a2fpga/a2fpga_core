@@ -15,7 +15,7 @@
         <File path="../../hdl/f18a/f18a_gpu.vhd" type="file.vhdl" enable="1"/>
         <File path="../../hdl/f18a/f18a_single_port_ram.vhd" type="file.vhdl" enable="1"/>
         <File path="../../hdl/f18a/f18a_sprites.vhd" type="file.vhdl" enable="1"/>
-        <File path="../../hdl/f18a/f18a_tile_linebuf.vhd" type="file.vhdl" enable="1"/>
+        <File path="../../hdl/f18a/f18a_tile_linebuf_ssram.vhd" type="file.vhdl" enable="1"/>
         <File path="../../hdl/f18a/f18a_tiles.vhd" type="file.vhdl" enable="1"/>
         <File path="../../hdl/f18a/f18a_version.vhd" type="file.vhdl" enable="1"/>
         <File path="../../hdl/f18a/f18a_vga_cont_640_60.vhd" type="file.vhdl" enable="1"/>
@@ -40,6 +40,7 @@
         <File path="../../hdl/slots/slots.hex" type="file.other" enable="1"/>
         <File path="../../hdl/sound/apple_speaker.sv" type="file.verilog" enable="1"/>
         <File path="../../hdl/sound/audio_out.v" type="file.verilog" enable="1"/>
+        <File path="../../hdl/sound/audio_timing.sv" type="file.verilog" enable="1"/>
         <File path="../../hdl/ssc/ssc_rom.vhd" type="file.vhdl" enable="1"/>
         <File path="../../hdl/ssc/super_serial_card.sv" type="file.verilog" enable="1"/>
         <File path="../../hdl/supersprite/supersprite.sv" type="file.verilog" enable="1"/>

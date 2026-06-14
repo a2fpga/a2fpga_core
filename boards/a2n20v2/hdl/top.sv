@@ -115,54 +115,11 @@ module top #(
 
     wire system_reset_n_w = device_reset_n_w & a2_reset_n;
 
-    // Translate Phi1 into the clk_logic clock domain and derive Phi0 and edges
-    // delays Phi1 by 2 cycles = 40ns
-    wire phi1;
-    wire phi0;
-    wire phi1_posedge;
-    wire phi1_negedge;
-    wire clk_2m_posedge_w = phi1_posedge | phi1_negedge;
-    cdc_denoise cdc_phi1 (
-        .clk(clk_logic_w),
-        .i(a2_phi1),
-        .o(phi1),
-        .o_n(phi0),
-        .o_posedge(phi1_posedge),
-        .o_negedge(phi1_negedge)
-    );
-
-    wire clk_7m_w;
-    wire clk_7m_posedge_w;
-    wire clk_7m_negedge_w;
-    wire clk_14m_posedge_w = clk_7m_posedge_w | clk_7m_negedge_w;
-    cdc_denoise cdc_7m (
-        .clk(clk_logic_w),
-        .i(a2_7M),
-        .o(clk_7m_w),
-        .o_n(),
-        .o_posedge(clk_7m_posedge_w),
-        .o_negedge(clk_7m_negedge_w)
-    );
-
     // Interface to Apple II
 
     // data and address latches on input
 
-    a2bus_if a2bus_if (
-        .clk_logic(clk_logic_w),
-        .clk_pixel(clk_pixel_w),
-        .system_reset_n(system_reset_n_w),
-        .device_reset_n(device_reset_n_w),
-        .phi0(phi0),
-        .phi1(phi1),
-        .phi1_posedge(phi1_posedge),
-        .phi1_negedge(phi1_negedge),
-        .clk_2m_posedge(clk_2m_posedge_w),
-        .clk_7m(clk_7m_w),
-        .clk_7m_posedge(clk_7m_posedge_w),
-        .clk_7m_negedge(clk_7m_negedge_w),
-        .clk_14m_posedge(clk_14m_posedge_w)
-    );
+    a2bus_if a2bus_if ();
 
     wire sleep_w;
     wire data_in_strobe_w;
@@ -194,6 +151,14 @@ module top #(
         .BUS_DATA_OUT_ENABLE(BUS_DATA_OUT_ENABLE),
         .IRQ_OUT_ENABLE(IRQ_OUT_ENABLE)
     ) apple_bus (
+        .clk_logic_i(clk_logic_w),
+        .clk_pixel_i(clk_pixel_w),
+        .system_reset_n_i(system_reset_n_w),
+        .device_reset_n_i(device_reset_n_w),
+        .a2_phi1_i(a2_phi1),
+        .a2_q3_i(1'b0),
+        .a2_7M_i(a2_7M),
+
         .a2bus_if(a2bus_if),
 
         .a2_bridge_sel_o(a2_bridge_sel),
@@ -537,6 +502,19 @@ module top #(
     localparam AUDIO_RATE = 44100;
     localparam AUDIO_BIT_WIDTH = 16;
     wire clk_audio_w;
+    audio_timing #(
+        .CLK_RATE(CLOCK_SPEED_HZ / 2),
+        .AUDIO_RATE(AUDIO_RATE)
+    ) audio_timing (
+        .reset(~device_reset_n_w),
+        .clk(clk_pixel_w),
+        .audio_clk(clk_audio_w),
+        .i2s_bclk(),
+        .i2s_lrclk(),
+        .i2s_data_shift_strobe(),
+        .i2s_data_load_strobe()
+    );
+
     wire [15:0] audio_sample_word[1:0];
     audio_out #(
         .CLK_RATE(CLOCK_SPEED_HZ / 2),
@@ -592,7 +570,7 @@ module top #(
             8'h0
         }), 
 
-        .debug_bits_0_i (doc_osc_halt_w), 
+        .debug_bits_0_i ('0), 
         .debug_bits_1_i ('0),
 
         .screen_x_i     (hdmi_x),

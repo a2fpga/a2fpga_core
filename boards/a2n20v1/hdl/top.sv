@@ -129,17 +129,17 @@ module top #(
         .o_negedge(phi1_negedge)
     );
 
-    wire clk_7m_w;
-    wire clk_7m_posedge_w;
-    wire clk_7m_negedge_w;
-    wire clk_14m_posedge_w = clk_7m_posedge_w | clk_7m_negedge_w;
-    cdc cdc_7m (
+    wire clk_7M_w;
+    wire clk_7M_posedge_w;
+    wire clk_7M_negedge_w;
+    wire clk_14M_posedge_w = clk_7M_posedge_w | clk_7M_negedge_w;
+    cdc cdc_7M (
         .clk(clk_logic_w),
         .i(a2_7M),
-        .o(clk_7m_w),
+        .o(clk_7M_w),
         .o_n(),
-        .o_posedge(clk_7m_posedge_w),
-        .o_negedge(clk_7m_negedge_w)
+        .o_posedge(clk_7M_posedge_w),
+        .o_negedge(clk_7M_negedge_w)
     );
 
     // Interface to Apple II
@@ -156,10 +156,10 @@ module top #(
         .phi1_posedge(phi1_posedge),
         .phi1_negedge(phi1_negedge),
         .clk_2m_posedge(clk_2m_posedge_w),
-        .clk_7m(clk_7m_w),
-        .clk_7m_posedge(clk_7m_posedge_w),
-        .clk_7m_negedge(clk_7m_negedge_w),
-        .clk_14m_posedge(clk_14m_posedge_w)
+        .clk_7M(clk_7M_w),
+        .clk_7M_posedge(clk_7M_posedge_w),
+        .clk_7M_negedge(clk_7M_negedge_w),
+        .clk_14M_posedge(clk_14M_posedge_w)
     );
 
     wire sleep_w;
@@ -522,7 +522,11 @@ module top #(
 
         .audio_clk(clk_audio_w),
         .audio_l(audio_sample_word[0]),
-        .audio_r(audio_sample_word[1])
+        .audio_r(audio_sample_word[1]),
+
+        .i2s_bclk(),
+        .i2s_lrclk(),
+        .i2s_data(1'b0)
     );
 
     // HDMI

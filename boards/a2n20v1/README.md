@@ -30,3 +30,9 @@ or commercial editions.  Use the `a2n20v1.gprj` file in this folder.
 Note: When using the Gowin IDE, do not add or remove files from the project or it will
 turn the relative file paths into absolute file paths.
 
+
+## Documentation
+
+- [Project documentation wiki](../../docs/README.md) — Gowin CLI setup, architecture, conventions, gotchas
+- [Agent & contributor guide](../../AGENTS.md)
+- [This board's tasks & status (TODO.md)](TODO.md)

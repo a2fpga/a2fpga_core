@@ -67,7 +67,7 @@ table.detail_table th.label {  min-width: 8%; width: 8%; }
 </tr>
 <tr>
 <td class="label">Tool Version</td>
-<td>V1.9.11.02</td>
+<td>V1.9.12.01</td>
 </tr>
 <tr>
 <td class="label">Part Number</td>
@@ -83,7 +83,7 @@ table.detail_table th.label {  min-width: 8%; width: 8%; }
 </tr>
 <tr>
 <td class="label">Created Time</td>
-<td>Sun Jul  6 15:31:35 2025
+<td>Wed Jan 21 17:29:44 2026
 </td>
 </tr>
 <tr>
@@ -97,24 +97,24 @@ table.detail_table th.label {  min-width: 8%; width: 8%; }
 <tr>
 <td class="label">Place & Route Process</td>
 <td>Running placement:
-   Placement Phase 0: CPU time = 0h 0m 0.708s, Elapsed time = 0h 0m 0.674s
-   Placement Phase 1: CPU time = 0h 0m 0.186s, Elapsed time = 0h 0m 0.178s
+   Placement Phase 0: CPU time = 0h 0m 0.74s, Elapsed time = 0h 0m 0.695s
+   Placement Phase 1: CPU time = 0h 0m 0.214s, Elapsed time = 0h 0m 0.192s
    Placement Phase 2: CPU time = 0h 0m 2s, Elapsed time = 0h 0m 2s
    Placement Phase 3: CPU time = 0h 0m 1s, Elapsed time = 0h 0m 1s
    Total Placement: CPU time = 0h 0m 4s, Elapsed time = 0h 0m 4s
 Running routing:
    Routing Phase 0: CPU time = 0h 0m 0.002s, Elapsed time = 0h 0m 0.002s
-   Routing Phase 1: CPU time = 0h 0m 0.222s, Elapsed time = 0h 0m 0.218s
-   Routing Phase 2: CPU time = 0h 0m 6s, Elapsed time = 0h 0m 6s
+   Routing Phase 1: CPU time = 0h 0m 0.207s, Elapsed time = 0h 0m 0.196s
+   Routing Phase 2: CPU time = 0h 0m 5s, Elapsed time = 0h 0m 5s
    Routing Phase 3: CPU time = 0h 0m 0s, Elapsed time = 0h 0m 0s
-   Total Routing: CPU time = 0h 0m 6s, Elapsed time = 0h 0m 6s
+   Total Routing: CPU time = 0h 0m 5s, Elapsed time = 0h 0m 5s
 Generate output files:
    CPU time = 0h 0m 1s, Elapsed time = 0h 0m 1s
 </td>
 </tr>
 <tr>
 <td class="label">Total Time and Memory Usage</td>
-<td>CPU time = 0h 0m 11s, Elapsed time = 0h 0m 11s, Peak memory usage = 1044MB</td>
+<td>CPU time = 0h 0m 11s, Elapsed time = 0h 0m 10s, Peak memory usage = 1723MB</td>
 </tr>
 </table>
 <br/>
@@ -129,22 +129,22 @@ Generate output files:
 </tr>
 <tr>
 <td class="label">Logic</td>
-<td>8251/20736</td>
-<td>40%</td>
+<td>7188/20736</td>
+<td>35%</td>
 </tr>
 <tr>
 <td class="label">&nbsp &nbsp --LUT,ALU,ROM16</td>
-<td>7381(6220 LUT, 1161 ALU, 0 ROM16)</td>
+<td>7104(5957 LUT, 1147 ALU, 0 ROM16)</td>
 <td>-</td>
 </tr>
 <tr>
 <td class="label">&nbsp &nbsp --SSRAM(RAM16)</td>
-<td>145</td>
+<td>14</td>
 <td>-</td>
 </tr>
 <tr>
 <td class="label">Register</td>
-<td>3984/15750</td>
+<td>3994/15750</td>
 <td>26%</td>
 </tr>
 <tr>
@@ -154,7 +154,7 @@ Generate output files:
 </tr>
 <tr>
 <td class="label">&nbsp &nbsp --Logic Register as FF</td>
-<td>3964/15552</td>
+<td>3974/15552</td>
 <td>26%</td>
 </tr>
 <tr>
@@ -169,8 +169,8 @@ Generate output files:
 </tr>
 <tr>
 <td class="label">CLS</td>
-<td>5877/10368</td>
-<td>57%</td>
+<td>5298/10368</td>
+<td>52%</td>
 </tr>
 <tr>
 <td class="label">I/O Port</td>
@@ -204,8 +204,8 @@ Generate output files:
 </tr>
 <tr>
 <td class="label">BSRAM</td>
-<td>28 SDPB<br/>8 DPB<br/>2 DPX9B<br/>2 pROM<br/></td>
-<td>87%</td>
+<td>2 SP<br/>29 SDPB<br/>8 DPB<br/>2 DPX9B<br/>2 pROM<br/></td>
+<td>94%</td>
 </tr>
 <tr>
 <td class="label">DSP</td>
@@ -294,22 +294,22 @@ Generate output files:
 <td> BL</td>
 </tr>
 <tr>
-<td class="label">clk_logic_w</td>
+<td class="label">a2bus_if.clk_logic</td>
 <td>PRIMARY</td>
 <td> TR TL BR BL</td>
 </tr>
 <tr>
-<td class="label">clk_pixel_w</td>
+<td class="label">a2bus_if.clk_pixel</td>
 <td>PRIMARY</td>
 <td> TR TL BR BL</td>
 </tr>
 <tr>
 <td class="label">audio_out/IIR_filter/n869_5</td>
 <td>PRIMARY</td>
-<td> TL BL</td>
+<td> TR BR</td>
 </tr>
 <tr>
-<td class="label">n830_7</td>
+<td class="label">n824_7</td>
 <td>LW</td>
 <td> -</td>
 </tr>
@@ -645,10 +645,29 @@ Generate output files:
 <tr>
 <td class="label">tmds_clk_p</td>
 <td>tmds_clk_n</td>
-<td>33,34/5</td>
+<td>33/5</td>
 <td>Y</td>
 <td>out</td>
-<td>IOB24</td>
+<td>IOB24[A]</td>
+<td>-</td>
+<td>LVCMOS33D</td>
+<td>8</td>
+<td>NONE</td>
+<td>NA</td>
+<td>NA</td>
+<td>NA</td>
+<td>NA</td>
+<td>NA</td>
+<td>NA</td>
+<td>3.3</td>
+</tr>
+<tr>
+<td class="label">tmds_clk_n</td>
+<td>tmds_clk_p</td>
+<td>34/5</td>
+<td>Y</td>
+<td>out</td>
+<td>IOB24[B]</td>
 <td>-</td>
 <td>LVCMOS33D</td>
 <td>8</td>
@@ -664,10 +683,10 @@ Generate output files:
 <tr>
 <td class="label">tmds_d_p[0]</td>
 <td>tmds_d_n[0]</td>
-<td>35,36/4</td>
+<td>35/4</td>
 <td>Y</td>
 <td>out</td>
-<td>IOB30</td>
+<td>IOB30[A]</td>
 <td>GCLKT_4</td>
 <td>LVCMOS33D</td>
 <td>8</td>
@@ -683,10 +702,10 @@ Generate output files:
 <tr>
 <td class="label">tmds_d_p[1]</td>
 <td>tmds_d_n[1]</td>
-<td>37,38/4</td>
+<td>37/4</td>
 <td>Y</td>
 <td>out</td>
-<td>IOB34</td>
+<td>IOB34[A]</td>
 <td>-</td>
 <td>LVCMOS33D</td>
 <td>8</td>
@@ -702,10 +721,67 @@ Generate output files:
 <tr>
 <td class="label">tmds_d_p[2]</td>
 <td>tmds_d_n[2]</td>
-<td>39,40/4</td>
+<td>39/4</td>
 <td>Y</td>
 <td>out</td>
-<td>IOB40</td>
+<td>IOB40[A]</td>
+<td>-</td>
+<td>LVCMOS33D</td>
+<td>8</td>
+<td>NONE</td>
+<td>NA</td>
+<td>NA</td>
+<td>NA</td>
+<td>NA</td>
+<td>NA</td>
+<td>NA</td>
+<td>3.3</td>
+</tr>
+<tr>
+<td class="label">tmds_d_n[0]</td>
+<td>tmds_d_p[0]</td>
+<td>36/4</td>
+<td>Y</td>
+<td>out</td>
+<td>IOB30[B]</td>
+<td>GCLKC_4</td>
+<td>LVCMOS33D</td>
+<td>8</td>
+<td>NONE</td>
+<td>NA</td>
+<td>NA</td>
+<td>NA</td>
+<td>NA</td>
+<td>NA</td>
+<td>NA</td>
+<td>3.3</td>
+</tr>
+<tr>
+<td class="label">tmds_d_n[1]</td>
+<td>tmds_d_p[1]</td>
+<td>38/4</td>
+<td>Y</td>
+<td>out</td>
+<td>IOB34[B]</td>
+<td>-</td>
+<td>LVCMOS33D</td>
+<td>8</td>
+<td>NONE</td>
+<td>NA</td>
+<td>NA</td>
+<td>NA</td>
+<td>NA</td>
+<td>NA</td>
+<td>NA</td>
+<td>3.3</td>
+</tr>
+<tr>
+<td class="label">tmds_d_n[2]</td>
+<td>tmds_d_p[2]</td>
+<td>40/4</td>
+<td>Y</td>
+<td>out</td>
+<td>IOB40[B]</td>
 <td>-</td>
 <td>LVCMOS33D</td>
 <td>8</td>

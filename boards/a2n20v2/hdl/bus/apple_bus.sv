@@ -27,14 +27,24 @@
 module apple_bus #(
     parameter bit IRQ_OUT_ENABLE = 1,
     parameter bit BUS_DATA_OUT_ENABLE = 1,
+    parameter bit ENABLE_DENOISE = 1,
     parameter int CLOCK_SPEED_HZ = 54_000_000,
     parameter int APPLE_HZ = 14_318_181,
     parameter int CPU_HZ = APPLE_HZ / 14,                   // 1_022_727
-    parameter int CYCLE_COUNT = CLOCK_SPEED_HZ / CPU_HZ,    // 52
+    parameter int CYCLE_COUNT = CLOCK_SPEED_HZ * 14 / APPLE_HZ,     // 52
+    parameter int APPLE_14M_CYCLE_COUNT = CLOCK_SPEED_HZ / APPLE_HZ, // 3
     parameter int PHASE_COUNT = CYCLE_COUNT / 2,            // 26
     parameter int READ_COUNT = CYCLE_COUNT / 3,             // 17
     parameter int WRITE_COUNT = CYCLE_COUNT / 5             // 10
 ) (
+    input clk_logic_i,
+    input clk_pixel_i,
+    input system_reset_n_i,
+    input device_reset_n_i,
+    input a2_phi1_i,
+    input a2_q3_i,
+    input a2_7M_i,
+
     a2bus_if.master a2bus_if,
 
     output reg [2:0] a2_bridge_sel_o,
@@ -56,6 +66,39 @@ module apple_bus #(
     output sleep_o
 
 );
+
+    assign a2bus_if.clk_logic = clk_logic_i;
+    assign a2bus_if.clk_pixel = clk_pixel_i;
+    assign a2bus_if.system_reset_n = system_reset_n_i;
+    assign a2bus_if.device_reset_n = device_reset_n_i;
+
+    a2bus_timing #(
+        .CLOCK_SPEED_HZ(CLOCK_SPEED_HZ),
+        .ENABLE_DENOISE(ENABLE_DENOISE)
+    ) a2bus_timing_inst(
+        .clk_logic_i(clk_logic_i),
+        .a2_phi1_i(a2_phi1_i),
+        .a2_q3_i(a2_q3_i),
+        .a2_7M_i(a2_7M_i),
+
+        .phi0_o(a2bus_if.phi0),
+        .phi0_posedge_o(a2bus_if.phi0_posedge),
+        .phi0_negedge_o(a2bus_if.phi0_negedge),
+        
+        .phi1_o(a2bus_if.phi1),
+        .phi1_posedge_o(a2bus_if.phi1_posedge),
+        .phi1_negedge_o(a2bus_if.phi1_negedge),
+        
+        .q3_o(a2bus_if.clk_q3),
+        .q3_posedge_o(a2bus_if.clk_q3_posedge),
+        .q3_negedge_o(a2bus_if.clk_q3_negedge),
+        
+        .clk_7M_o(a2bus_if.clk_7M),
+        .clk_7M_posedge_o(a2bus_if.clk_7M_posedge),
+        .clk_7M_negedge_o(a2bus_if.clk_7M_negedge),
+        
+        .clk_14M_posedge_o(a2bus_if.clk_14M_posedge)
+    );
 
     // data and address latches on input
     reg [15:0] addr_r;
@@ -104,6 +147,23 @@ module apple_bus #(
             phase_cycles_r <= 6'b0;
         end else if (phase_cycles_r != 6'b111111) begin
             phase_cycles_r <= phase_cycles_r + 1'b1;
+        end
+
+    end
+
+    reg [6:0] cycle_timer_r = 0;
+    reg extended_cycle_r = 0;
+    assign a2bus_if.extended_cycle = extended_cycle_r;
+    always @(posedge a2bus_if.clk_logic) begin
+        extended_cycle_r <= 0;
+        cycle_timer_r <= cycle_timer_r + 1'b1;
+        // capture cycle transitions and count cycles
+        if (a2bus_if.phi1_posedge) begin
+            cycle_timer_r <= 7'b0;
+            // check if last cycle was extended duration
+            if (cycle_timer_r >= (CYCLE_COUNT + APPLE_14M_CYCLE_COUNT)) begin
+                extended_cycle_r <= 1'b1;
+            end
         end
 
     end

@@ -6,6 +6,7 @@
 
 create_clock -name clk -period 37.037 -waveform {0 18.518} [get_ports {clk}] -add
 
-create_generated_clock -name clk_logic -source [get_ports {clk}] -master_clock clk -divide_by 1 -multiply_by 2 -add [get_nets {clk_logic_w}]
-create_generated_clock -name clk_pixel -source [get_nets {clk_logic_w}] -master_clock clk_logic -divide_by 2 -multiply_by 1 -add [get_nets {clk_pixel_w}]
-create_generated_clock -name clk_hdmi -source [get_nets {clk_pixel_w}] -master_clock clk_pixel -divide_by 1 -multiply_by 5 -add [get_nets {clk_hdmi_w}]
+// Reference PLL output pins directly to avoid net renaming issues
+create_generated_clock -name clk_logic -source [get_ports {clk}] -master_clock clk -divide_by 1 -multiply_by 2 -add [get_pins {clk_logic_inst/rpll_inst/CLKOUT}]
+create_generated_clock -name clk_pixel -source [get_pins {clk_logic_inst/rpll_inst/CLKOUT}] -master_clock clk_logic -divide_by 2 -multiply_by 1 -add [get_pins {clk_logic_inst/rpll_inst/CLKOUTD}]
+create_generated_clock -name clk_hdmi -source [get_pins {clk_logic_inst/rpll_inst/CLKOUTD}] -master_clock clk_pixel -divide_by 1 -multiply_by 5 -add [get_pins {clk_hdmi_inst/rpll_inst/CLKOUT}]

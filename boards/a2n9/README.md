@@ -14,7 +14,7 @@ and level-shift the necessary Apple II bus signals to the FPGA module.
 
 [A2N9 Schematics](sch/a2n9.pdf)
 
-The A2N9 does the build have support for IIgs graphics modes. However all II and //e modes and 
+The A2N9 does not have support for IIgs graphics modes. However all II and //e modes and 
 soft switches are supported on any II or //e model even those most software will not use //e 
 features on non-//e models.
 
@@ -30,3 +30,9 @@ or commercial editions.  Use the `a2n9.gprj` file in this folder.
 Note: When using the Gowin IDE, do not add or remove files from the project or it will
 turn the relative file paths into absolute file paths.
 
+
+## Documentation
+
+- [Project documentation wiki](../../docs/README.md) — Gowin CLI setup, architecture, conventions, gotchas
+- [Agent & contributor guide](../../AGENTS.md)
+- [This board's tasks & status (TODO.md)](TODO.md)
