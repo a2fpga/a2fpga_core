@@ -3,7 +3,7 @@
 This is the project version that builds the FPGA bitstream for the 
 [Tang Nano 20K](https://wiki.sipeed.com/hardware/en/tang/tang-nano-20k/nano-20k.html)
 version of the A2FPGA Apple II card.  It is intended to provide an advanced
-feature set that includes a RiscV SoftCore that requires the use of the 
+feature set that includes a BL616 MCU coprocessor that uses the 
 Tang Nano 20K's 8MB of SDRAM and SD Card slot.
 
 The A2N20v2 version supports Apple II, //e, and IIgs models. The v2 card uses a 100-pin 
@@ -28,7 +28,7 @@ issues with installed physical cards.
 more features to be implemented in the FPGA. (IIgs graphics still use FPGA BlockRam
 for performance)
 
-- A PicoRV32 RiscV 32-bit co-processor that provides SD-Card support for mounting
+- An external BL616 MCU coprocessor that provides SD-Card support for mounting
 Apple II disk images from FAT32 volumes via an on-screen display for selecting and
 mounting disk images.
 
@@ -55,3 +55,12 @@ or commercial editions.  Use the `a2n20v2_enhanced.gprj` file in this folder.
 
 Note: When using the Gowin IDE, do not add or remove files from the project or it will
 turn the relative file paths into absolute file paths.
+
+## Documentation
+
+- [Project documentation wiki](../../docs/README.md) — Gowin CLI setup, architecture, conventions, gotchas
+- [Agent & contributor guide](../../AGENTS.md)
+- [This board's tasks & status (TODO.md)](TODO.md)
+- Coprocessor firmware:
+  - [BL616 firmware & protocol](src/a2n20_bl616/README.md)
+  - [Firmware overview](src/README.md)

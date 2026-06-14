@@ -1,0 +1,760 @@
+#!/usr/bin/env python3
+"""A2N20 BL616 Firmware Programmer
+
+Programs the BL616 microcontroller on the Tang Nano 20K board with
+A2N20 firmware. Pre-detects board state (fused/unfused/bricked) and
+chooses the optimal flash strategy automatically.
+
+Default behavior:
+  1. Detect what's currently running on the board
+  2. Choose flash strategy based on board state
+  3. Enter boot mode and flash
+  4. Verify firmware is running
+
+Manual overrides:
+  --stage1 [PATH]   Force flash image at 0x0
+  --stage2 [PATH]   Force flash image at 0x40000
+  --stage1 + --stage2  Flash both addresses
+
+Dependencies:
+  pip install bflb-iot-tool   (also installs pyserial)
+"""
+
+import argparse
+import os
+import shutil
+import subprocess
+import sys
+import time
+
+from serial.tools import list_ports
+
+# Flash addresses
+ADDR_STAGE1 = "0x0"
+ADDR_STAGE2 = "0x40000"
+
+# Default baudrate
+DEFAULT_BAUDRATE = 2000000
+
+# Bouffalo VID/PID — ROM bootloader / CDC DEMO (secure boot failure)
+BOUFFALO_VID = 0x349B
+BOUFFALO_PID = 0x6160
+
+# FTDI VID/PID — FT2232-compatible firmware
+FTDI_VID = 0x0403
+FTDI_PID = 0x6010
+
+# Known product strings for board identification
+PRODUCT_SIPEED_STOCK = "USB Debugger"
+PRODUCT_FRIEND_20K = "20K's FRIEND"
+PRODUCT_A2N20 = "JTAG Debugger"
+
+# Board states
+STATE_SIPEED_STOCK = "sipeed_stock"   # Fused board, Sipeed signed Stage 1
+STATE_FRIEND_20K = "friend_20k"       # Unfused board, friend_20k firmware
+STATE_A2N20 = "a2n20"                 # Already running our firmware
+STATE_CDC_DEMO = "cdc_demo"           # Bricked / secure boot failure
+STATE_UNKNOWN_FTDI = "unknown_ftdi"   # Unknown FT2232 device
+STATE_NOT_FOUND = "not_found"         # No relevant device
+
+# Boot mode retry limit
+BOOT_MODE_RETRIES = 3
+
+# Recovery image filenames
+FRIEND_20K_BIN = "friend_20k_bl616.bin"
+SIPEED_STOCK_BIN = "bl616_fpga_partner_20kNano.bin"
+
+
+# --- ANSI color support ---
+
+def _use_color():
+    if os.environ.get("NO_COLOR"):
+        return False
+    return sys.stdout.isatty()
+
+USE_COLOR = _use_color()
+
+def _color(code, text):
+    if USE_COLOR:
+        return f"\033[{code}m{text}\033[0m"
+    return text
+
+def green(text):
+    return _color("32", text)
+
+def red(text):
+    return _color("31", text)
+
+def yellow(text):
+    return _color("33", text)
+
+def bold(text):
+    return _color("1", text)
+
+
+# --- Path resolution ---
+
+def script_dir():
+    return os.path.dirname(os.path.abspath(__file__))
+
+def project_root():
+    return os.path.dirname(script_dir())
+
+def default_firmware_path():
+    return os.path.join(project_root(), "firmware", "build", "build_out",
+                        "a2n20_bl616_bl616.bin")
+
+def recovery_path(name):
+    return os.path.join(project_root(), "recovery", name)
+
+
+# --- User interaction ---
+
+def prompt(msg="Press Enter when ready..."):
+    """Prompt the user, handling non-interactive (piped) input gracefully."""
+    try:
+        input(msg)
+    except EOFError:
+        print()
+
+
+# --- Dependency checks ---
+
+def check_bflb_iot_tool():
+    if shutil.which("bflb-iot-tool") is None:
+        print(red("ERROR:") + " bflb-iot-tool is not installed.")
+        print()
+        print("Install it with:")
+        print("  pip install bflb-iot-tool")
+        print()
+        sys.exit(1)
+
+
+# --- USB device detection ---
+
+def find_ports(vid=None, pid=None):
+    """Find serial ports matching the given VID and optional PID."""
+    ports = []
+    for p in list_ports.comports():
+        if p.vid == vid:
+            if pid is None or p.pid == pid:
+                ports.append(p)
+    return ports
+
+
+def detect_board_state():
+    """Detect what's currently running on the Tang Nano 20K.
+
+    Returns (state, ports) where state is one of the STATE_* constants
+    and ports is the list of matching port info objects.
+    """
+    # Check for FT2232-compatible devices (VID 0x0403, PID 0x6010)
+    ftdi_ports = find_ports(vid=FTDI_VID, pid=FTDI_PID)
+    for p in ftdi_ports:
+        desc = p.description or ""
+        if PRODUCT_A2N20 in desc:
+            return STATE_A2N20, ftdi_ports
+        if PRODUCT_SIPEED_STOCK in desc:
+            return STATE_SIPEED_STOCK, ftdi_ports
+        if PRODUCT_FRIEND_20K in desc:
+            return STATE_FRIEND_20K, ftdi_ports
+
+    # If we found FTDI ports but didn't recognize the product string
+    if ftdi_ports:
+        return STATE_UNKNOWN_FTDI, ftdi_ports
+
+    # Check for Bouffalo CDC DEMO (bricked / secure boot failure)
+    cdc_ports = find_ports(vid=BOUFFALO_VID)
+    if cdc_ports:
+        return STATE_CDC_DEMO, cdc_ports
+
+    return STATE_NOT_FOUND, []
+
+
+def detect_boot_port():
+    """Auto-detect BL616 serial port in boot mode (Bouffalo CDC)."""
+    ports = find_ports(vid=BOUFFALO_VID)
+    if not ports:
+        return None
+    if len(ports) == 1:
+        return ports[0].device
+
+    print(yellow("WARNING:") + " Multiple Bouffalo CDC devices detected:")
+    for p in ports:
+        print(f"  {p.device}  ({p.description})")
+    print()
+    print("Please specify the correct port with --port")
+    sys.exit(1)
+
+
+def wait_for_board_state(target_states, timeout_secs=10):
+    """Wait for the board to show a specific state after power cycle.
+
+    Returns (state, ports) or (STATE_NOT_FOUND, []) on timeout.
+    """
+    deadline = time.time() + timeout_secs
+    while time.time() < deadline:
+        state, ports = detect_board_state()
+        if state in target_states:
+            return state, ports
+        time.sleep(0.5)
+    return STATE_NOT_FOUND, []
+
+
+def print_board_info(state, ports):
+    """Print details about the detected board state."""
+    if state == STATE_SIPEED_STOCK:
+        print(green("  [DETECTED]") + " Sipeed stock firmware (fused board)")
+        for p in ports:
+            print(f"    {p.description}: {p.device}  [serial: {p.serial_number}]")
+    elif state == STATE_FRIEND_20K:
+        print(green("  [DETECTED]") + " friend_20k firmware (unfused board)")
+        for p in ports:
+            print(f"    {p.description}: {p.device}  [serial: {p.serial_number}]")
+    elif state == STATE_A2N20:
+        print(green("  [DETECTED]") + " A2N20 firmware (already installed)")
+        for p in ports:
+            print(f"    {p.description}: {p.device}  [serial: {p.serial_number}]")
+    elif state == STATE_CDC_DEMO:
+        print(yellow("  [DETECTED]") + " Bouffalo CDC DEMO (bricked / no valid firmware)")
+        for p in ports:
+            print(f"    {p.device}")
+    elif state == STATE_UNKNOWN_FTDI:
+        print(yellow("  [DETECTED]") + " Unknown FT2232 device")
+        for p in ports:
+            desc = p.description or p.device
+            print(f"    {desc}: {p.device}")
+    else:
+        print(yellow("  [NOT FOUND]") + " No Tang Nano 20K detected")
+
+
+# --- Boot mode entry ---
+
+def wait_for_boot_port(specified_port=None):
+    """Wait for BL616 to appear in boot mode, with retries."""
+    for attempt in range(BOOT_MODE_RETRIES):
+        if specified_port:
+            if os.path.exists(specified_port):
+                return specified_port
+            else:
+                print(red("ERROR:") + f" Specified port {specified_port} not found.")
+                if attempt < BOOT_MODE_RETRIES - 1:
+                    print("Make sure the board is in boot mode and try again.")
+                    prompt("\nPress Enter to retry...")
+                continue
+        else:
+            port = detect_boot_port()
+            if port:
+                return port
+
+            if attempt < BOOT_MODE_RETRIES - 1:
+                print(yellow("No BL616 device detected in boot mode."))
+                print()
+                print("To enter boot mode:")
+                print("  1. Disconnect the Tang Nano 20K from USB")
+                print("  2. Press and hold the UPDATE button (top of board, behind HDMI)")
+                print("  3. While holding UPDATE, connect USB-C to the Debug port")
+                print("  4. Release the UPDATE button")
+                prompt("\nPress Enter when ready...")
+                print()
+                print("Detecting BL616 in boot mode...", end=" ", flush=True)
+                time.sleep(1)
+
+    print(red("ERROR:") + " Could not detect BL616 in boot mode after "
+          f"{BOOT_MODE_RETRIES} attempts.")
+    print()
+    print("Troubleshooting:")
+    print("  - Make sure you're using the Debug USB-C port (not HDMI)")
+    print("  - Hold UPDATE before connecting USB, release after")
+    print("  - Try a different USB cable")
+    if not specified_port:
+        print("  - Specify the port manually with --port /dev/tty.usbmodemXXXX")
+    sys.exit(1)
+
+
+# --- Flash operations ---
+
+def flash_image(port, image_path, address, baudrate, label, verbose=False):
+    """Flash a binary image to the BL616 at the specified address."""
+    if not os.path.isfile(image_path):
+        print(red("ERROR:") + f" {label} not found: {image_path}")
+        sys.exit(1)
+
+    size_kb = os.path.getsize(image_path) / 1024
+    print(f"  Image: {os.path.basename(image_path)} ({size_kb:.0f} KB)")
+    print(f"  Address: {address}")
+    print(f"  Port: {port}")
+
+    cmd = [
+        "bflb-iot-tool",
+        "--chipname", "bl616",
+        "--interface", "uart",
+        "--port", port,
+        "--baudrate", str(baudrate),
+        "--firmware", image_path,
+        "--addr", address,
+        "--single",
+    ]
+
+    if verbose:
+        print(f"  Command: {' '.join(cmd)}")
+        print()
+
+    try:
+        result = subprocess.run(
+            cmd,
+            capture_output=not verbose,
+            text=True,
+            timeout=120,
+        )
+    except subprocess.TimeoutExpired:
+        print(red("  [ERROR]") + " Flash command timed out after 120 seconds")
+        sys.exit(1)
+    except FileNotFoundError:
+        print(red("  [ERROR]") + " bflb-iot-tool not found in PATH")
+        sys.exit(1)
+
+    if result.returncode != 0:
+        print(red("  [ERROR]") + f" {label} flash failed (exit code {result.returncode})")
+        if not verbose and result.stdout:
+            print()
+            print("  bflb-iot-tool output:")
+            for line in result.stdout.strip().splitlines():
+                print(f"    {line}")
+        if not verbose and result.stderr:
+            print()
+            print("  bflb-iot-tool errors:")
+            for line in result.stderr.strip().splitlines():
+                print(f"    {line}")
+        print()
+        print("  Suggestions:")
+        print("  - Make sure the board is still in boot mode")
+        print("  - Try a lower baudrate with --baudrate 115200")
+        print("  - Disconnect and re-enter boot mode, then retry")
+        sys.exit(1)
+
+    # Check for error/fail strings in stdout even on exit code 0
+    if not verbose and result.stdout:
+        stdout_lower = result.stdout.lower()
+        if "error" in stdout_lower or "fail" in stdout_lower:
+            print(yellow("  [WARN]") + " Flash may have issues:")
+            for line in result.stdout.strip().splitlines():
+                print(f"    {line}")
+            return False
+
+    print(green("  [OK]") + f" {label} flashed successfully")
+    return True
+
+
+# --- Main flow helpers ---
+
+def print_banner():
+    print()
+    print(bold("A2N20 BL616 Firmware Programmer"))
+    print("=" * 40)
+    print()
+
+
+def prompt_boot_mode(step_num):
+    print(bold(f"Step {step_num}: Enter boot mode"))
+    print("  1. Disconnect the Tang Nano 20K from USB")
+    print("  2. Press and hold the UPDATE button (top of board, behind HDMI)")
+    print("  3. While holding UPDATE, connect USB-C to the Debug port")
+    print("  4. Release the UPDATE button")
+    prompt("\nPress Enter when ready...")
+    print()
+
+
+def prompt_power_cycle():
+    print()
+    print("  1. Disconnect USB")
+    print("  2. Reconnect USB (without holding UPDATE)")
+    prompt("\nPress Enter when ready...")
+    print()
+
+
+def enter_boot_mode(args, step_num):
+    """Guide user into boot mode and return detected port."""
+    if args.port:
+        port = wait_for_boot_port(specified_port=args.port)
+    else:
+        # Check if already in boot mode
+        port = detect_boot_port()
+        if port:
+            print(f"  BL616 already in boot mode: {bold(port)}")
+            print()
+            return port
+
+        prompt_boot_mode(step_num)
+        print("Detecting BL616 in boot mode...", end=" ", flush=True)
+        time.sleep(1)
+        port = wait_for_boot_port()
+        if port:
+            print(f"Found: {bold(port)}")
+            print()
+
+    if not port:
+        sys.exit(1)
+
+    return port
+
+
+def check_file_exists(path, label, build_hint=None, download_url=None):
+    """Check that a file exists, exit with helpful message if not."""
+    if not os.path.isfile(path):
+        print(red("ERROR:") + f" {label} not found: {path}")
+        if build_hint:
+            print(f"  {build_hint}")
+        if download_url:
+            print(f"  Download from: {download_url}")
+            print(f"  Place in: {os.path.dirname(path)}/")
+        sys.exit(1)
+
+
+def verify_firmware(step_num, skip_verify=False):
+    """Prompt for power cycle and verify firmware is running.
+
+    Returns (state, ports) of detected board.
+    """
+    if skip_verify:
+        print()
+        return STATE_NOT_FOUND, []
+
+    print()
+    print(bold(f"Step {step_num}: Verify"))
+    prompt_power_cycle()
+
+    print("Waiting for USB device...", end=" ", flush=True)
+    state, ports = wait_for_board_state(
+        [STATE_A2N20, STATE_SIPEED_STOCK, STATE_FRIEND_20K,
+         STATE_UNKNOWN_FTDI, STATE_CDC_DEMO],
+        timeout_secs=10,
+    )
+
+    if state == STATE_A2N20:
+        print(green("[OK]") + " A2N20 firmware is running")
+        for p in ports:
+            print(f"    {p.description}: {p.device}")
+    elif state in (STATE_SIPEED_STOCK, STATE_FRIEND_20K, STATE_UNKNOWN_FTDI):
+        # FT2232 detected but not our firmware — Stage 1 is running,
+        # Stage 2 may not have loaded
+        print(yellow("[PARTIAL]") + f" FT2232 device detected ({ports[0].description})")
+        print("  Stage 1 is running but A2N20 firmware not detected as product name.")
+        print("  This may be normal if Stage 1 hasn't chain-loaded Stage 2 yet.")
+    elif state == STATE_CDC_DEMO:
+        print(yellow("[WARN]") + " Bouffalo CDC DEMO detected — firmware not running")
+    else:
+        print(yellow("[WARN]") + " No USB device detected")
+        print("  Try disconnecting and reconnecting USB.")
+
+    print()
+    return state, ports
+
+
+# --- Flash strategies ---
+
+def strategy_standalone(args, fw_path, step_num):
+    """Flash firmware at 0x0 (unfused board, replaces whatever is there)."""
+    port = enter_boot_mode(args, step_num)
+    step_num += 1
+
+    print(bold(f"Step {step_num}: Flashing firmware at 0x0..."))
+    flash_image(port, fw_path, ADDR_STAGE1, args.baudrate,
+                "Firmware", verbose=args.verbose)
+    return step_num + 1
+
+
+def strategy_stage2(args, fw_path, step_num):
+    """Flash firmware at 0x40000 (fused board, keep existing Stage 1)."""
+    port = enter_boot_mode(args, step_num)
+    step_num += 1
+
+    print(bold(f"Step {step_num}: Flashing firmware at 0x40000..."))
+    flash_image(port, fw_path, ADDR_STAGE2, args.baudrate,
+                "Firmware (Stage 2)", verbose=args.verbose)
+    return step_num + 1
+
+
+def strategy_recovery_and_stage2(args, fw_path, stage1_path, step_num):
+    """Flash signed Stage 1 at 0x0 + firmware at 0x40000 (bricked fused board)."""
+    port = enter_boot_mode(args, step_num)
+    step_num += 1
+
+    print(bold(f"Step {step_num}: Flashing signed Stage 1 at 0x0..."))
+    flash_image(port, stage1_path, ADDR_STAGE1, args.baudrate,
+                "Signed Stage 1", verbose=args.verbose)
+    print()
+    step_num += 1
+
+    print(bold(f"Step {step_num}: Flashing firmware at 0x40000..."))
+    flash_image(port, fw_path, ADDR_STAGE2, args.baudrate,
+                "Firmware (Stage 2)", verbose=args.verbose)
+    return step_num + 1
+
+
+# --- Main modes ---
+
+def run_auto(args):
+    """Auto-detect board state and choose optimal flash strategy."""
+    fw_path = args.firmware
+    check_file_exists(fw_path, "Firmware",
+                      build_hint="Build with: cd firmware && make CHIP=bl616 BOARD=bl616dk")
+
+    # Step 1: Pre-detect board state
+    print(bold("Step 1: Detecting board"))
+    print("  Make sure the Tang Nano 20K is connected via USB normally")
+    print("  (without holding the UPDATE button).")
+    prompt("\nPress Enter when ready...")
+    print()
+
+    print("Scanning USB devices...", end=" ", flush=True)
+    time.sleep(1)
+    state, ports = detect_board_state()
+    print()
+    print_board_info(state, ports)
+    print()
+
+    if state == STATE_SIPEED_STOCK:
+        # Fused board with working Stage 1 — just flash Stage 2
+        print("  Strategy: Flash firmware at 0x40000 (keep Sipeed Stage 1)")
+        print()
+        next_step = strategy_stage2(args, fw_path, step_num=2)
+        verify_firmware(next_step, args.skip_verify)
+        print(green("Programming complete!"))
+        print()
+
+    elif state == STATE_FRIEND_20K:
+        # Unfused board with friend_20k — replace with our firmware at 0x0
+        print("  Strategy: Flash firmware at 0x0 (replace friend_20k)")
+        print()
+        next_step = strategy_standalone(args, fw_path, step_num=2)
+        verify_firmware(next_step, args.skip_verify)
+        print(green("Programming complete!"))
+        print()
+
+    elif state == STATE_A2N20:
+        # Already running our firmware — update it
+        # Try standalone first, fall back to stage 2 if fused
+        print("  Strategy: Update firmware at 0x0")
+        print()
+        next_step = strategy_standalone(args, fw_path, step_num=2)
+
+        if not args.skip_verify:
+            vstate, _ = verify_firmware(next_step, skip_verify=False)
+            if vstate == STATE_CDC_DEMO:
+                # Fused board — our firmware at 0x0 was rejected
+                print("  Fused board detected — switching to Stage 2 strategy.")
+                print()
+                sipeed_path = recovery_path(SIPEED_STOCK_BIN)
+                check_file_exists(sipeed_path, "Signed Stage 1",
+                                  download_url="https://api.dl.sipeed.com/TANG/Debugger/"
+                                  "onboard/BL616/2025030317/bl616_fpga_partner_20kNano.bin")
+                next_step2 = strategy_recovery_and_stage2(
+                    args, fw_path, sipeed_path, step_num=next_step + 1)
+                verify_firmware(next_step2, skip_verify=False)
+
+            print(green("Programming complete!"))
+            print()
+        else:
+            print(green("Programming complete!"))
+            print()
+
+    elif state == STATE_CDC_DEMO:
+        # Bricked — need signed Stage 1 + firmware
+        print("  Strategy: Flash signed Stage 1 at 0x0 + firmware at 0x40000")
+        print()
+        sipeed_path = recovery_path(SIPEED_STOCK_BIN)
+        check_file_exists(sipeed_path, "Signed Stage 1",
+                          download_url="https://api.dl.sipeed.com/TANG/Debugger/"
+                          "onboard/BL616/2025030317/bl616_fpga_partner_20kNano.bin")
+        next_step = strategy_recovery_and_stage2(
+            args, fw_path, sipeed_path, step_num=2)
+        verify_firmware(next_step, args.skip_verify)
+        print(green("Programming complete!"))
+        print()
+
+    elif state == STATE_UNKNOWN_FTDI:
+        # Unknown FT2232 — try standalone, fall back if needed
+        print("  Strategy: Try firmware at 0x0 (unknown board, will auto-detect)")
+        print()
+        next_step = strategy_standalone(args, fw_path, step_num=2)
+
+        if not args.skip_verify:
+            vstate, _ = verify_firmware(next_step, skip_verify=False)
+            if vstate == STATE_CDC_DEMO:
+                print("  Fused board detected — switching to Stage 2 strategy.")
+                print()
+                sipeed_path = recovery_path(SIPEED_STOCK_BIN)
+                check_file_exists(sipeed_path, "Signed Stage 1",
+                                  download_url="https://api.dl.sipeed.com/TANG/Debugger/"
+                                  "onboard/BL616/2025030317/bl616_fpga_partner_20kNano.bin")
+                next_step2 = strategy_recovery_and_stage2(
+                    args, fw_path, sipeed_path, step_num=next_step + 1)
+                verify_firmware(next_step2, skip_verify=False)
+
+            print(green("Programming complete!"))
+            print()
+        else:
+            print(green("Programming complete!"))
+            print()
+
+    else:
+        # Nothing detected
+        print("  No board detected. Trying firmware at 0x0...")
+        print()
+        next_step = strategy_standalone(args, fw_path, step_num=2)
+
+        if not args.skip_verify:
+            vstate, _ = verify_firmware(next_step, skip_verify=False)
+            if vstate == STATE_CDC_DEMO:
+                print("  Fused board detected — switching to Stage 2 strategy.")
+                print()
+                sipeed_path = recovery_path(SIPEED_STOCK_BIN)
+                check_file_exists(sipeed_path, "Signed Stage 1",
+                                  download_url="https://api.dl.sipeed.com/TANG/Debugger/"
+                                  "onboard/BL616/2025030317/bl616_fpga_partner_20kNano.bin")
+                next_step2 = strategy_recovery_and_stage2(
+                    args, fw_path, sipeed_path, step_num=next_step + 1)
+                verify_firmware(next_step2, skip_verify=False)
+
+            print(green("Programming complete!"))
+            print()
+        else:
+            print(green("Programming complete!"))
+            print()
+
+
+def run_manual(args):
+    """Manual mode: flash user-specified images at explicit addresses."""
+    stage1_path = args.stage1
+    stage2_path = args.stage2
+
+    # Resolve default firmware path for flags without explicit PATH
+    if stage1_path == "__default__":
+        stage1_path = args.firmware
+    if stage2_path == "__default__":
+        stage2_path = args.firmware
+
+    # Validate files exist
+    if stage1_path:
+        check_file_exists(stage1_path, "Stage 1 image")
+    if stage2_path:
+        check_file_exists(stage2_path, "Stage 2 image")
+
+    step_num = 1
+
+    # Enter boot mode
+    port = enter_boot_mode(args, step_num)
+    step_num += 1
+
+    # Flash Stage 1
+    if stage1_path:
+        print(bold(f"Step {step_num}: Flashing at 0x0..."))
+        flash_image(port, stage1_path, ADDR_STAGE1, args.baudrate,
+                    "Stage 1", verbose=args.verbose)
+        print()
+        step_num += 1
+
+    # Flash Stage 2
+    if stage2_path:
+        print(bold(f"Step {step_num}: Flashing at 0x40000..."))
+        flash_image(port, stage2_path, ADDR_STAGE2, args.baudrate,
+                    "Stage 2", verbose=args.verbose)
+        step_num += 1
+
+    # Verify
+    verify_firmware(step_num, args.skip_verify)
+    print(green("Programming complete!"))
+    print()
+
+
+# --- Entry point ---
+
+def main():
+    parser = argparse.ArgumentParser(
+        description="A2N20 BL616 Firmware Programmer",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""\
+modes:
+  (default)        Auto-detect board state and flash accordingly (recommended)
+  --detect         Detect board state and exit (no flashing)
+  --stage1 [PATH]  Flash image at 0x0 (default: firmware binary)
+  --stage2 [PATH]  Flash image at 0x40000 (default: firmware binary)
+
+auto-detect identifies the board by USB product string:
+  "USB Debugger"   → Sipeed stock (fused) → flash at 0x40000 only
+  "20K's FRIEND"   → friend_20k (unfused) → flash at 0x0
+  "JTAG Debugger"  → A2N20 firmware       → update at 0x0, fallback to 0x40000
+  CDC DEMO         → bricked              → flash signed Stage 1 + firmware
+
+examples:
+  %(prog)s                              # auto-detect (recommended)
+  %(prog)s --detect                     # just show board status
+  %(prog)s --stage2                     # force firmware at 0x40000
+  %(prog)s --stage1                     # force firmware at 0x0
+  %(prog)s --stage1 recovery/friend_20k_bl616.bin  # flash friend_20k at 0x0
+  %(prog)s --stage1 sipeed.bin --stage2 # flash custom Stage 1 + firmware
+""",
+    )
+
+    parser.add_argument("--detect", action="store_true",
+                        help="Detect board state and exit (no flashing)")
+    parser.add_argument("--stage1", nargs="?", const="__default__", default=None,
+                        metavar="PATH",
+                        help="Flash image at 0x0 (default: firmware binary)")
+    parser.add_argument("--stage2", nargs="?", const="__default__", default=None,
+                        metavar="PATH",
+                        help="Flash image at 0x40000 (default: firmware binary)")
+
+    parser.add_argument("--port", metavar="PORT",
+                        help="Serial port (auto-detect if omitted)")
+    parser.add_argument("--firmware", metavar="PATH",
+                        default=default_firmware_path(),
+                        help="A2N20 firmware binary (default: firmware/build/build_out/"
+                             "a2n20_bl616_bl616.bin)")
+    parser.add_argument("--baudrate", metavar="BAUD", type=int,
+                        default=DEFAULT_BAUDRATE,
+                        help=f"Flash baudrate (default: {DEFAULT_BAUDRATE})")
+    parser.add_argument("--verbose", action="store_true",
+                        help="Show bflb-iot-tool output")
+    parser.add_argument("--skip-verify", action="store_true",
+                        help="Skip post-flash verification")
+
+    args = parser.parse_args()
+
+    print_banner()
+
+    # --detect mode: just scan and report, no flashing
+    if args.detect:
+        print("Scanning USB devices...")
+        print()
+        state, ports = detect_board_state()
+        print_board_info(state, ports)
+        print()
+        sys.exit(0)
+
+    # Check dependencies
+    check_bflb_iot_tool()
+
+    manual_mode = args.stage1 is not None or args.stage2 is not None
+
+    if manual_mode:
+        # Describe manual mode
+        parts = []
+        if args.stage1 is not None:
+            name = os.path.basename(args.stage1) if args.stage1 != "__default__" else "firmware"
+            parts.append(f"{name} at 0x0")
+        if args.stage2 is not None:
+            name = os.path.basename(args.stage2) if args.stage2 != "__default__" else "firmware"
+            parts.append(f"{name} at 0x40000")
+        print(f"Mode: Manual — flash {' + '.join(parts)}")
+        print()
+        run_manual(args)
+    else:
+        print("Mode: Auto-detect")
+        print()
+        run_auto(args)
+
+
+if __name__ == "__main__":
+    main()

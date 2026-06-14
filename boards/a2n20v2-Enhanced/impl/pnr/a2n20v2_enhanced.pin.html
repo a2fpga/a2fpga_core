@@ -62,7 +62,7 @@ table.detail_table th.label {  min-width: 8%; width: 8%; }
 </tr>
 <tr>
 <td class="label">Tool Version</td>
-<td>V1.9.11.02</td>
+<td>V1.9.12.01</td>
 </tr>
 <tr>
 <td class="label">Part Number</td>
@@ -78,7 +78,7 @@ table.detail_table th.label {  min-width: 8%; width: 8%; }
 </tr>
 <tr>
 <td class="label">Created Time</td>
-<td>Sat Jul 12 10:29:27 2025
+<td>Fri Jun 12 22:01:36 2026
 </td>
 </tr>
 <tr>
@@ -261,6 +261,63 @@ table.detail_table th.label {  min-width: 8%; width: 8%; }
 <td>3.3</td>
 </tr>
 <tr>
+<td class="label">spi_cs_n</td>
+<td>-</td>
+<td>86/0</td>
+<td>Y</td>
+<td>in</td>
+<td>IOT4[A]</td>
+<td>-</td>
+<td>LVCMOS33</td>
+<td>NA</td>
+<td>UP</td>
+<td>ON</td>
+<td>NONE</td>
+<td>NA</td>
+<td>NA</td>
+<td>NA</td>
+<td>NA</td>
+<td>3.3</td>
+</tr>
+<tr>
+<td class="label">spi_sclk</td>
+<td>-</td>
+<td>13/6</td>
+<td>Y</td>
+<td>in</td>
+<td>IOL45[A]</td>
+<td>LPLL2_T_in</td>
+<td>LVCMOS33</td>
+<td>NA</td>
+<td>NONE</td>
+<td>ON</td>
+<td>NONE</td>
+<td>NA</td>
+<td>NA</td>
+<td>OFF</td>
+<td>NA</td>
+<td>3.3</td>
+</tr>
+<tr>
+<td class="label">spi_mosi</td>
+<td>-</td>
+<td>76/1</td>
+<td>Y</td>
+<td>in</td>
+<td>IOT30[B]</td>
+<td>GCLKC_1</td>
+<td>LVCMOS33</td>
+<td>NA</td>
+<td>NONE</td>
+<td>ON</td>
+<td>NONE</td>
+<td>NA</td>
+<td>NA</td>
+<td>NA</td>
+<td>NA</td>
+<td>3.3</td>
+</tr>
+<tr>
 <td class="label">a2_bridge_sel[0]</td>
 <td>-</td>
 <td>30/5</td>
@@ -396,10 +453,29 @@ table.detail_table th.label {  min-width: 8%; width: 8%; }
 <tr>
 <td class="label">tmds_clk_p</td>
 <td>tmds_clk_n</td>
-<td>33,34/5</td>
+<td>33/5</td>
 <td>Y</td>
 <td>out</td>
-<td>IOB24</td>
+<td>IOB24[A]</td>
+<td>-</td>
+<td>LVCMOS33D</td>
+<td>8</td>
+<td>NONE</td>
+<td>NA</td>
+<td>NA</td>
+<td>NA</td>
+<td>NA</td>
+<td>NA</td>
+<td>NA</td>
+<td>3.3</td>
+</tr>
+<tr>
+<td class="label">tmds_clk_n</td>
+<td>tmds_clk_p</td>
+<td>34/5</td>
+<td>Y</td>
+<td>out</td>
+<td>IOB24[B]</td>
 <td>-</td>
 <td>LVCMOS33D</td>
 <td>8</td>
@@ -415,10 +491,10 @@ table.detail_table th.label {  min-width: 8%; width: 8%; }
 <tr>
 <td class="label">tmds_d_p[0]</td>
 <td>tmds_d_n[0]</td>
-<td>35,36/4</td>
+<td>35/4</td>
 <td>Y</td>
 <td>out</td>
-<td>IOB30</td>
+<td>IOB30[A]</td>
 <td>GCLKT_4</td>
 <td>LVCMOS33D</td>
 <td>8</td>
@@ -434,10 +510,10 @@ table.detail_table th.label {  min-width: 8%; width: 8%; }
 <tr>
 <td class="label">tmds_d_p[1]</td>
 <td>tmds_d_n[1]</td>
-<td>37,38/4</td>
+<td>37/4</td>
 <td>Y</td>
 <td>out</td>
-<td>IOB34</td>
+<td>IOB34[A]</td>
 <td>-</td>
 <td>LVCMOS33D</td>
 <td>8</td>
@@ -453,10 +529,67 @@ table.detail_table th.label {  min-width: 8%; width: 8%; }
 <tr>
 <td class="label">tmds_d_p[2]</td>
 <td>tmds_d_n[2]</td>
-<td>39,40/4</td>
+<td>39/4</td>
 <td>Y</td>
 <td>out</td>
-<td>IOB40</td>
+<td>IOB40[A]</td>
+<td>-</td>
+<td>LVCMOS33D</td>
+<td>8</td>
+<td>NONE</td>
+<td>NA</td>
+<td>NA</td>
+<td>NA</td>
+<td>NA</td>
+<td>NA</td>
+<td>NA</td>
+<td>3.3</td>
+</tr>
+<tr>
+<td class="label">tmds_d_n[0]</td>
+<td>tmds_d_p[0]</td>
+<td>36/4</td>
+<td>Y</td>
+<td>out</td>
+<td>IOB30[B]</td>
+<td>GCLKC_4</td>
+<td>LVCMOS33D</td>
+<td>8</td>
+<td>NONE</td>
+<td>NA</td>
+<td>NA</td>
+<td>NA</td>
+<td>NA</td>
+<td>NA</td>
+<td>NA</td>
+<td>3.3</td>
+</tr>
+<tr>
+<td class="label">tmds_d_n[1]</td>
+<td>tmds_d_p[1]</td>
+<td>38/4</td>
+<td>Y</td>
+<td>out</td>
+<td>IOB34[B]</td>
+<td>-</td>
+<td>LVCMOS33D</td>
+<td>8</td>
+<td>NONE</td>
+<td>NA</td>
+<td>NA</td>
+<td>NA</td>
+<td>NA</td>
+<td>NA</td>
+<td>NA</td>
+<td>3.3</td>
+</tr>
+<tr>
+<td class="label">tmds_d_n[2]</td>
+<td>tmds_d_p[2]</td>
+<td>40/4</td>
+<td>Y</td>
+<td>out</td>
+<td>IOB40[B]</td>
 <td>-</td>
 <td>LVCMOS33D</td>
 <td>8</td>
@@ -651,6 +784,25 @@ table.detail_table th.label {  min-width: 8%; width: 8%; }
 <td>LVCMOS33</td>
 <td>8</td>
 <td>NONE</td>
+<td>NA</td>
+<td>NA</td>
+<td>OFF</td>
+<td>NA</td>
+<td>NA</td>
+<td>NA</td>
+<td>3.3</td>
+</tr>
+<tr>
+<td class="label">spi_miso</td>
+<td>-</td>
+<td>75/1</td>
+<td>Y</td>
+<td>out</td>
+<td>IOT34[A]</td>
+<td>-</td>
+<td>LVCMOS33</td>
+<td>8</td>
+<td>UP</td>
 <td>NA</td>
 <td>NA</td>
 <td>OFF</td>
@@ -1879,7 +2031,7 @@ table.detail_table th.label {  min-width: 8%; width: 8%; }
 </tr>
 <tr>
 <td class="label">86/0</td>
-<td>-</td>
+<td>spi_cs_n</td>
 <td>in</td>
 <td>IOT4[A]</td>
 <td>-</td>
@@ -2032,13 +2184,13 @@ table.detail_table th.label {  min-width: 8%; width: 8%; }
 </tr>
 <tr>
 <td class="label">76/1</td>
-<td>-</td>
+<td>spi_mosi</td>
 <td>in</td>
 <td>IOT30[B]</td>
 <td>GCLKC_1</td>
 <td>LVCMOS33</td>
 <td>NA</td>
-<td>UP</td>
+<td>NONE</td>
 <td>ON</td>
 <td>NONE</td>
 <td>NA</td>
@@ -2049,16 +2201,16 @@ table.detail_table th.label {  min-width: 8%; width: 8%; }
 </tr>
 <tr>
 <td class="label">75/1</td>
-<td>-</td>
-<td>in</td>
+<td>spi_miso</td>
+<td>out</td>
 <td>IOT34[A]</td>
 <td>-</td>
 <td>LVCMOS33</td>
-<td>NA</td>
+<td>8</td>
 <td>UP</td>
-<td>ON</td>
-<td>NONE</td>
 <td>NA</td>
+<td>NA</td>
+<td>OFF</td>
 <td>NA</td>
 <td>NA</td>
 <td>NA</td>
@@ -3018,18 +3170,18 @@ table.detail_table th.label {  min-width: 8%; width: 8%; }
 </tr>
 <tr>
 <td class="label">13/6</td>
-<td>-</td>
+<td>spi_sclk</td>
 <td>in</td>
 <td>IOL45[A]</td>
 <td>LPLL2_T_in</td>
 <td>LVCMOS33</td>
 <td>NA</td>
-<td>UP</td>
+<td>NONE</td>
 <td>ON</td>
 <td>NONE</td>
 <td>NA</td>
 <td>NA</td>
-<td>NA</td>
+<td>OFF</td>
 <td>NA</td>
 <td>3.3</td>
 </tr>

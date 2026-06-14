@@ -18,12 +18,11 @@
 // OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 //
 
-// Ensoniq, PicoSoC, and DiskII are included via defines in the top module
-// Disk II requires PicoSoC
+// Feature selection via defines. The on-FPGA PicoSoC soft core and its Disk II
+// RAMDISK have been removed; the coprocessor is the external BL616 MCU.
 
 `define ENSONIQ
-`undef PICOSOC
-`undef DISKII
+`define BL616_SPI
 
 `include "datetime.svh"
 
@@ -53,7 +52,8 @@ module top #(
 
     parameter bit CLEAR_APPLE_VIDEO_RAM = 1,    // Clear video ram on startup
     parameter bit SHADOW_ALL_MEMORY = 0,        // Shadoow all memory in SDRAM, not just video ram
-    parameter bit HDMI_SLEEP_ENABLE = 1,        // Sleep HDMI output on CPU stop
+    parameter bit HDMI_SLEEP_ENABLE = 0,        // Sleep HDMI output on CPU stop
+    parameter bit FORCE_DEBUG_OVERLAY = 1,      // Always show the debug overlay on the HDMI output
     parameter bit IRQ_OUT_ENABLE = 1,           // Allow driving IRQ to Apple bus
     parameter bit BUS_DATA_OUT_ENABLE = 1       // Allow driving data to Apple bus
 
@@ -101,6 +101,12 @@ module top #(
     //output sd_dat2,   // 1
     output sd_dat3,     // CS
 
+    // BL616 SPI
+    input  spi_cs_n,
+    input  spi_sclk,
+    input  spi_mosi,
+    output spi_miso,
+
     // "Magic" port names that the gowin compiler connects to the on-chip SDRAM
     output        O_sdram_clk,
     output        O_sdram_cke,
@@ -129,13 +135,23 @@ module top #(
     wire a2_2M;
 
     // PLL - 54hz from 27
+    wire clk_pixel_pll_w;  // raw clkoutd from PLL
     clk_logic clk_logic_inst (
         .clkout(clk_logic_w),  //output clkout
         .lock(clk_logic_lock_w),  //output lock
         .clkoutp(clk_logic_p_w),  //output clkoutp
-        .clkoutd(clk_pixel_w),  //output clkoutd
+        .clkoutd(clk_pixel_pll_w),  //output clkoutd
         .reset(~rst_n),  //input reset
         .clkin(clk)  //input clkin
+    );
+
+    // Force pixel clock onto global clock network via BUFG.
+    // Pin 13 (spi_sclk) is a clock-capable pin whose routing conflicts with
+    // clkoutd (PR1014), pushing it to generic routing. BUFG ensures the pixel
+    // clock reaches the clk_hdmi PLL and all clock sinks reliably.
+    BUFG pixel_bufg (
+        .O(clk_pixel_w),
+        .I(clk_pixel_pll_w)
     );
 
     // PLL - 135Mhz from 27
@@ -173,35 +189,6 @@ module top #(
 
     wire system_reset_n_w = device_reset_n_w & a2_reset_cdc_w;
 
-    // Translate Phi1 into the clk_logic clock domain and derive Phi0 and edges
-    // delays Phi1 by 2 cycles = 40ns
-    wire phi1;
-    wire phi0;
-    wire phi1_posedge;
-    wire phi1_negedge;
-    wire clk_2m_posedge_w = phi1_posedge | phi1_negedge;
-    cdc_denoise cdc_phi1 (
-        .clk(clk_logic_w),
-        .i(a2_phi1),
-        .o(phi1),
-        .o_n(phi0),
-        .o_posedge(phi1_posedge),
-        .o_negedge(phi1_negedge)
-    );
-
-    wire clk_7m_w;
-    wire clk_7m_posedge_w;
-    wire clk_7m_negedge_w;
-    wire clk_14m_posedge_w = clk_7m_posedge_w | clk_7m_negedge_w;
-    cdc_denoise cdc_7m (
-        .clk(clk_logic_w),
-        .i(a2_7M),
-        .o(clk_7m_w),
-        .o_n(),
-        .o_posedge(clk_7m_posedge_w),
-        .o_negedge(clk_7m_negedge_w)
-    );
-
     // SDRAM Controller signals
     wire sdram_init_complete;
 
@@ -211,26 +198,16 @@ module top #(
 `ifdef ENSONIQ
     localparam GLU_MEM_PORT = 3;
     localparam DOC_MEM_PORT = 2;
-    `ifdef PICOSOC
-    localparam SOC_MEM_PORT = 4;
-        `ifdef DISKII
-    localparam RAMDISK_MEM_PORT = 5;
-    localparam NUM_PORTS = 6;
-        `else
+    `ifdef BL616_SPI
+    localparam MCU_MEM_PORT = 4;
     localparam NUM_PORTS = 5;
-        `endif
     `else
     localparam NUM_PORTS = 4;
     `endif
 `else
-    `ifdef PICOSOC
-    localparam SOC_MEM_PORT = 2;
-        `ifdef DISKII
-    localparam RAMDISK_MEM_PORT = 3;
-    localparam NUM_PORTS = 4;
-        `else
+    `ifdef BL616_SPI
+    localparam MCU_MEM_PORT = 2;
     localparam NUM_PORTS = 3;
-        `endif
     `else
     localparam NUM_PORTS = 2;
     `endif
@@ -241,8 +218,15 @@ module top #(
     localparam DQM_WIDTH = 4;
     localparam PORT_OUTPUT_WIDTH = 32;
 
+    // SDRAM memory map — word address offsets (32-bit word addressing)
+    // Applied per-port inside sdram_ports via PORT_BASE_ADDR parameter.
+    localparam [PORT_ADDR_WIDTH-1:0] SHADOW_WORD_BASE  = 21'h000000;  // 0MB
+`ifdef ENSONIQ
+    localparam [PORT_ADDR_WIDTH-1:0] ENSONIQ_WORD_BASE = 21'h010000;  // 128KB
+`endif
+
     // Signals for the multiple ports
-    sdram_port_if #(
+    mem_port_if #(
         .PORT_ADDR_WIDTH(PORT_ADDR_WIDTH),
         .DATA_WIDTH(DATA_WIDTH),
         .DQM_WIDTH(DQM_WIDTH),
@@ -254,6 +238,23 @@ module top #(
         .NUM_PORTS(NUM_PORTS),
         .PORT_ADDR_WIDTH(PORT_ADDR_WIDTH),
         .PORT_OUTPUT_WIDTH(PORT_OUTPUT_WIDTH),
+`ifdef ENSONIQ
+    `ifdef BL616_SPI
+        .PORT_BASE_ADDR('{SHADOW_WORD_BASE, SHADOW_WORD_BASE,
+                          ENSONIQ_WORD_BASE, ENSONIQ_WORD_BASE,
+                          SHADOW_WORD_BASE}),
+    `else
+        .PORT_BASE_ADDR('{SHADOW_WORD_BASE, SHADOW_WORD_BASE,
+                          ENSONIQ_WORD_BASE, ENSONIQ_WORD_BASE}),
+    `endif
+`else
+    `ifdef BL616_SPI
+        .PORT_BASE_ADDR('{SHADOW_WORD_BASE, SHADOW_WORD_BASE,
+                          SHADOW_WORD_BASE}),
+    `else
+        .PORT_BASE_ADDR('{SHADOW_WORD_BASE, SHADOW_WORD_BASE}),
+    `endif
+`endif
         .CAS_LATENCY(2),
         .SETTING_REFRESH_TIMER_NANO_SEC(15000),
         .SETTING_T_WR_MIN_WRITE_AUTO_PRECHARGE_RECOVERY_NANO_SEC(16),
@@ -288,21 +289,7 @@ module top #(
 
     // data and address latches on input
 
-    a2bus_if a2bus_if (
-        .clk_logic(clk_logic_w),
-        .clk_pixel(clk_pixel_w),
-        .system_reset_n(system_reset_n_w),
-        .device_reset_n(device_reset_n_w),
-        .phi0(phi0),
-        .phi1(phi1),
-        .phi1_posedge(phi1_posedge),
-        .phi1_negedge(phi1_negedge),
-        .clk_2m_posedge(clk_2m_posedge_w),
-        .clk_7m(clk_7m_w),
-        .clk_7m_posedge(clk_7m_posedge_w),
-        .clk_7m_negedge(clk_7m_negedge_w),
-        .clk_14m_posedge(clk_14m_posedge_w)
-    );
+    a2bus_if a2bus_if ();
 
     a2bus_control_if a2bus_control_if();
 
@@ -338,6 +325,14 @@ module top #(
         .BUS_DATA_OUT_ENABLE(BUS_DATA_OUT_ENABLE),
         .IRQ_OUT_ENABLE(IRQ_OUT_ENABLE)
     ) apple_bus (
+        .clk_logic_i(clk_logic_w),
+        .clk_pixel_i(clk_pixel_w),
+        .system_reset_n_i(system_reset_n_w),
+        .device_reset_n_i(device_reset_n_w),
+        .a2_phi1_i(a2_phi1),
+        .a2_q3_i(1'b0),
+        .a2_7M_i(a2_7M),
+
         .a2bus_if(a2bus_if),
         .a2bus_control_if(a2bus_control_if),
 
@@ -407,9 +402,12 @@ module top #(
         .slot_if(slot_if)
     );
 
-wire picosoc_led;
 
-`ifdef PICOSOC
+`ifdef BL616_SPI
+
+    // -------------------------------------------------------
+    // BL616 SPI Controller (replaces PicoSOC)
+    // -------------------------------------------------------
 
     wire cardrom_release_w;
     wire [0:7] cardrom_d_w;
@@ -417,117 +415,117 @@ wire picosoc_led;
 
     CardROM cardrom (
         .a2bus_if(a2bus_if),
-
         .data_o(cardrom_d_w),
         .rd_en_o(cardrom_rd),
         .inh_n_o(inh_n_w),
         .req_rom_release_i(cardrom_release_w)
     );
 
-    // PicoSOC
-
-    wire picosoc_irq_n;
-    wire [0:7] picosoc_d_w;
-    wire picosoc_rd_w;
-    wire picosoc_uart_rx_w;
-    wire picosoc_uart_tx_w;
-
-    //assign uart_tx = picosoc_uart_tx_w;
-    assign picosoc_uart_rx_w = uart_rx;
-
     video_control_if video_control_if();
-
     f18a_gpu_if f18a_gpu_if();
+    assign f18a_gpu_if.running = 1'b0;
+    assign f18a_gpu_if.pause_ack = 1'b1;
+    assign f18a_gpu_if.vwe = 1'b0;
+    assign f18a_gpu_if.vaddr = 14'b0;
+    assign f18a_gpu_if.vdout = 8'b0;
+    assign f18a_gpu_if.pwe = 1'b0;
+    assign f18a_gpu_if.paddr = 6'b0;
+    assign f18a_gpu_if.pdout = 12'b0;
+    assign f18a_gpu_if.rwe = 1'b0;
+    assign f18a_gpu_if.raddr = 13'b0;
+    assign f18a_gpu_if.gstatus = 7'b0;
 
     drive_volume_if volumes[2]();
 
-    picosoc #(
-        .ENABLE(1'b1),  // Enable the soc
-        .CLOCK_SPEED_HZ(CLOCK_SPEED_HZ)
-    ) picosoc (
-        .a2bus_if(a2bus_if),
-        .a2mem_if(a2mem_if),
+    wire [7:0] diskii_d_w = 8'b0;
+    wire diskii_rd = 1'b0;
 
-        .data_o (picosoc_d_w),
-        .rd_en_o(picosoc_rd_w),
-        .irq_n_o(picosoc_irq_n),
-
-        .cardrom_active_i(!inh_n_w),
-        .cardrom_release_o(cardrom_release_w),
-
-        .uart_rx_i(picosoc_uart_rx_w),
-        .uart_tx_o(picosoc_uart_tx_w),
-
-        .sd_mosi_o(sd_cmd),
-        .sd_sclk_o(sd_clk),
-        .sd_cs_o  (sd_dat3),
-        .sd_miso_i(sd_dat0),
-
-        .button_i(s2),
-        .led_o(picosoc_led),
-        .ws2812_o(ws2812),
-
-        .a2bus_control_if(a2bus_control_if),
-        .slotmaker_config_if(slotmaker_config_if),
-        .f18a_gpu_if(f18a_gpu_if),
-        .video_control_if(video_control_if),
-        .mem_if(mem_ports[SOC_MEM_PORT]),
-        .volumes(volumes)
-    );
-
-    // PicoSoC is required for the Disk II controller
-
-    wire [7:0] diskii_d_w;
-    wire diskii_rd;
-
-    `ifdef DISKII
-
-    DiskII #(
-        .ENABLE(DISK_II_ENABLE),
-        .ID(DISK_II_ID)
-    ) diskii (
-        .a2bus_if(a2bus_if),
-        .slot_if(slot_if),
-
-        .data_o(diskii_d_w),
-        .rd_en_o(diskii_rd),
-
-        .ram_disk_if(mem_ports[RAMDISK_MEM_PORT]),
-
-        .volumes(volumes)
-    );
-    
-    `else
-
-    assign diskii_d_w = 8'b0;
-    assign diskii_rd = 1'b0;
-
+    // Stub drive side of volumes (no DiskII controller yet with BL616)
     assign volumes[0].active = 1'b0;
     assign volumes[0].lba = 32'd0;
     assign volumes[0].blk_cnt = 6'd0;
     assign volumes[0].rd = 1'b0;
     assign volumes[0].wr = 1'b0;
-
-
     assign volumes[1].active = 1'b0;
     assign volumes[1].lba = 32'd0;
     assign volumes[1].blk_cnt = 6'd0;
     assign volumes[1].rd = 1'b0;
     assign volumes[1].wr = 1'b0;
-    
-    `endif
 
+    // Bus event FIFO
+    wire        fifo_empty_w;
+    wire        fifo_full_w;
+    wire [8:0]  fifo_count_w;
+    wire [31:0] fifo_rdata_w;
+    wire        fifo_pop_w;
+    wire [2:0]  capture_mode_w;
+    wire        capture_enable_w;
+
+    a2bus_event_fifo #(
+        .ENABLE(1'b1)
+    ) a2bus_event_fifo (
+        .a2bus_if(a2bus_if),
+        .fifo_empty(fifo_empty_w),
+        .fifo_full(fifo_full_w),
+        .fifo_count(fifo_count_w),
+        .fifo_rdata(fifo_rdata_w),
+        .fifo_pop(fifo_pop_w),
+        .capture_enable(capture_enable_w),
+        .capture_mode(capture_mode_w)
+    );
+
+    // BL616 SPI connector -- drives LED and WS2812 internally
+    wire [4:0] mcu_led_w;
+    wire       mcu_ws2812_w;
+    wire       mcu_ready_w;
+
+    bl616_spi_connector #(
+        .USE_CRC(0),
+        .CLOCK_SPEED_HZ(CLOCK_SPEED_HZ)
+    ) bl616_spi (
+        .clk(clk_logic_w),
+        .rst_n(device_reset_n_w),
+        .spi_cs_n(spi_cs_n),
+        .spi_sclk(spi_sclk),
+        .spi_mosi(spi_mosi),
+        .spi_miso(spi_miso),
+        .a2bus_if(a2bus_if),
+        .a2mem_if(a2mem_if),
+        .a2bus_control_if(a2bus_control_if),
+        .video_control_if(video_control_if),
+        .slotmaker_config_if(slotmaker_config_if),
+        .volumes(volumes),
+        .mem_if(mem_ports[MCU_MEM_PORT]),
+        .sdram_init_complete_i(sdram_init_complete),
+        .mcu_ready_o(mcu_ready_w),
+        .cardrom_active_i(!inh_n_w),
+        .cardrom_release_o(cardrom_release_w),
+        .button_i(s2),
+        .led_o(mcu_led_w),
+        .ws2812_o(mcu_ws2812_w),
+        .sd_clk_o(sd_clk),
+        .sd_cmd_o(sd_cmd),
+        .sd_dat0_i(sd_dat0),
+        .sd_dat3_o(sd_dat3),
+        .fifo_empty(fifo_empty_w),
+        .fifo_full(fifo_full_w),
+        .fifo_count(fifo_count_w),
+        .fifo_rdata(fifo_rdata_w),
+        .fifo_pop(fifo_pop_w),
+        .capture_mode_o(capture_mode_w),
+        .capture_enable_o(capture_enable_w)
+    );
+
+    assign ws2812 = mcu_ws2812_w;
 
 `else
 
-    // Stub out the external interfaces if not using PicoSOC
+    // Stub out the external interfaces if not using PicoSOC or BL616
 
     assign slotmaker_config_if.slot = 3'b0;
     assign slotmaker_config_if.wr = 1'b0;
     assign slotmaker_config_if.card_i = 8'b0;
     assign slotmaker_config_if.reconfig = 1'b0;
-
-    // Video
 
     video_control_if video_control_if();
     assign video_control_if.enable = 1'b0;
@@ -559,7 +557,6 @@ wire picosoc_led;
     assign f18a_gpu_if.raddr = 13'b0;
     assign f18a_gpu_if.gstatus = 7'b0;
 
-
     wire [7:0] diskii_d_w = 8'b0;
     wire diskii_rd = 1'b0;
 
@@ -569,10 +566,15 @@ wire picosoc_led;
     wire cardrom_rd = 1'b0;
     assign inh_n_w = 1'b1;
 
-    assign picosoc_led = 1'b0;
 
+    assign spi_miso = 1'b1;
+    assign ws2812 = 1'b0;
+    assign sd_clk  = 1'b0;
+    assign sd_cmd  = 1'b1;
+    assign sd_dat3 = 1'b1;
 
 `endif
+
 
     // Video
 
@@ -653,7 +655,7 @@ wire picosoc_led;
 
         .audio_l_o(sg_audio_l),               
         .audio_r_o(sg_audio_r),
-        
+
         .debug_osc_en_o(doc_osc_en_w),   // Capture oscillator enable register value
         .debug_osc_mode_o(doc_osc_mode_w), // Capture oscillator mode register values
         .debug_osc_halt_o(doc_osc_halt_w), // Capture oscillator halt register value
@@ -756,11 +758,7 @@ wire picosoc_led;
 
     wire ssc_uart_rx;
     wire ssc_uart_tx;
-    `ifdef PICOSOC
-    assign uart_tx = picosoc_uart_tx_w | ssc_uart_tx;
-    `else
     assign uart_tx = ssc_uart_tx;
-    `endif
     assign ssc_uart_rx = uart_rx;
 
     SuperSerial #(
@@ -796,7 +794,7 @@ wire picosoc_led;
     // Interrupts
 
     assign irq_n_w = mb_irq_n && vdp_irq_n && ssc_irq_n;
-        
+
     // Audio
 
     wire speaker_audio_w;
@@ -857,6 +855,19 @@ wire picosoc_led;
     localparam AUDIO_RATE = 44100;
     localparam AUDIO_BIT_WIDTH = 16;
     wire clk_audio_w;
+    audio_timing #(
+        .CLK_RATE(CLOCK_SPEED_HZ / 2),
+        .AUDIO_RATE(AUDIO_RATE)
+    ) audio_timing (
+        .reset(~device_reset_n_w),
+        .clk(clk_pixel_w),
+        .audio_clk(clk_audio_w),
+        .i2s_bclk(),
+        .i2s_lrclk(),
+        .i2s_data_shift_strobe(),
+        .i2s_data_load_strobe()
+    );
+
     wire [15:0] audio_sample_word[1:0];
     audio_out #(
         .CLK_RATE(CLOCK_SPEED_HZ / 2),
@@ -899,7 +910,7 @@ wire picosoc_led;
     ) debug_overlay (
         .clk_i          (clk_pixel_w),
         .reset_n (device_reset_n_w),
-        .enable_i(show_debug_overlay_r),
+        .enable_i(FORCE_DEBUG_OVERLAY ? 1'b1 : show_debug_overlay_r),
 
         .hex_values ({
             {2'b0, doc_osc_mode_w[0], 2'b0, doc_osc_mode_w[1]},
@@ -913,7 +924,7 @@ wire picosoc_led;
         }), 
 
         .debug_bits_0_i (doc_osc_halt_w), 
-        .debug_bits_1_i ('0),
+        .debug_bits_1_i ({1'b0, 1'b0, a2mem_if.TEXT_MODE, a2mem_if.SHRG_MODE, a2mem_if.HIRES_MODE, a2mem_if.RAMWRT, a2mem_if.AN3, a2mem_if.STORE80}),
 
         .screen_x_i     (hdmi_x),
         .screen_y_i     (hdmi_y),
@@ -988,7 +999,6 @@ wire picosoc_led;
         if (button_s2_posedge_w) begin
             show_debug_overlay_r <= !show_debug_overlay_r;
         end
-        //led <= {4'b1111, !picosoc_led};
         //if (!s2) 
         led <= {!a2mem_if.TEXT_MODE, !a2mem_if.SHRG_MODE, !a2mem_if.HIRES_MODE, !a2mem_if.RAMWRT, !a2mem_if.STORE80};
         //if (!s2) led <= {!a2mem_if.TEXT_MODE, !a2mem_if.MIXED_MODE, !a2mem_if.HIRES_MODE, !a2mem_if.RAMWRT, !a2mem_if.STORE80};

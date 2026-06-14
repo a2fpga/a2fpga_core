@@ -26,8 +26,8 @@ module apple_memory #(
     a2bus_if.slave a2bus_if,
     a2mem_if.master a2mem_if,
     
-    sdram_port_if.client main_mem_if,
-    sdram_port_if.client video_mem_if,
+    mem_port_if.client main_mem_if,
+    mem_port_if.client video_mem_if,
     
     input [15:0] video_address_i,
     input video_bank_i,
@@ -309,12 +309,14 @@ module apple_memory #(
     assign main_mem_if.addr = {6'b0, a2bus_if.addr[15:1]};
     assign main_mem_if.data = write_word;
     assign main_mem_if.byte_en = 1'b1 << {a2bus_if.addr[0], aux_mem_r || a2bus_if.m2b0};
+    assign main_mem_if.burst = 1'b0;
 
     assign video_mem_if.rd = video_rd_i;
     assign video_mem_if.wr = 1'b0;
     assign video_mem_if.addr = {5'b0, video_bank_i, video_address_i[15:1]};
     assign video_mem_if.data = 32'b0;
     assign video_mem_if.byte_en = 4'b1111;
+    assign video_mem_if.burst = 1'b0;
     assign video_data_o = video_mem_if.q;
 
 endmodule

@@ -1,0 +1,491 @@
+# A2N20 Tang Nano 20K BL616 Firmware
+
+BL616 microcontroller firmware providing application-tier services to the a2fpga Apple II FPGA design on the Sipeed Tang Nano 20K. Replaces the PicoRV32 soft CPU + SD card SPI currently used in the FPGA with a dedicated MCU solution, freeing FPGA logic and providing significantly more RAM and processing power for filesystem access, USB peripherals, and future extensibility.
+
+## Goals
+
+1. BL616 firmware providing application-tier services to the a2fpga FPGA design
+2. Primary service: FAT32 filesystem access for Apple II disk images (.dsk, .po, .nib, .woz)
+3. Communication with FPGA via SPI (BL616 as master, GPIO0-3 → FPGA pins 86/13/75/76) with polling for status
+4. USB provides FT2232-compatible JTAG + UART bridge (same user experience as Sipeed stock firmware)
+5. JTAG (GPIO10/12/14/16 → FPGA dedicated JTAG pins 5-8) and SPI are independent — both operate simultaneously
+6. Stage 2 firmware at 0x40000, chain-loaded by Sipeed's Stage 1
+7. Extensible for future services: USB HID keyboard input, OSD control, additional peripherals
+
+## Architecture
+
+### Data Flow
+
+```
+Apple II Bus                      FPGA (GW2AR-18)                    BL616 MCU
+──────────                        ───────────────                    ─────────
+Disk II slot access  ◄─bus─►  apple_disk.sv
+                                  drive_ii.sv
+                                      │
+                                      ▼
+                              mcu_interface.sv  ◄──SPI master───►  main.c
+                              (replaces picosoc)   (GPIO0-3)          │
+                                                                      ▼
+                              FPGA status regs  ◄──SPI polling──  FatFS + SD card
+                              (sector requests,                   (FAT32 filesystem)
+                               drive status)                          │
+                                                                      ▼
+                              FPGA JTAG pins    ◄──JTAG─────────  .dsk/.po/.nib/.woz
+                              (5,6,7,8)           (GPIO10/12/      disk image files
+                                                   14/16)
+
+USB (Debug port)  ◄──FT2232-compatible JTAG + UART bridge────►  CherryUSB device
+                    (same behavior as Sipeed stock firmware)
+```
+
+### What This Replaces
+
+The current a2fpga design uses a PicoRV32 soft CPU inside the FPGA for SD card access:
+
+| | PicoRV32 (current) | BL616 MCU (new) |
+|-|-------------------|-----------------|
+| CPU | 32-bit RISC-V soft core in FPGA | 320 MHz T-Head E907 hardware core |
+| RAM | 14 KB BRAM (9 blocks) | 480 KB SRAM |
+| Storage | SPI to SD card (FPGA GPIO) | SDH controller (hardware) |
+| USB | None | USB 2.0 HS (CherryUSB) |
+| FPGA cost | ~2000 LUTs + 9 BRAM blocks | 0 (external MCU) |
+| Filesystem | Minimal FAT32 in 14 KB | Full FatFS with large buffers |
+
+### Source Layout (Planned)
+
+```
+firmware/
+├── CMakeLists.txt
+├── Makefile
+├── flash_prog_cfg.ini          # Two-stage flash layout (Stage 2 at 0x40000)
+├── main.c                      # FreeRTOS task init, main loop
+├── mcu_protocol.c              # UART command/response protocol
+├── mcu_protocol.h              # Protocol constants, message format
+├── disk_service.c              # FAT32 disk image access, sector service
+├── disk_service.h
+├── sd_card.c                   # SD card init, FatFS mount
+├── sd_card.h
+└── usb_device.c                # USB device descriptors (future: USB host)
+```
+
+### Communication Protocol
+
+SPI register-based protocol between BL616 (master) and FPGA (slave). MCU polls FPGA status registers since no dedicated interrupt line is available.
+
+**SPI Configuration**:
+- **BL616 side**: SPI master, GPIO0 (CS#), GPIO1 (SCLK), GPIO2 (MISO), GPIO3 (MOSI)
+- **FPGA side**: SPI slave on pins 86 (CS#), 13 (SCLK), 75 (MISO), 76 (MOSI)
+- **Clock**: ~20 MHz
+- **Mode**: TBD during implementation
+
+**FPGA Register Map** (accessible via SPI, details TBD):
+
+| Register | R/W | Purpose |
+|----------|-----|---------|
+| STATUS | R | Pending request flags (sector read/write needed, drive status change) |
+| COMMAND | R | Current request details (drive, LBA, operation) |
+| DATA | R/W | Sector data buffer (256 bytes) |
+| RESPONSE | W | MCU writes response status |
+| CONFIG | W | Drive mount/unmount, image parameters |
+
+MCU polls STATUS register periodically. When a flag is set, MCU reads COMMAND, services the request (e.g., reads sector from SD card), writes DATA + RESPONSE. Exact register layout depends on FPGA-side `mcu_interface` module design.
+
+**UART** (GPIO11/GPIO13 → FPGA pins 70/69) is available as a secondary channel but primary communication uses SPI for higher throughput.
+
+### FPGA Integration with a2fpga
+
+- **FPGA side**: New `mcu_interface` module replaces PicoRV32+SD card chain
+- **SPI slave**: FPGA exposes register interface on pins 86/13/75/76, MCU polls for requests
+- **Volume interface**: Existing `drive_volume_if.sv` handshake protocol stays — MCU interface translates between SPI registers and volume registers
+- **UART pins** (69/70): Currently used by Super Serial Card emulation in top.sv (lines 409-431). May remain available for SSC or be repurposed.
+- **a2fpga_core location**: `/Users/edanuff/GitHub/a2fpga_core/boards/a2n20v2/`
+
+## Tang Nano 20K BL616 Pin Map
+
+### SPI (BL616 → FPGA, primary data channel)
+
+| Signal | BL616 GPIO | FPGA Pin (QN88) | Notes |
+|--------|-----------|-----------------|-------|
+| CS# | GPIO0 | 86 | Active low |
+| SCLK | GPIO1 | 13 | ~20 MHz |
+| DIR/MISO | GPIO2 | 75 | FPGA → MCU |
+| DAT/MOSI | GPIO3 | 76 | MCU → FPGA |
+
+BL616 operates as SPI master. No dedicated interrupt line available — MCU polls FPGA status registers to detect pending requests (sector reads, drive status changes, etc.).
+
+### JTAG (BL616 → Gowin GW2AR-18 dedicated JTAG pins)
+
+| Signal | BL616 GPIO | GPIO Config Register | FPGA Pin (QN88) |
+|--------|-----------|---------------------|-----------------|
+| TMS | GPIO16 | 0x20000904 | 5 |
+| TCK | GPIO10 | 0x200008EC | 6 |
+| TDI | GPIO12 | 0x200008F4 | 7 |
+| TDO | GPIO14 | 0x200008FC | 8 |
+
+FPGA pins 5-8 are the GW2AR-18's **dedicated JTAG pins** — independent from the SPI general I/O pins. JTAG and SPI operate simultaneously without conflict.
+
+### UART (BL616 → FPGA)
+
+| Signal | BL616 GPIO | FPGA Pin | Notes |
+|--------|-----------|----------|-------|
+| TX (BL616→FPGA) | GPIO11 | 70 | UART1 |
+| RX (FPGA→BL616) | GPIO13 | 69 | UART1 |
+
+### USB
+
+USB D+/D- are dedicated analog pins on the BL616 QFN40 package (not GPIOs). Hardwired to the Debug USB-C connector.
+
+### GPIO Register Addresses (BL616)
+
+BL616 GLB base: `0x20000000`.
+
+```c
+// BL616 GPIO registers (correct addresses — see io_cfg.h)
+#define JTAG_GPIO_SET  (*(volatile uint32_t *)0x20000AEC)  // GPIO_CFG138: write 1 = set high
+#define JTAG_GPIO_CLR  (*(volatile uint32_t *)0x20000AF4)  // GPIO_CFG140: write 1 = set low
+#define JTAG_GPIO_IN   (*(volatile uint32_t *)0x20000AC4)  // GPIO_CFG128: input read
+
+// IMPORTANT: Never use read-modify-write on GPIO_CFG136 (0x20000AE4) for bitbanging.
+// RMW causes USB communication failures on BL616. Always use SET/CLEAR registers.
+
+// JTAG pins (→ FPGA dedicated JTAG pins 5-8)
+#define TMS_PIN  16  // → FPGA pin 5
+#define TCK_PIN  10  // → FPGA pin 6
+#define TDI_PIN  12  // → FPGA pin 7
+#define TDO_PIN  14  // → FPGA pin 8
+```
+
+## Tang Nano 20K Board Variants & BL616 eFuse
+
+All publicly shipped Tang Nano 20K boards are v3921 (the first public release). The only meaningful distinction is whether Sipeed burned eFuse keys during manufacturing:
+
+| Board Type | BL616 eFuse | Notes |
+|-----------|-------------|-------|
+| v3921 unfused | No | eFuse keys not burned. Sipeed's encrypted `bl616_fpga_partner` won't validate. |
+| v3921 fused | Yes | eFuse keys burned. Sipeed's encrypted `bl616_fpga_partner` validates and runs. |
+
+Boards are physically identical — **indistinguishable by appearance**.
+
+**How to tell fused from unfused**: Flash Sipeed's stock `bl616_fpga_partner_20kNano.bin` via boot mode. If the board boots normally showing FT2232 UART ports → fused. If it shows "Bouffalo CDC DEMO" → unfused.
+
+### Two-Stage Boot Architecture (Stock Firmware)
+
+Sipeed's current stock firmware uses a two-stage boot with specific flash addresses:
+1. **Stage 1** at flash address `0x0` (`bl616_fpga_partner_20kNano.bin`): Encrypted bootloader providing FT2232D JTAG+UART. On fused boards, validates against eFuse keys. Requires firmware version `2025030317` or later for Stage 2 support.
+2. **Stage 2** at flash address `0x40000` (optional): Stage 1 chain-loads a second firmware (e.g., FPGA-Companion, TangCore) if no JTAG programmer host is detected.
+
+### Deployment Strategy
+
+**Primary target: Stage 2 at 0x40000** — Sipeed's Stage 1 stays at 0x0 providing FT2232-compatible USB JTAG+UART bridge. When no JTAG host is connected, Stage 1 chain-loads our firmware. Our firmware provides its own JTAG (GPIO bitbang), SPI master for FPGA communication, and FT2232-compatible USB bridge.
+
+**Fused boards**: Flash our firmware at 0x40000. Sipeed's encrypted Stage 1 at 0x0 validates against eFuse and chain-loads us.
+
+**Unfused boards**: Flash unencrypted `friend_20k` (MiSTeryNano) at 0x0 as Stage 1, our firmware at 0x40000. Same two-stage behavior without eFuse dependency.
+
+See `docs/bl616_ecosystem.md` for detailed field update procedures and board variant handling.
+
+### Recovery Is Always Possible
+
+Regardless of board variant, entering boot mode (UPDATE button) lets you reflash. No board variant is permanently brickable — the ROM bootloader is in mask ROM and cannot be overwritten.
+
+### Known Hardware Issues
+
+1. **MSPI/JTAG conflict**: FPGA flash shares JTAG pins. JTAG must work to program flash. If bitstream reconfigures JTAG pins as GPIO, board appears bricked.
+2. **JTAGSEL_N recovery**: Pull FPGA JTAGSEL_N low before power-up to force JTAG active, overriding bitstream pin config.
+3. **S2 button JTAG recovery**: If openFPGALoader reports "no device found" after flashing firmware, disconnect the board, hold S2, reconnect while holding, release, then retry. (Reported in FPGA-Companion issue #79.)
+
+## Build Environment Setup (macOS)
+
+### Prerequisites
+
+```bash
+brew install cmake make ninja
+brew install python3 gawk gnu-sed gmp mpfr libmpc isl zlib expat
+brew install coreutils texinfo
+```
+
+### Toolchain (T-Head RISC-V GCC)
+
+No pre-built macOS binaries exist. Build from source:
+
+```bash
+git clone --recurse-submodules https://github.com/XUANTIE-RV/xuantie-gnu-toolchain.git
+cd xuantie-gnu-toolchain
+
+# macOS patches
+cd riscv-newlib
+wget https://raw.githubusercontent.com/p4ddy1/pine_ox64/main/riscv-newlib.patch
+git apply riscv-newlib.patch
+cd ..
+sed -i '' "s/.*=host-darwin.o$//" riscv-gcc/gcc/config.host
+sed -i '' "s/.* x-darwin.$//" riscv-gcc/gcc/config.host
+
+sudo mkdir -p /opt/riscv-toolchain
+sudo chown -R $USER /opt/riscv-toolchain
+
+export PATH=$(brew --prefix)/opt/coreutils/libexec/gnubin:$PATH
+
+./configure --prefix=/opt/riscv-toolchain/xuantie --with-cmodel=medany --enable-multilib --enable-gdb
+make newlib -j$(sysctl -n hw.ncpu)
+```
+
+### SDK Setup
+
+```bash
+git clone https://github.com/bouffalolab/bouffalo_sdk.git
+export BL_SDK_BASE=/path/to/bouffalo_sdk
+export PATH=$PATH:/opt/riscv-toolchain/xuantie/bin
+```
+
+### Why T-Head Toolchain
+
+BL616 uses T-Head E907 core with arch flags not in upstream GCC:
+- **MARCH**: `rv32imafcpzpsfoperand_xtheade`
+- **MABI**: `ilp32f`
+- **MCPU**: `e907`
+
+## Build / Flash / Test Commands
+
+### Build
+
+```bash
+cd firmware
+make CHIP=bl616 BOARD=bl616dk
+```
+
+Output: `build/build_out/<project>_bl616.bin`
+
+### Enter Boot Mode
+
+1. Press and hold the **UPDATE** button (top of board, behind HDMI connector)
+2. Connect USB-C to the **Debug** port (or power-cycle while holding)
+3. Release button — BL616 enumerates as CDC-ACM device
+4. macOS: appears as `/dev/tty.usbmodemXXXX`
+
+### Flash (Developer — via SDK)
+
+The SDK includes `BLFlashCommand-macos` and a `make flash` target:
+
+```bash
+# Standalone at 0x0 (uses flash_prog_cfg.ini, address = 0x000000)
+cd firmware
+make flash CHIP=bl616 BOARD=bl616dk COMX=/dev/tty.usbmodemXXXX
+
+# Stage 2 at 0x40000 (uses flash_stage2_cfg.ini, address = 0x40000)
+cd firmware
+make flash CHIP=bl616 BOARD=bl616dk COMX=/dev/tty.usbmodemXXXX CONFIG=flash_stage2_cfg.ini
+```
+
+Or call BLFlashCommand directly:
+
+```bash
+$BL_SDK_BASE/tools/bflb_tools/bouffalo_flash_cube/BLFlashCommand-macos \
+    --interface=uart --baudrate=2000000 --port=/dev/tty.usbmodemXXXX \
+    --chipname=bl616 --config=flash_prog_cfg.ini
+```
+
+### Flash (End User — via pip, no SDK required)
+
+End users can flash a pre-built .bin without the full SDK:
+
+```bash
+pip install bflb-iot-tool
+
+# Standalone at 0x0
+bflb-iot-tool --chipname bl616 --interface uart --port /dev/tty.usbmodemXXXX \
+    --baudrate 2000000 --firmware a2n20_bl616_bl616.bin --addr 0x0 --single
+
+# Stage 2 at 0x40000
+bflb-iot-tool --chipname bl616 --interface uart --port /dev/tty.usbmodemXXXX \
+    --baudrate 2000000 --firmware a2n20_bl616_bl616.bin --addr 0x40000 --single
+```
+
+The `--single` flag flashes a raw binary without boot2/partition table/device tree — just the firmware at the specified address.
+
+### Flash Config Files
+
+- `flash_prog_cfg.ini` — Standalone at 0x0 (used by `make flash`)
+- `flash_stage2_cfg.ini` — Stage 2 at 0x40000 (used with `CONFIG=flash_stage2_cfg.ini`)
+
+### Restore Stock Firmware
+
+**Fused boards** (stock encrypted firmware):
+1. Download `bl616_fpga_partner_20kNano.bin` from Sipeed:
+   - Direct: https://api.dl.sipeed.com/TANG/Debugger/onboard/BL616/2025030317/bl616_fpga_partner_20kNano.bin
+   - Directory: https://api.dl.sipeed.com/shareURL/TANG/Debugger/onboard/BL616/2025030317
+2. Enter boot mode (UPDATE button)
+3. Flash using BouffaloLabDevCube v1.9.0: chip BL616/618, select the .bin, flash at address `0x0`
+4. Power cycle — should enumerate as FT2232 with serial `2025030317` showing "USB Converter A" + "USB Converter B"
+5. If only a single COM port appears instead of dual converters → board is unfused, use the unfused procedure below
+
+**Unfused boards** (unencrypted recovery firmware):
+1. Download `friend_20k` unencrypted firmware from MiSTle-Dev:
+   - Direct: https://github.com/MiSTle-Dev/FPGA-Companion/raw/refs/heads/main/src/bl616/friend_20k/friend_20k_bl616.bin
+   - Directory: https://github.com/MiSTle-Dev/FPGA-Companion/tree/main/src/bl616/friend_20k
+2. Enter boot mode (UPDATE button)
+3. Flash the unencrypted variant
+4. Power cycle — should enumerate as FT2232
+
+### Verify JTAG
+
+```bash
+# After flashing, reconnect USB normally (no UPDATE button)
+openFPGALoader --detect
+# Should show: GW2AR-18 (idcode 0x0000081b)
+```
+
+## BL616 Technical Reference
+
+### Register Base Addresses
+
+| Register Block | BL702 | BL616 |
+|---------------|-------|-------|
+| GLB base | 0x40000000 | 0x20000000 |
+| GPIO output SET | 0x40000188 | 0x20000AEC |
+| GPIO output CLR | — | 0x20000AF4 |
+| GPIO input | 0x40000180 | 0x20000AC4 |
+| DMA base | 0x4000C000 | 0x2000C000 |
+| USB clock bit (CGEN1) | Bit 28 | Bit 13 |
+
+### RISC-V Core
+
+| | BL702 | BL616 |
+|-|-------|-------|
+| Core | T-Head E906 | T-Head E907 |
+| Arch | rv32imafc | rv32imafcpzpsfoperand_xtheade |
+| GPIO count | 38 (0-37) | 35 (0-34) |
+| DMA channels | 8 | 4 |
+
+### CherryUSB API (BL616 / bouffalo_sdk)
+
+```c
+usbd_desc_register(busid, &descriptor);
+usbd_add_interface(busid, &intf);
+usbd_add_endpoint(busid, &ep);
+usbd_initialize(busid, reg_base, event_handler);
+// Event-driven: use USBD_EVENT_CONFIGURED callback
+```
+
+### GPIO API (BL616 LHAL)
+
+```c
+struct bflb_device_s *gpio = bflb_device_get_by_name("gpio");
+bflb_gpio_init(gpio, pin, GPIO_OUTPUT | GPIO_PULLUP | GPIO_SMT_EN | GPIO_DRV_0);
+bflb_gpio_set(gpio, pin);
+bflb_gpio_reset(gpio, pin);
+bool val = bflb_gpio_read(gpio, pin);
+```
+
+### UART API (BL616 LHAL)
+
+```c
+struct bflb_device_s *uart1 = bflb_device_get_by_name("uart1");
+struct bflb_uart_config_s cfg = { .baudrate = 2000000, ... };
+bflb_uart_init(uart1, &cfg);
+bflb_uart_txint_mask(uart1, false);
+```
+
+### Build System
+
+Standard bouffalo_sdk Makefile pattern:
+```makefile
+SDK_DEMO_PATH ?= $(abspath .)
+BL_SDK_BASE ?= $(abspath ../../bouffalo_sdk)
+export BL_SDK_BASE
+CROSS_COMPILE ?= riscv64-unknown-elf-
+include $(BL_SDK_BASE)/project.build
+```
+
+## Implementation Phases
+
+### Phase 1: Build Environment + Minimal Firmware
+- Set up bouffalo_sdk project skeleton with Makefile/CMakeLists.txt
+- Create minimal FreeRTOS application that boots on BL616
+- Blink LED and/or print to UART1 to confirm firmware runs
+- Test both flash configurations: Stage 2 (0x40000) and standalone (0x0)
+- Test on fused and unfused boards to determine eFuse impact
+- **Success criteria**: LED blinks, UART output visible, boots correctly as Stage 2
+
+### Phase 2: FatFS Integration
+- Initialize SD card via Bouffalo SDH interface
+- Mount FAT32 filesystem using FatFS
+- List directory contents, read files
+- Verify .dsk/.po file access and read performance
+- **Success criteria**: Can read and list disk image files from SD card
+
+### Phase 3: FPGA Communication Protocol
+- Define command/response message format (adapted from TangCore protocol)
+- Implement UART1 TX/RX with ring buffers and interrupt-driven receive
+- Create FreeRTOS tasks: main task + UART RX task
+- Implement FPGA-side `mcu_interface` module (in a2fpga_core project)
+- Replace PicoRV32 + SD card with MCU interface in FPGA top-level
+- **Success criteria**: MCU and FPGA exchange commands/responses over UART
+
+### Phase 4: Disk Image Service
+- Implement sector read/write handlers for disk images
+- Support .dsk (140 KB, 35 tracks x 16 sectors x 256 bytes) and .po (ProDOS order) formats
+- Wire to existing `drive_volume_if` handshake in FPGA disk controller
+- Test with Apple II DOS 3.3 and ProDOS boot disks
+- **Success criteria**: Apple II boots from disk image served by BL616 over UART
+
+### Phase 5: Field Deployment
+- Test on fused and unfused Tang Nano 20K boards
+- Document field update procedure for A2N20 users
+- Create recovery instructions for all board variants
+- Package firmware binary and flashing tools
+- **Success criteria**: A2N20 users can update BL616 firmware and boot disk images
+
+## Key Design Decisions
+
+1. **SPI as primary FPGA channel**: SPI (GPIO0-3 → FPGA pins 86/13/75/76) provides ~20 MHz throughput for register-based communication. JTAG (GPIO10/12/14/16 → FPGA dedicated pins 5-8) is fully independent — both operate simultaneously. No interrupt line available, so MCU polls FPGA status registers via SPI.
+
+2. **FT2232-compatible USB bridge**: Our firmware provides the same USB JTAG + UART bridge behavior as Sipeed's stock firmware, so the user experience is unchanged. Additionally, we implement FPGA services (disk image access, etc.) that Sipeed's firmware doesn't provide.
+
+3. **Stage 2 only**: All boards deploy as Stage 2 at 0x40000. Fused boards use Sipeed's encrypted Stage 1; unfused boards use `friend_20k` unencrypted Stage 1. No standalone 0x0 image needed.
+
+4. **Don't fork TangCore/FPGA-Companion**: Use them as reference implementations but build purpose-specific firmware for a2fpga. Their protocols are designed for retro gaming cores (OSD-heavy, core switching). Our needs are more focused (disk image service + extensibility).
+
+5. **FreeRTOS**: Follow TangCore's lead — FreeRTOS provides task scheduling, mutexes, and integrates with bouffalo_sdk and CherryUSB.
+
+## Key References
+
+### Repositories
+- **TangCore/firmware-bl616** (reference implementation): https://github.com/nand2mario/firmware-bl616
+- **TangCore** (FPGA cores): https://github.com/nand2mario/tangcore
+- **FPGA-Companion** (SPI protocol reference): https://github.com/MiSTle-Dev/FPGA-Companion
+- **RV-Debugger-BL702** (JTAG reference): https://github.com/sipeed/RV-Debugger-BL702
+- **Bouffalo SDK**: https://github.com/bouffalolab/bouffalo_sdk
+- **CherryUSB**: https://github.com/cherry-embedded/CherryUSB
+- **T-Head RISC-V Toolchain**: https://github.com/XUANTIE-RV/xuantie-gnu-toolchain
+- **macOS Toolchain Build Guide**: https://github.com/p4ddy1/pine_ox64/blob/main/build_toolchain_macos.md
+- **a2fpga_core** (FPGA design): https://github.com/a2fpga/a2fpga_core
+
+### Ecosystem Analysis
+- **nand2mario blog**: https://nand2mario.github.io/posts/2025/mcu_for_better_fpga_gaming/
+- **FPGA-Companion SPI protocol**: https://github.com/MiSTle-Dev/FPGA-Companion/blob/main/SPI.md
+- **FPGA-Companion TN20K versions wiki**: https://github.com/MiSTle-Dev/.github/wiki/Versions_TangNano20k
+- **Ecosystem reference doc**: `docs/bl616_ecosystem.md`
+
+### Board Variant & eFuse Research
+- **FPGA-Companion issue #79** (board variant bricking, recovery procedures): https://github.com/MiSTle-Dev/FPGA-Companion/issues/79
+- **Sipeed stock BL616 firmware (2025030317)**: https://api.dl.sipeed.com/shareURL/TANG/Debugger/onboard/BL616/2025030317
+- **friend_20k unencrypted recovery firmware**: https://github.com/MiSTle-Dev/FPGA-Companion/tree/main/src/bl616/friend_20k
+- **BouffaloLabDevCube v1.9.0**: https://dev.bouffalolab.com/download/
+
+### Datasheets & Docs
+- **BL616/BL618 Datasheet**: https://github.com/bouffalolab/bl_docs/tree/main/BL616_DS/en
+- **BL616 Reference Manual**: https://github.com/bouffalolab/bl_docs/tree/main/BL616_RM/en
+- **GW2AR Pinout (UG229)**: https://cdn.gowinsemi.com.cn/UG229E.pdf
+- **Tang Nano 20K Wiki**: https://wiki.sipeed.com/hardware/en/tang/tang-nano-20k/nano-20k.html
+- **Update Debugger (boot mode)**: https://wiki.sipeed.com/hardware/en/tang/common-doc/update_debugger.html
+- **openFPGALoader Gowin Notes**: https://trabucayre.github.io/openFPGALoader/vendors/gowin.html
+
+## Code Style
+
+- **Standard**: C99
+- **Naming**: `snake_case` for functions and variables, `UPPER_CASE` for macros and constants
+- **Prefixes**: `disk_` for disk service functions, `mcu_` for protocol/communication functions, `sd_` for SD card functions
+- **Includes**: System headers first, then SDK headers, then project headers
+- **Buffers**: Static allocation, no malloc. Ring buffers sized to powers of 2 for efficient masking.
+- **Error handling**: Check return values at USB/UART boundaries. No exceptions. Silent on expected fast-path conditions.
+- **Comments**: Explain hardware quirks and register magic. No boilerplate comments.
