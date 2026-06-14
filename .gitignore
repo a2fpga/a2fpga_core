@@ -1,4 +1,5 @@
 .vscode/
+.obsidian/
 *.user
 impl/gwsynthesis/*
 !impl/gwsynthesis/*.cfg
@@ -36,4 +37,17 @@ src/picosoc/firmware/firmware.hex
 src/cardrom/cardrom_Output.txt
 src/cardrom/_FileInformation.txt
 src/cardrom/cardrom
-/.claude
+# Ignore personal Claude config (settings.local.json, worktrees) but SHARE skills
+/.claude/*
+!/.claude/skills/
+/boards/a2p25/src/esp32/build
+/boards/a2p25/src/a2fpga_esp32/build
+/boards/a2p25/src/esp32_usb_jtag/build
+/boards/a2n20v2-Enhanced/src/a2n20_bl616/firmware/build/*
+!/boards/a2n20v2-Enhanced/src/a2n20_bl616/firmware/build/build_out/
+/boards/a2n20v2-Enhanced/src/a2n20_bl616/firmware/build/build_out/*
+!/boards/a2n20v2-Enhanced/src/a2n20_bl616/firmware/build/build_out/a2n20_bl616_bl616.bin
+!/boards/a2n20v2-Enhanced/src/a2n20_bl616/recovery/*.bin
+*.m4a
+*.wav
+*.mov
