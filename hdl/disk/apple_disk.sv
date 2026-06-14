@@ -24,7 +24,7 @@ module DiskII #(
     output [7:0] data_o,
     output rd_en_o,
 
-    sdram_port_if.client ram_disk_if,
+    mem_port_if.client ram_disk_if,
 
     drive_volume_if.drive volumes[2]
 
@@ -125,21 +125,21 @@ module DiskII #(
     localparam DQM_WIDTH = 4;
     localparam PORT_OUTPUT_WIDTH = 32;
 
-    sdram_port_if #(
+    mem_port_if #(
         .PORT_ADDR_WIDTH(PORT_ADDR_WIDTH),
         .DATA_WIDTH(DATA_WIDTH),
         .DQM_WIDTH(DQM_WIDTH),
         .PORT_OUTPUT_WIDTH(PORT_OUTPUT_WIDTH)
     ) ram_disk1_if ();
 
-    sdram_port_if #(
+    mem_port_if #(
         .PORT_ADDR_WIDTH(PORT_ADDR_WIDTH),
         .DATA_WIDTH(DATA_WIDTH),
         .DQM_WIDTH(DQM_WIDTH),
         .PORT_OUTPUT_WIDTH(PORT_OUTPUT_WIDTH)
     ) ram_disk2_if ();
 
-    sdram_if_mux ram_disk_mux (
+    mem_if_mux ram_disk_mux (
         .switch(drive2_select_r),
         //.switch(drive2_select_r),
         .controller(ram_disk_if),

@@ -2,7 +2,8 @@
 module audio_out
 #(
 	parameter CLK_RATE = 24576000,
-	parameter AUDIO_RATE = 48000
+	parameter AUDIO_RATE = 48000,
+	parameter ENABLE = 1
 )
 (
 	input        reset,
@@ -21,19 +22,10 @@ module audio_out
 	input [15:0] core_l,
 	input [15:0] core_r,
 
-	output audio_clk,
+	input audio_clk,
 	output [15:0] audio_l,
 	output [15:0] audio_r
 );
-    localparam AUDIO_CLK_COUNT = CLK_RATE / AUDIO_RATE;
-    logic [$clog2(AUDIO_CLK_COUNT)-1:0] audio_counter_r;
-	reg sample_ce;
-	always_ff @(posedge clk)
-    begin
-        audio_counter_r <= (audio_counter_r == AUDIO_CLK_COUNT) ? 1'd0 : audio_counter_r + 1'd1;
-        sample_ce <= audio_counter_r == AUDIO_CLK_COUNT;
-    end
-	assign audio_clk = sample_ce;
 
 	reg flt_ce;
 	reg [31:0] cnt = 0;
@@ -80,7 +72,7 @@ module audio_out
 				else a_en1 <= 1;
 			end
 
-			if(sample_ce) begin
+			if(audio_clk) begin
 				if(!dly2[13]) dly2 <= dly2 + 1'd1;
 				else a_en2 <= 1;
 			end
@@ -94,7 +86,7 @@ module audio_out
 		.reset(reset),
 
 		.ce(flt_ce & a_en1),
-		.sample_ce(sample_ce),
+		.sample_ce(audio_clk),
 
 		.cx(cx),
 		.cx0(cx0),
@@ -114,7 +106,7 @@ module audio_out
 	DC_blocker dcb_l
 	(
 		.clk(clk),
-		.ce(sample_ce),
+		.ce(audio_clk),
 		.mute(~a_en2),
 		.din(acl),
 		.dout(adl)
@@ -124,14 +116,14 @@ module audio_out
 	DC_blocker dcb_r
 	(
 		.clk(clk),
-		.ce(sample_ce),
+		.ce(audio_clk),
 		.mute(~a_en2),
 		.din(acr),
 		.dout(adr)
 	);
 
-	assign audio_l = adl;
-	assign audio_r = adr;
+	assign audio_l = ENABLE ? adl : core_l;
+	assign audio_r = ENABLE ? adr : core_r;
 
 
 endmodule

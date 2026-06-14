@@ -45,8 +45,153 @@
 // for a complex memory structure that is difficult to implement as a typical
 // register file. This module is designed to provide the memory access logic
 // for the DOC5503 and to infer the memory as block RAMs or distributed RAMs
-// during synthesis. 
+// during synthesis.
 //
+// =============================================================================
+// DOC5503 TIMING REFERENCE (from Ensoniq 5503 datasheet)
+// =============================================================================
+//
+// CLOCK STRUCTURE
+// ---------------
+// The DOC5503 divides the input clock (CLK) by 8 to produce one oscillator
+// cycle. Each complete scan consists of N oscillator slots (set by the
+// Oscillator Enable register) plus 2 refresh slots.
+//
+//   At 8.000 MHz (nominal):  Tcyc1 = 125.0 ns, osc cycle = 1000.0 ns
+//   At 7.159 MHz (IIgs):     Tcyc1 = 139.7 ns, osc cycle = 1117.6 ns
+//
+// INPUT CLOCK (Page 17)
+//   Symbol  Parameter                     Min    Typ    Max    Units
+//   Tcyc1   Input Clock Cycle Time        100     -     125    ns
+//   Tpwh    Clock High                     50     -      -     ns
+//   Tpwl    Clock Low                      50     -      -     ns
+//
+// OUTPUT CLOCKS (Page 17)
+//   Symbol  Parameter                     Min    Typ    Max    Units
+//   Tcyc2   RAS/CAS Cycle Time (2 MHz)   480     -     500    ns
+//   Toh1    RAS/CAS Output High           270     -     290    ns
+//   Tol1    RAS/CAS Output Low            190     -     210    ns
+//   Trd     RAS High after E Low            -     -      40    ns
+//   Tcd     CAS High after RAS High        40     -      70    ns
+//   Tcyc3   E/Q Cycle Time (1 MHz)        980     -    1000    ns
+//   Toh2    E/Q Output High               480     -     500    ns
+//   Tol2    E/Q Output Low                480     -     500    ns
+//   Tqd     E High from Q High            240     -     250    ns
+//
+// NOTE: The min values in the above table are not fully self-consistent:
+//   Toh1_min + Tol1_min = 460 != 480 = Tcyc2_min
+//   Toh2_min + Tol2_min = 960 != 980 = Tcyc3_min
+//   2 * Tcyc2_min = 960 != 980 = Tcyc3_min
+// The max values are consistent (290+210=500, 500+500=1000, 2*500=1000).
+//
+// CLK-EDGE-REFERENCED TIMING (Page 21, handwritten, at 8 MHz)
+// All times referenced to rising edge of indicated 8 MHz CLK cycle.
+//   Symbol   Parameter                   Min    Typ    Max    Units
+//   tEH      Time to E high               40     50     60    ns
+//   tEL      Time to E low                50     63     80    ns
+//   tRASH    Time to RAS high             50     60     80    ns
+//   tRASL    Time to RAS low              60     82     97    ns
+//   tCASH    Time to CAS high             60     65     80    ns
+//   tCASL    Time to CAS low              50     60     70    ns
+//   tQL      Time to Q low                50     55     70    ns
+//   tQH      Time to Q high               50     60     70    ns
+//
+// 5503 READ FROM MEMORY (Page 18)
+//   Symbol  Parameter                     Min    Typ    Max    Units
+//   Tas     Time to Valid Addr from E       -     -      50    ns
+//   Tah     Addr Hold Time (A0-A7)          0     -      10    ns
+//   Thh     A8-A15 Hold from RAS Fall       -     -      30    ns
+//   Tof     A8/D0-A15/D7 Switching Time    30     -       -    ns
+//   Tds     Data In Setup Time            100     -       -    ns
+//   Tdh     Data In Hold Time              20     -       -    ns
+//
+// MICROPROCESSOR READ/WRITE TO 5503 (Page 18)
+//   Symbol  Parameter                     Min    Typ    Max    Units
+//   Tas     Address Setup Time            350     -       -    ns
+//   Tah     Address Hold Time               0     -     100    ns
+//   Trw     R/W Valid for Read            350     -       -    ns
+//   Th      CS Hold from E Low              0     -       -    ns
+//   Tds     Data In Setup Time            150     -       -    ns
+//   Tdh     Data In/Out Hold Time          30     -       -    ns
+//   Tww     R/W Valid for Write           350     -       -    ns
+//
+// CHANNEL STROBE / CHANNEL ASSIGN TIMING (Page 22, handwritten, at 8 MHz)
+//   Symbol   Parameter                              Typ    Units
+//   tEcyc    E clock cycle time                    1000    ns
+//   tEh      E clock high time                      500    ns
+//   tEL      E clock low time                       500    ns
+//   tCSTBL   Channel strobe low time                500    ns
+//   tCAV     CA0-CA3 valid time                    1000    ns
+//   tCAS     CA0-CA3 setup to CSTRB low             250    ns
+//   tCAh     CA0-CA3 hold from CSTRB high           250    ns
+//
+// MEASURED IIgs TIMING (Page 23, 7.159 MHz, as measured on hardware)
+//   Signal        Measured Value     Notes
+//   E high        ~480 ns
+//   E cycle       ~540 ns (pin 5)   Annotation unclear; may be half-cycle
+//   CAS low       ~290 ns           ~2 CLK at 7.159 MHz (279.4 ns)
+//   RAS low       ~270 ns           ~2 CLK at 7.159 MHz
+//   Read data     ~50 ns valid      70 ns for 16Kx4 DRAM
+//   M ADDR (row)  ~160 ns valid
+//   M ADDR (col)  ~270 ns valid
+//
+// =============================================================================
+// PER-OSCILLATOR CYCLE SEQUENCE (derived from timing diagrams pp. 19-23)
+// =============================================================================
+//
+// The following shows what happens within one oscillator cycle (8 CLK periods).
+// E-high is the memory access phase; E-low is the output/host-access phase.
+//
+//   CLK Edge  Event
+//   --------  -----
+//   0         E rises (after tEH delay from CLK edge)
+//   0+Tas     Address A0-A7 valid (waveform table address, low byte)
+//             Address A8-A15 valid (waveform table address, high byte)
+//   ~1        RAS falls — row address (A8-A15) latched by DRAM
+//   ~1+Thh    A8-A15 released, lines switch to data mode (Tof >= 30 ns)
+//   ~2        CAS falls — column address (A0-A7) latched, DRAM read begins
+//   ~3        Data valid on D0-D7 (Tds >= 100 ns before latch point)
+//             Waveform sample stored in WDS register
+//   4         E falls (after tEL delay from CLK edge)
+//             Volume DAC (VOL-) drives current from volume register
+//             Waveform DAC (SIG+/SIG-) outputs sample * volume
+//   ~4        RAS rises (within Trd <= 40 ns of E fall)
+//   ~4+Tcd    CAS rises (40-70 ns after RAS rise)
+//   4-5       CSTRB falls — channel strobe active, analog output sampled
+//             CA0-CA3 valid — routes output to assigned channel
+//   ~7        Accumulator updated: A = A + FC (frequency control)
+//   7         Cycle ends, next oscillator begins
+//
+// KEY IMPLICATION: The DOC reads waveform data and outputs it in the SAME
+// oscillator cycle. The address is generated from the current accumulator,
+// data is fetched from DRAM during E-high, volume-scaled during E-high/low
+// transition, and output via CSTRB during E-low. The accumulator is then
+// updated for the next cycle.
+//
+// This means the sequence is: read mem[ACC] -> output -> ACC += FC
+// NOT a pipelined: output old WDS -> fetch new WDS -> ACC += FC
+//
+// =============================================================================
+// FPGA IMPLEMENTATION TIMING BUDGET
+// =============================================================================
+//
+// This module runs the FSM on clk_i (>= 50 MHz) with clk_en_i pulsing at
+// the DOC clock rate (7.159 MHz on IIgs). The 8-count clk_en_i divider
+// (clk_count_r) provides 8 sub-cycles per oscillator slot.
+//
+// At 54 MHz clk_i / 7.159 MHz clk_en_i: ~7.5 clk_i edges per clk_en_i pulse
+// Total clk_i edges per oscillator cycle: ~60
+// FSM states per oscillator: up to 14 (fits comfortably)
+//
+// Critical path: wave_rd_o asserted in OSC_REQUEST_DATA, wave_data_ready_i
+// must arrive before clk_count_r == 7 (timeout). This gives ~7/8 of the
+// oscillator cycle (~978 ns at 7.159 MHz) for memory round-trip.
+// Timeout produces 0x80 (mid-level silence) as a safe fallback.
+//
+// Real DOC DRAM access completes in ~300-400 ns (within E-high phase).
+// DDR3/SDRAM through CDC bridges should be well under the 838 ns budget.
+//
+// =============================================================================
 
 module doc5503 #(
     parameter int CLOCK_SPEED_HZ = 54_000_000,
@@ -811,10 +956,14 @@ module doc5503 #(
     task automatic osc_request_data();
         // Generate wave table address and request data if oscillator not halted
         // If oscillator is halted, handles one-shot mode accumulator reset
-        // Note: This differs from the original DOC5503 in that it appears that the
-        // DOC5503 may not actually request and retrieve wave data in the same cycle
-        // Rather, it appears that it plays the wave data that is already in the
-        // wds register and then requests the next wave data sample.
+        //
+        // Per the DOC5503 datasheet timing diagrams (pp. 19, 23), the real chip
+        // reads waveform data and uses it in the same oscillator cycle:
+        //   - Address output within Tas (50 ns) of E rising
+        //   - DRAM read completes during E-high phase (~300-400 ns)
+        //   - Data used for volume multiplication and analog output during E-low
+        //   - Accumulator updated at end of cycle
+        // This implementation matches that behavior: fetch -> output -> ACC += FC
 
         automatic logic [15:0] curr_wave_addr_w = 16'(curr_acc_r >> curr_shift_w);
         if (!halt_w) begin
@@ -869,7 +1018,7 @@ module doc5503 #(
             end else begin
                 osc_state_r <= OSC_OUT;
             end
-        end else if (clk_count_r == 3'd6) begin
+        end else if (clk_count_r == 3'd7) begin
             // If no data received, set default waveform data to 0x80
             curr_wds_r <= 8'h80;
             osc_state_r <= OSC_OUT;

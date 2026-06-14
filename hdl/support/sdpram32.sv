@@ -20,6 +20,8 @@ module sdpram32 #(
     reg [31:0] read_data_r;
 
     always_ff @(posedge clk) begin
+            // Keep write and read paths independent so scan reads can continue
+            // during CPU writes (critical for VGC animation stability).
             if (write_enable) begin
                 if (byte_enable[0])
                     mem[write_addr][7:0] <= write_data[7:0];
@@ -29,7 +31,8 @@ module sdpram32 #(
                     mem[write_addr][23:16] <= write_data[23:16];
                 if (byte_enable[3])
                     mem[write_addr][31:24] <= write_data[31:24];
-            end else if (read_enable) begin
+            end
+            if (read_enable) begin
                     read_data_r <= mem[read_addr];
             end
             read_data <= read_data_r;
