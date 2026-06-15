@@ -103,38 +103,25 @@ For ROM 00/01 IIgs models (such as the Woz edition), the A2N20v2 must be placed 
 
 [A2N20v2 Board Support Project (Schematics, Project Files)](boards/a2n20v2/)
 
-[A2N20v2 Board Support Project (Experimental SDRAM Feature Set)](boards/a2n20v2_enhanced/)
+### Work-in-progress A2N20v2 variants
 
-### Using the A2N9
+Two experimental variants of the A2N20v2 are under active development — these may be what you're
+looking for if you want the newer features, with the usual work-in-progress caveats:
 
-- Compatible with the II, II+, and //e
-- Supports 40/80 column text, lo-res, and hi-res graphics
-- Not bus-compatible with the IIgs
-- Provides HDMI video output and Mockingboard sound
-- No SuperSprite support
-- Uses the smaller and cheaper [Tang Nano 9K](https://wiki.sipeed.com/hardware/en/tang/Tang-Nano-9K/Nano-9K.html)
-- Starts instantly on Apple power-up
-- Not compatible with many HDMI televisions although it works fine with most monitors
-- Not compatible with HDMI-to-DVI converters
-- Recommended for hobbyist use and experimentation
-- Open Source Hardware Design, boards available periodically via Tindie and eBay
+- **[A2N20v2-GS](boards/a2n20v2-GS/)** — GS-optimized: Ensoniq DOC audio plus a framebuffer so
+  games that use beam-racing techniques display correctly. Intended to become the main A2N20v2
+  release.
+- **[A2N20v2-Enhanced](boards/a2n20v2-Enhanced/)** — adds an external BL616 MCU coprocessor for
+  SD-card disk images and on-screen configuration.
 
-[A2N9 Board Board Support Project (Schematics, Project Files)](boards/a2n9/)
+Both are experimental and not official releases yet; see each board's README for current status.
 
-### Using the A2N20 Version 1
+## Other boards
 
-- Compatible with the II, II+, and //e
-- Supports 40/80 column text, lo-res, hi-res, and super-hires graphics
-- Not bus-compatible with the IIgs
-- Provides video and sound output as well as providing Supersprite compatibility
-- Uses the larger [Tang Nano 20K](https://wiki.sipeed.com/hardware/en/tang/tang-nano-20k/nano-20k.html)
-- Delays Apple startup until power-up initialization of FPGA is complete
-- Compatible with most HDMI television sets and monitors
-- Not compatible with HDMI-to-DVI converters
-- Recommended for all users/models (except IIgs)
-- Limited Production, replaced by V2
-
-[A2N20v1 Board Support Project (Schematics, Project Files)](boards/a2n20v1/)
+Other boards live in the [boards/](boards/) directory — earlier hardware (A2N9, A2N20v1) and
+newer boards in development (A2Mega for the Tang Mega 60K, A2P25 for the Tang Primer 25K). See
+**[docs/boards.md](docs/boards.md)** for the full board matrix (chip, memory, status) and links
+to each board's documentation.
 
 ## HDMI Apple II Graphics
 
