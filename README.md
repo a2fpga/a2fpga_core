@@ -61,10 +61,10 @@ You will need the following:
         - Make sure you've connected the Tang Nano 20K module via USC-C to your Mac or Linux computer
         - Run `openfpgaloader -b tangnano20k -f a2n20v2.fs`
 
-- For updating the bitstream on the A2FPGA on Windows, or rebuilding or developing the A2FPGA project on Windows or Linux, you will need the Gowin EDA IDE. The current download links and the recommended/known-good Gowin version are tracked in [tools/README.md](tools/README.md#getting-the-software) (the single source of truth for toolchain setup). Sipeed also mirrors the Gowin IDE for [Windows and Linux](https://dl.sipeed.com/shareURL/TANG/gowin_ide).
+- For updating the bitstream with the Gowin Programmer, or for rebuilding or developing the A2FPGA project, you will need the Gowin EDA IDE, which is available for **Windows, Linux, and macOS**. Download links and the recommended/known-good version are tracked in [tools/README.md](tools/README.md#getting-the-software) (the single source of truth for toolchain setup; Sipeed also mirrors the [Windows and Linux](https://dl.sipeed.com/shareURL/TANG/gowin_ide) builds). The Gowin Programmer used below ships in the EDA package on all three platforms. macOS users who want to build from the command line also need a one-time CLI patch — see [docs/setup-gowin-cli.md](docs/setup-gowin-cli.md).
     - For updating the *A2N20v2* card using the Gowin Programmer from the above downloads, do the following:
         - Download the [a2n20v2.fs](boards/a2n20v2/impl/pnr/a2n20v2.fs) bitstream file by right-clicking on the link and choosing *Save Link As...*
-        - Attach a USB cable from your PC to the Tang Nano 20K USB-C socket
+        - Attach a USB cable from your computer to the Tang Nano 20K USB-C socket
         - Launch the Gowin Programmer. The *Cable Setup* dialog will appear and should detect the USB cable and the Tang Nano 20K device.  The FPGA will appear in the device list as *GW2AR-18C*.
         - If any device appears in the device list with anything other than *GW2AR-18C* then click on it and hit the *Delete Device* button.  If there no devices after doing this, click *Scan Device* and it will say *Multi-device found*, select *GW2AR-18C*.
         - Right click on the device and select *Configure Device*
