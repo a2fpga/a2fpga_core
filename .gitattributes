@@ -1,16 +1,13 @@
 # Auto detect text files and perform LF normalization
 * text=auto
 
-*.gprj linguist-vendored
-*.fs linguist-vendored
-impl/** linguist-vendored
-boards/a2n9/impl/** linguist-vendored
-boards/a2n20v1/impl/** linguist-vendored
-boards/a2n20v2/impl/** linguist-vendored
-boards/a2n20v2_enhanced/impl/** linguist-vendored
-releases/** linguist-vendored
-
-src/picosoc/libraries/ff/** linguist-vendored
-src/picosoc/libraries/pff/** linguist-vendored
-src/picosoc/libraries/xprintf/** linguist-vendored
-
+# --- GitHub Linguist: keep generated/vendored files out of the language stats ---
+# Linguist counts bytes, so large generated artifacts skew the language bar.
+# In particular Gowin's place-&-route output uses the .p extension, which
+# Linguist classifies as "Gnuplot" — exclude all per-board build output.
+# (The previous patterns missed a2mega/a2p25/a2n20v2-GS and used the wrong
+# a2n20v2_enhanced spelling, so those impl/ dirs were still being counted.)
+boards/*/impl/**   linguist-generated
+*.fs               linguist-generated
+*.gprj             linguist-vendored
+releases/**        linguist-vendored
