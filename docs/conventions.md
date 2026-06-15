@@ -34,9 +34,9 @@ These are the rules new code must follow. The non-negotiable subset is mirrored 
 
 ## Testing
 
-- No global CI. Targeted artifacts live under `tests/` (e.g. `tests/sound/`).
-- Provide small benches/VCDs when adding new HDL blocks.
-- Verify synthesis/PnR for all impacted boards; sanity-check on hardware when possible.
+- No global CI. Verify changes with synthesis/PnR for all impacted boards, and sanity-check on
+  hardware when possible.
+- When adding a new HDL block, include a small self-contained testbench with it where practical.
 - Include reproduction steps in PRs.
 
 ## Commits & PRs

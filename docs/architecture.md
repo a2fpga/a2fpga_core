@@ -12,7 +12,6 @@ which questions to ask before changing anything.
 | `boards/<board>/hdl/` | Board wiring and `top.sv`; board-specific framebuffer/video/bus. |
 | `boards/<board>/src/` | Apple II utilities, sample code, and coprocessor firmware (e.g. the BL616 firmware under `boards/a2n20v2-Enhanced/src/a2n20_bl616/`). |
 | `tools/` | Build tooling and Gowin setup scripts ([setup-gowin-cli.md](setup-gowin-cli.md)). |
-| `tests/` | Targeted HDL test assets (e.g. sound VCDs) for manual inspection. |
 | `releases/` | Prebuilt artifacts for users. |
 
 **Rule of thumb:** portable logic → `hdl/`; anything that knows about a specific FPGA, its
