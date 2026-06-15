@@ -43,7 +43,11 @@ module direct_display #(
     parameter [9:0] FRAME_HEIGHT  = 525,
     parameter [9:0] WINDOW_WIDTH  = 560,
     parameter [9:0] WINDOW_HEIGHT = 384,    // 192 * 2
-    parameter [1:0] PIX_CLK_DIV   = 2       // pixel_clk_en every N clk_i cycles (2 = 27MHz from 54MHz)
+    parameter [1:0] PIX_CLK_DIV   = 2,      // pixel_clk_en every N clk_i cycles (2 = 27MHz from 54MHz)
+    parameter [9:0] H_GEN_START   = 0       // 0 = fire generator hsync at line start (cx wrap, left-aligned);
+                                            // >0 = fire generator hsync at cx == H_GEN_START so the
+                                            // generator's active region lands centered (HDMI-locked boards
+                                            // that composite at fixed raster positions, e.g. SuperSprite)
 ) (
     input wire clk_i,
     input wire reset_n_i,
@@ -105,8 +109,17 @@ module direct_display #(
     // hsync: pulse on every new display line within the visible window.
     // Fires on both even and odd lines — the generator re-renders the same
     // Apple II scanline for line doubling (scanline number repeats in pairs).
+    //
+    // With H_GEN_START == 0 the pulse fires on the cy transition (≈ cx 0), so
+    // the generator's active region starts at the left edge — matches the
+    // original ghost-isolation behavior. With H_GEN_START > 0 the pulse is
+    // delayed to the cycle where cx == H_GEN_START, shifting the active region
+    // right so the rendered window can be centered (and aligned to a
+    // raster-locked compositor such as SuperSprite).
     reg [9:0] prev_cy_r;
-    wire new_scanline_w = (cy_i != prev_cy_r) && in_visible_lines_w;
+    wire cy_changed_w   = (cy_i != prev_cy_r) && in_visible_lines_w;
+    wire cx_trigger_w   = (cx_i == H_GEN_START) && in_visible_lines_w;
+    wire new_scanline_w = (H_GEN_START == 10'd0) ? cy_changed_w : cx_trigger_w;
 
     always @(posedge clk_i) begin
         if (!reset_n_i)

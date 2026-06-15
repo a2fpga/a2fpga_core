@@ -12,27 +12,27 @@
   <Part Number>: GW2AR-LV18QN88C8/I7
   <Device>: GW2AR-18
   <Device Version>: C
-  <Created Time>:Wed Jan 21 17:29:44 2026
+  <Created Time>:Sun Jun 14 21:17:07 2026
 
 
 2. PnR Details
 
   Running placement:
-    Placement Phase 0: CPU time = 0h 0m 0.74s, Elapsed time = 0h 0m 0.695s
-    Placement Phase 1: CPU time = 0h 0m 0.214s, Elapsed time = 0h 0m 0.192s
-    Placement Phase 2: CPU time = 0h 0m 2s, Elapsed time = 0h 0m 2s
-    Placement Phase 3: CPU time = 0h 0m 1s, Elapsed time = 0h 0m 1s
-    Total Placement: CPU time = 0h 0m 4s, Elapsed time = 0h 0m 4s
+    Placement Phase 0: CPU time = 0h 0m 0.873s, Elapsed time = 0h 0m 0.876s
+    Placement Phase 1: CPU time = 0h 0m 0.209s, Elapsed time = 0h 0m 0.209s
+    Placement Phase 2: CPU time = 0h 0m 3s, Elapsed time = 0h 0m 3s
+    Placement Phase 3: CPU time = 0h 0m 2s, Elapsed time = 0h 0m 2s
+    Total Placement: CPU time = 0h 0m 5s, Elapsed time = 0h 0m 5s
  Running routing:
     Routing Phase 0: CPU time = 0h 0m 0.002s, Elapsed time = 0h 0m 0.002s
-    Routing Phase 1: CPU time = 0h 0m 0.207s, Elapsed time = 0h 0m 0.196s
-    Routing Phase 2: CPU time = 0h 0m 5s, Elapsed time = 0h 0m 5s
+    Routing Phase 1: CPU time = 0h 0m 0.21s, Elapsed time = 0h 0m 0.21s
+    Routing Phase 2: CPU time = 0h 0m 6s, Elapsed time = 0h 0m 6s
     Routing Phase 3: CPU time = 0h 0m 0s, Elapsed time = 0h 0m 0s
-    Total Routing: CPU time = 0h 0m 5s, Elapsed time = 0h 0m 5s
+    Total Routing: CPU time = 0h 0m 6s, Elapsed time = 0h 0m 6s
  Generate output files:
     CPU time = 0h 0m 1s, Elapsed time = 0h 0m 1s
 
- Total Time and Memory Usage: CPU time = 0h 0m 11s, Elapsed time = 0h 0m 10s, Peak memory usage = 1723MB
+ Total Time and Memory Usage: CPU time = 0h 0m 13s, Elapsed time = 0h 0m 13s, Peak memory usage = 524MB
 
 
 3. Resource Usage Summary
@@ -40,15 +40,15 @@
   --------------------------------------------------------------------------------
   Resources                   | Usage                               | Utilization
   --------------------------------------------------------------------------------
-  Logic                       | 7188/20736                          |  35%
-    --LUT,ALU,ROM16           | 7104(5957 LUT, 1147 ALU, 0 ROM16)   | -
-    --SSRAM(RAM16)            | 14                                  | -
-  Register                    | 3994/15750                          |  26%
+  Logic                       | 8520/20736                          |  42%
+    --LUT,ALU,ROM16           | 7650(6491 LUT, 1135 ALU, 24 ROM16)  | -
+    --SSRAM(RAM16)            | 145                                 | -
+  Register                    | 4189/15750                          |  27%
     --Logic Register as Latch | 0/15552                             |  0%
-    --Logic Register as FF    | 3974/15552                          |  26%
+    --Logic Register as FF    | 4169/15552                          |  27%
     --I/O Register as Latch   | 0/198                               |  0%
     --I/O Register as FF      | 20/198                              |  11%
-  CLS                         | 5298/10368                          |  52%
+  CLS                         | 6039/10368                          |  59%
   I/O Port                    | 36/66                               |  55%
   I/O Buf                     | 31                                  | -
     --Input Buf               | 6                                   | -
@@ -56,16 +56,15 @@
     --Inout Buf               | 8                                   | -
   IOLOGIC                     | 6/121                               | 5%
     --OSER10                  | 3
-  BSRAM                       | 43/46                               | 94%
-    --SP                      | 2
-    --SDPB                    | 29
+  BSRAM                       | 40/46                               | 87%
+    --SDPB                    | 28
     --DPB                     | 8
     --DPX9B                   | 2
     --pROM                    | 2
-  DSP                         | 15/24                               | 63%
+  DSP                         | 14/24                               | 59%
     --MULT9X9                 | 4
     --MULT18X18               | 4
-    --MULTADDALU18X18         | 12
+    --MULTADDALU18X18         | 11
   ================================================================================
 
 
@@ -106,9 +105,9 @@
   clk_d          | PRIMARY        |  BL
   a2bus_if.clk_logic| PRIMARY        |  TR TL BR BL
   a2bus_if.clk_pixel| PRIMARY        |  TR TL BR BL
-  audio_out/IIR_filter/n869_5| PRIMARY        |  TR BR
-  n824_7         | LW             |  -
-  n29_13         | LW             |  -
+  audio_out/IIR_filter/n869_5| PRIMARY        |  BR BL
+  n1427_7        | LW             |  -
+  n48_7          | LW             |  -
   timer_a_count_15_7| LW             |  -
   supersprite/vdp/f18a_core/reset_n_r| LW             |  -
   supersprite/vdp/f18a_core/inst_cpu/n931_6| LW             |  -

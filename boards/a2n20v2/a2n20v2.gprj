@@ -57,7 +57,11 @@
         <File path="../../hdl/support/via6522.vhd" type="file.vhdl" enable="1"/>
         <File path="../../hdl/support/YM2149.sv" type="file.verilog" enable="1"/>
         <File path="../../hdl/video/apple_video.sv" type="file.verilog" enable="1"/>
+        <File path="../../hdl/video/apple_video_gen.sv" type="file.verilog" enable="1"/>
         <File path="../../hdl/video/vgc.sv" type="file.verilog" enable="1"/>
+        <File path="../../hdl/video/vgc_gen.sv" type="file.verilog" enable="1"/>
+        <File path="../../hdl/video/pixel_stream_if.sv" type="file.verilog" enable="1"/>
+        <File path="../../hdl/video/direct_display.sv" type="file.verilog" enable="1"/>
         <File path="../../hdl/video/video_control_if.sv" type="file.verilog" enable="1"/>
         <File path="../../hdl/video/video.hex" type="file.other" enable="1"/>
         <File path="hdl/a2n20v2.cst" type="file.cst" enable="1"/>

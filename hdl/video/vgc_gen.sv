@@ -96,13 +96,32 @@ module vgc_gen (
     reg [3:0] pal_fetch_cnt_r;
 
     // Pixel rendering
-    reg [31:0] pixel_word_r;
+    reg [31:0] pixel_word_r;     // word currently being shifted out (16 pixels)
     reg [5:0] pix_word_cnt_r;
     reg [3:0] pix_sub_cnt_r;
     reg [3:0] prev_palette_r;
 
     // Pixel output counter
     reg [9:0] pix_out_cnt_r;
+
+    // -------------------------------------------------------------------------
+    // Render prefetch engine
+    // -------------------------------------------------------------------------
+    // The original render loop fetched a pixel word, emitted its 16 pixels, then
+    // stalled to fetch the next word. That stall is invisible behind a
+    // framebuffer_writer (which decouples generation rate from the display) but
+    // is fatal for direct_display, which is real-time: each stall drops `active`
+    // (border-colored gap) and consumes display ticks (horizontal stretch).
+    //
+    // To sustain exactly one pixel per pixel_clk_en, prefetch the next word into
+    // next_word_r while the current word is being emitted, mirroring the
+    // double-buffered chunk fetch in apple_video_gen.
+    reg        render_primed_r;  // first word loaded, pixel output running
+    reg [31:0] next_word_r;      // prefetched next pixel word
+    reg        next_word_rdy_r;  // next_word_r holds valid data
+    reg [6:0]  fetch_idx_r;      // word index the fetch engine is reading
+    reg [1:0]  fe_step_r;        // fetch engine step
+    reg        fe_busy_r;        // fetch engine running
 
     // =========================================================================
     // Pixel decode logic (from vgc_fb.sv)
@@ -137,10 +156,10 @@ module vgc_gen (
     assign pixel_stream.g = {pix_rgb_w[7:4], 4'h0};
     assign pixel_stream.b = {pix_rgb_w[3:0], 4'h0};
 
-    // Active is combinational — high only when in RENDER step 4
-    // (where r/g/b are valid). No registered delay means framebuffer_writer
-    // sees active=1 on the same cycle as pixel_tick_w.
-    assign pixel_stream.active = (state_r == ST_RENDER) && (fetch_step_r == 3'd4);
+    // Active is high throughout the rendered line once primed. With the
+    // prefetch engine keeping next_word_r filled, a valid pixel is present on
+    // every cycle (advancing on pixel_clk_en), so there are no inter-word gaps.
+    assign pixel_stream.active = (state_r == ST_RENDER) && render_primed_r;
 
     // =========================================================================
     // Main state machine
@@ -163,6 +182,12 @@ module vgc_gen (
             prev_palette_r <= 4'd0;
             pix_out_cnt_r <= 10'd0;
             dbg_missed_hsync_o <= 8'd0;
+            render_primed_r <= 1'b0;
+            next_word_r <= 32'd0;
+            next_word_rdy_r <= 1'b0;
+            fetch_idx_r <= 7'd0;
+            fe_step_r <= 2'd0;
+            fe_busy_r <= 1'b0;
         end else begin
             vgc_rd_o <= 1'b0;
 
@@ -249,6 +274,13 @@ module vgc_gen (
                             pix_word_cnt_r <= 6'd0;
                             pix_sub_cnt_r <= 4'd0;
                             fetch_step_r <= 3'd0;
+                            // Kick the prefetch engine for word 0 and enter
+                            // RENDER unprimed; output begins once word 0 lands.
+                            render_primed_r <= 1'b0;
+                            next_word_rdy_r <= 1'b0;
+                            fetch_idx_r <= 7'd0;
+                            fe_busy_r <= 1'b1;
+                            fe_step_r <= 2'd0;
                             state_r <= ST_RENDER;
                         end else begin
                             pal_fetch_cnt_r <= pal_fetch_cnt_r + 4'd1;
@@ -260,43 +292,67 @@ module vgc_gen (
             end
 
             // -----------------------------------------------------------------
-            // RENDER — fetch pixel words (ready-based) and output pixels
+            // RENDER — prefetch engine keeps next_word_r filled; output engine
+            // emits one pixel per pixel_clk_en with no inter-word stalls.
             // -----------------------------------------------------------------
             ST_RENDER: begin
-                case (fetch_step_r)
-                    3'd0: begin
-                        vgc_address_o <= pix_addr_r + {7'b0, pix_word_cnt_r};
-                        vgc_rd_o <= 1'b1;
-                        fetch_step_r <= 3'd1;
-                    end
-                    3'd1: begin
-                        if (vgc_ready_i) begin
-                            pixel_word_r <= vgc_data_i;
-                            pix_sub_cnt_r <= 4'd0;
-                            fetch_step_r <= 3'd4;
+
+                // --- Prefetch engine: read word[fetch_idx_r] into next_word_r ---
+                if (fe_busy_r) begin
+                    case (fe_step_r)
+                        2'd0: begin
+                            vgc_address_o <= pix_addr_r + {6'b0, fetch_idx_r};
+                            vgc_rd_o <= 1'b1;
+                            fe_step_r <= 2'd1;
                         end
+                        2'd1: fe_step_r <= 2'd2;
+                        2'd2: if (vgc_ready_i) begin
+                            next_word_r <= vgc_data_i;
+                            next_word_rdy_r <= 1'b1;
+                            fe_busy_r <= 1'b0;
+                        end
+                        default: fe_busy_r <= 1'b0;
+                    endcase
+                end
+
+                // --- Output engine ---
+                if (!render_primed_r) begin
+                    // Wait for word 0, then start emitting and prefetch word 1.
+                    if (next_word_rdy_r) begin
+                        pixel_word_r <= next_word_r;
+                        next_word_rdy_r <= 1'b0;
+                        pix_sub_cnt_r <= 4'd0;
+                        pix_word_cnt_r <= 6'd0;
+                        render_primed_r <= 1'b1;
+                        fetch_idx_r <= 7'd1;
+                        fe_busy_r <= 1'b1;
+                        fe_step_r <= 2'd0;
                     end
-                    3'd4: begin
-                        // Output one pixel per pixel_clk_en
-                        if (pixel_stream.pixel_clk_en) begin
-                            prev_palette_r <= pix_fill_w;
-                            pix_out_cnt_r <= pix_out_cnt_r + 10'd1;
+                end else if (pixel_stream.pixel_clk_en) begin
+                    prev_palette_r <= pix_fill_w;
+                    pix_out_cnt_r <= pix_out_cnt_r + 10'd1;
 
-                            if (pix_sub_cnt_r == 4'd15) begin
-                                pix_word_cnt_r <= pix_word_cnt_r + 6'd1;
-
-                                if (pix_word_cnt_r == 6'd39) begin
-                                    state_r <= ST_IDLE;
-                                end else begin
-                                    fetch_step_r <= 3'd0;
-                                end
-                            end else begin
-                                pix_sub_cnt_r <= pix_sub_cnt_r + 4'd1;
+                    if (pix_sub_cnt_r == 4'd15) begin
+                        if (pix_word_cnt_r == 6'd39) begin
+                            state_r <= ST_IDLE;
+                            render_primed_r <= 1'b0;
+                        end else begin
+                            // Swap in the prefetched word (ready well within the
+                            // 16-pixel window) and prefetch the word after it.
+                            pixel_word_r <= next_word_r;
+                            next_word_rdy_r <= 1'b0;
+                            pix_sub_cnt_r <= 4'd0;
+                            pix_word_cnt_r <= pix_word_cnt_r + 6'd1;
+                            if ((pix_word_cnt_r + 6'd2) <= 6'd39) begin
+                                fetch_idx_r <= {1'b0, pix_word_cnt_r} + 7'd2;
+                                fe_busy_r <= 1'b1;
+                                fe_step_r <= 2'd0;
                             end
                         end
+                    end else begin
+                        pix_sub_cnt_r <= pix_sub_cnt_r + 4'd1;
                     end
-                    default: fetch_step_r <= 3'd0;
-                endcase
+                end
             end
 
             default: state_r <= ST_IDLE;
