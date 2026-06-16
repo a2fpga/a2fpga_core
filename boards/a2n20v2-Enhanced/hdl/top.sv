@@ -55,7 +55,21 @@ module top #(
     parameter bit HDMI_SLEEP_ENABLE = 0,        // Sleep HDMI output on CPU stop
     parameter bit FORCE_DEBUG_OVERLAY = 1,      // Always show the debug overlay on the HDMI output
     parameter bit IRQ_OUT_ENABLE = 1,           // Allow driving IRQ to Apple bus
-    parameter bit BUS_DATA_OUT_ENABLE = 1       // Allow driving data to Apple bus
+    parameter bit BUS_DATA_OUT_ENABLE = 1,      // Allow driving data to Apple bus
+
+    // Video generation path:
+    //   0 = legacy raster-locked apple_video + vgc (combinational on hdmi_x/y)
+    //   1 = pixel_stream_if generators (apple_video_gen + vgc_gen) feeding
+    //       direct_display, HDMI-locked but using the new interface
+    parameter bit USE_PIXEL_STREAM = 1,
+
+    // direct_display hsync cx offsets used to center each window in the 720px
+    // visible area (apple = 560 wide, SHR = 640 wide). The apple value differs
+    // from the plain a2n20v2 board because the main video read goes through
+    // SDRAM (longer priming latency) here. Tune on hardware against a test
+    // pattern until each image is centered.
+    parameter [9:0] DD_APPLE_H_START = 66,
+    parameter [9:0] DD_VGC_H_START   = 14
 
 ) (
     // fpga clocks
@@ -364,6 +378,7 @@ module top #(
     wire video_bank_w;
     wire video_rd_w;
     wire [31:0] video_data_w;
+    wire video_ready_w;
 
     wire vgc_active_w;
     wire [12:0] vgc_address_w;
@@ -381,6 +396,7 @@ module top #(
         .video_bank_i(video_bank_w),
         .video_rd_i(video_rd_w),
         .video_data_o(video_data_w),
+        .video_ready_o(video_ready_w),
 
         .vgc_active_i(vgc_active_w),
         .vgc_address_i(vgc_address_w),
@@ -412,14 +428,29 @@ module top #(
     wire cardrom_release_w;
     wire [0:7] cardrom_d_w;
     wire cardrom_rd;
+    wire cardrom_rd_raw_w;
+    wire cardrom_inh_n_raw_w;
+    wire standalone_w;   // from bl616_spi_connector: no BL616 detected
 
     CardROM cardrom (
         .a2bus_if(a2bus_if),
         .data_o(cardrom_d_w),
-        .rd_en_o(cardrom_rd),
-        .inh_n_o(inh_n_w),
+        .rd_en_o(cardrom_rd_raw_w),
+        .inh_n_o(cardrom_inh_n_raw_w),
         .req_rom_release_i(cardrom_release_w)
     );
+
+    // Neutralize the CardROM (force INH inactive, no bus drive) when either:
+    //   - standalone_w: no BL616, so no bootstrap handshake exists to release
+    //     the card ROM — it would otherwise keep INH asserted and overlay the
+    //     Apple monitor ROM at $F8xx, crashing the Apple during disk boot.
+    //     standalone_w engages with a2bus_control_if.ready (bridge init), so
+    //     INH is forced inactive before the bridge ever drives it.
+    //   - sw_gs (Apple IIgs): the INH-based ROM-overlay bootstrap mechanism
+    //     does not work on the IIgs, so the card ROM must never activate there.
+    wire cardrom_disable_w = standalone_w || a2bus_if.sw_gs;
+    assign inh_n_w    = cardrom_disable_w ? 1'b1 : cardrom_inh_n_raw_w;
+    assign cardrom_rd = cardrom_disable_w ? 1'b0 : cardrom_rd_raw_w;
 
     video_control_if video_control_if();
     f18a_gpu_if f18a_gpu_if();
@@ -498,6 +529,7 @@ module top #(
         .mem_if(mem_ports[MCU_MEM_PORT]),
         .sdram_init_complete_i(sdram_init_complete),
         .mcu_ready_o(mcu_ready_w),
+        .standalone_o(standalone_w),
         .cardrom_active_i(!inh_n_w),
         .cardrom_release_o(cardrom_release_w),
         .button_i(s2),
@@ -578,63 +610,252 @@ module top #(
 
     // Video
 
+    // HDMI raster position (driven by the HDMI encoder, clk_pixel domain)
     wire [9:0] hdmi_x;
     wire [9:0] hdmi_y;
-    wire apple_vga_active;
-    wire [7:0] apple_vga_r;
-    wire [7:0] apple_vga_g;
-    wire [7:0] apple_vga_b;
 
-    apple_video apple_video (
-        .a2bus_if(a2bus_if),
-        .a2mem_if(a2mem_if),
+    // Apple-side RGB + active that feed the SuperSprite compositor. Driven by
+    // either the legacy raster-locked generators (USE_PIXEL_STREAM=0) or the
+    // pixel_stream / direct_display generators (USE_PIXEL_STREAM=1).
+    wire [7:0] ssp_apple_r_w;
+    wire [7:0] ssp_apple_g_w;
+    wire [7:0] ssp_apple_b_w;
+    wire       ssp_apple_active_w;
 
-        .video_control_if(video_control_if),
+    generate if (!USE_PIXEL_STREAM) begin : gen_legacy_video
 
-        .screen_x_i(hdmi_x),
-        .screen_y_i(hdmi_y),
+        // -----------------------------------------------------------------
+        // Legacy path: apple_video -> vgc, combinational on hdmi_x/hdmi_y in
+        // the clk_pixel domain (the original A2N20v2-Enhanced pipeline).
+        // -----------------------------------------------------------------
+        wire apple_vga_active;
+        wire [7:0] apple_vga_r;
+        wire [7:0] apple_vga_g;
+        wire [7:0] apple_vga_b;
 
-        .video_address_o(video_address_w),
-        .video_bank_o(video_bank_w),
-        .video_rd_o(video_rd_w),
-        .video_data_i(video_data_w),
+        apple_video apple_video (
+            .a2bus_if(a2bus_if),
+            .a2mem_if(a2mem_if),
 
-        .video_active_o(apple_vga_active),
-        .video_r_o(apple_vga_r),
-        .video_g_o(apple_vga_g),
-        .video_b_o(apple_vga_b)
-    );
+            .video_control_if(video_control_if),
 
-    wire [7:0] vgc_vga_r;
-    wire [7:0] vgc_vga_g;
-    wire [7:0] vgc_vga_b;
+            .screen_x_i(hdmi_x),
+            .screen_y_i(hdmi_y),
 
-    vgc vgc (
-        .a2bus_if(a2bus_if),
-        .a2mem_if(a2mem_if),
+            .video_address_o(video_address_w),
+            .video_bank_o(video_bank_w),
+            .video_rd_o(video_rd_w),
+            .video_data_i(video_data_w),
 
-        .video_control_if(video_control_if),
+            .video_active_o(apple_vga_active),
+            .video_r_o(apple_vga_r),
+            .video_g_o(apple_vga_g),
+            .video_b_o(apple_vga_b)
+        );
 
-        .cx_i(hdmi_x),
-        .cy_i(hdmi_y),
+        wire [7:0] vgc_vga_r;
+        wire [7:0] vgc_vga_g;
+        wire [7:0] vgc_vga_b;
 
-        .apple_vga_r_i(apple_vga_r),
-        .apple_vga_g_i(apple_vga_g),
-        .apple_vga_b_i(apple_vga_b),
+        vgc vgc (
+            .a2bus_if(a2bus_if),
+            .a2mem_if(a2mem_if),
 
-        .vgc_vga_r_o(vgc_vga_r),
-        .vgc_vga_g_o(vgc_vga_g),
-        .vgc_vga_b_o(vgc_vga_b),
+            .video_control_if(video_control_if),
 
-        .R_o(),
-        .G_o(),
-        .B_o(),
+            .cx_i(hdmi_x),
+            .cy_i(hdmi_y),
 
-        .vgc_active_o(vgc_active_w),
-        .vgc_address_o(vgc_address_w),
-        .vgc_rd_o(vgc_rd_w),
-        .vgc_data_i(vgc_data_w)
-    );
+            .apple_vga_r_i(apple_vga_r),
+            .apple_vga_g_i(apple_vga_g),
+            .apple_vga_b_i(apple_vga_b),
+
+            .vgc_vga_r_o(vgc_vga_r),
+            .vgc_vga_g_o(vgc_vga_g),
+            .vgc_vga_b_o(vgc_vga_b),
+
+            .R_o(),
+            .G_o(),
+            .B_o(),
+
+            .vgc_active_o(vgc_active_w),
+            .vgc_address_o(vgc_address_w),
+            .vgc_rd_o(vgc_rd_w),
+            .vgc_data_i(vgc_data_w)
+        );
+
+        assign ssp_apple_r_w      = vgc_vga_r;
+        assign ssp_apple_g_w      = vgc_vga_g;
+        assign ssp_apple_b_w      = vgc_vga_b;
+        assign ssp_apple_active_w = apple_vga_active;
+
+    end else begin : gen_pixel_stream_video
+
+        // -----------------------------------------------------------------
+        // Pixel-stream path: apple_video_gen + vgc_gen run on clk_logic
+        // (54 MHz) with direct_display supplying pixel_clk_en at the 27 MHz
+        // display rate (PIX_CLK_DIV=2), HDMI-locked via cx_i/cy_i. Equivalent
+        // to the legacy pipeline but through pixel_stream_if. The composited
+        // Apple/SHR RGB is CDC'd back to clk_pixel for the SuperSprite
+        // compositor.
+        //
+        // Unlike the plain a2n20v2 board, the Apple II VRAM read goes through
+        // SDRAM (mem_port_if), so apple_video_gen uses a real video_ready_i
+        // handshake (video_ready_w) rather than tying it high. The SHR aux
+        // memory is BSRAM, so vgc_gen still uses a 2-cycle-delayed ready.
+        // -----------------------------------------------------------------
+
+        // CDC HDMI raster counters into clk_logic (synchronous 2:1 clocks)
+        reg [9:0] hdmi_x_logic_r;
+        reg [9:0] hdmi_y_logic_r;
+        always @(posedge clk_logic_w) begin
+            hdmi_x_logic_r <= hdmi_x;
+            hdmi_y_logic_r <= hdmi_y;
+        end
+
+        // Border color: 4-bit palette index -> RGB444 (Apple II + IIgs palettes)
+        wire border_gsp_w = a2bus_if.sw_gs;
+        wire [4:0] border_idx_w = {border_gsp_w, a2mem_if.BORDER_COLOR};
+        wire [11:0] border_palette_w [0:31];
+        assign border_palette_w = '{
+            12'h000, 12'h924, 12'h42a, 12'hd4e,
+            12'h064, 12'h888, 12'h39e, 12'hcbf,
+            12'h450, 12'hc73, 12'h888, 12'hfac,
+            12'h3c2, 12'hcd6, 12'h7ec, 12'hfff,
+            12'h000, 12'hd03, 12'h009, 12'hd2d,
+            12'h072, 12'h555, 12'h22f, 12'h6af,
+            12'h850, 12'hf60, 12'haaa, 12'hf98,
+            12'h1d0, 12'hff0, 12'h4f9, 12'hfff
+        };
+        wire [11:0] border_rgb444_w = border_palette_w[border_idx_w];
+        // Match the generators' RGB888 format ({nibble,4'h0}) so the border
+        // shade matches the same palette index inside the active window.
+        wire [7:0] border_r_w = {border_rgb444_w[11:8], 4'h0};
+        wire [7:0] border_g_w = {border_rgb444_w[7:4],  4'h0};
+        wire [7:0] border_b_w = {border_rgb444_w[3:0],  4'h0};
+
+        // --- Apple II generator + direct display ---
+        pixel_stream_if apple_ps();
+
+        apple_video_gen #(
+            .VRAM_READ_LATENCY(16),  // SDRAM via mem_port_if
+            .PIXEL_START_TICK(0)     // horizontal centering via direct_display H_GEN_START
+        ) apple_video_gen (
+            .clk_i(clk_logic_w),
+            .reset_n_i(system_reset_n_w),
+
+            .a2mem_if(a2mem_if),
+            .video_control_if(video_control_if),
+            .sw_gs_i(sw_gs_w),
+
+            .pixel_stream(apple_ps),
+
+            .video_address_o(video_address_w),
+            .video_bank_o(video_bank_w),
+            .video_rd_o(video_rd_w),
+            .video_data_i(video_data_w),
+            .video_ready_i(video_ready_w)   // SDRAM read-data beat
+        );
+
+        wire [7:0] dd_apple_r_w, dd_apple_g_w, dd_apple_b_w;
+        direct_display #(
+            .PIX_CLK_DIV(2),
+            .H_GEN_START(DD_APPLE_H_START)
+        ) apple_direct (
+            .clk_i(clk_logic_w),
+            .reset_n_i(system_reset_n_w),
+            .pixel_stream(apple_ps),
+            .cx_i(hdmi_x_logic_r),
+            .cy_i(hdmi_y_logic_r),
+            .border_r_i(border_r_w),
+            .border_g_i(border_g_w),
+            .border_b_i(border_b_w),
+            .video_r_o(dd_apple_r_w),
+            .video_g_o(dd_apple_g_w),
+            .video_b_o(dd_apple_b_w)
+        );
+
+        // --- VGC (Super Hi-Res) generator + direct display ---
+        pixel_stream_if vgc_ps();
+
+        // BSRAM read-ready for vgc_gen: it captures one cycle after asserting
+        // vgc_rd_o, but the SHR aux sdpram32 has a 2-cycle read latency, so
+        // present a ready pulse 2 cycles after the read request.
+        reg vgc_rd_d1_r, vgc_rd_d2_r;
+        always @(posedge clk_logic_w) begin
+            if (!system_reset_n_w) begin
+                vgc_rd_d1_r <= 1'b0;
+                vgc_rd_d2_r <= 1'b0;
+            end else begin
+                vgc_rd_d1_r <= vgc_rd_w;
+                vgc_rd_d2_r <= vgc_rd_d1_r;
+            end
+        end
+
+        vgc_gen vgc_gen (
+            .clk_i(clk_logic_w),
+            .reset_n_i(system_reset_n_w),
+
+            .a2mem_if(a2mem_if),
+            .video_control_if(video_control_if),
+
+            .pixel_stream(vgc_ps),
+
+            .vgc_active_o(vgc_active_w),
+            .vgc_address_o(vgc_address_w),
+            .vgc_rd_o(vgc_rd_w),
+            .vgc_data_i(vgc_data_w),
+            .vgc_ready_i(vgc_rd_d2_r),
+            .dbg_missed_hsync_o()
+        );
+
+        wire [7:0] dd_vgc_r_w, dd_vgc_g_w, dd_vgc_b_w;
+        direct_display #(
+            .PIX_CLK_DIV(2),
+            .WINDOW_WIDTH(640),
+            .WINDOW_HEIGHT(400),     // 200 * 2
+            .H_GEN_START(DD_VGC_H_START)
+        ) vgc_direct (
+            .clk_i(clk_logic_w),
+            .reset_n_i(system_reset_n_w),
+            .pixel_stream(vgc_ps),
+            .cx_i(hdmi_x_logic_r),
+            .cy_i(hdmi_y_logic_r),
+            .border_r_i(border_r_w),
+            .border_g_i(border_g_w),
+            .border_b_i(border_b_w),
+            .video_r_o(dd_vgc_r_w),
+            .video_g_o(dd_vgc_g_w),
+            .video_b_o(dd_vgc_b_w)
+        );
+
+        // Select Apple II vs Super Hi-Res, latched once per frame.
+        reg use_vgc_r;
+        always @(posedge clk_logic_w) begin
+            if (apple_ps.vsync) use_vgc_r <= a2mem_if.SHRG_MODE;
+        end
+
+        wire [7:0] ps_r_w      = use_vgc_r ? dd_vgc_r_w : dd_apple_r_w;
+        wire [7:0] ps_g_w      = use_vgc_r ? dd_vgc_g_w : dd_apple_g_w;
+        wire [7:0] ps_b_w      = use_vgc_r ? dd_vgc_b_w : dd_apple_b_w;
+        wire       ps_active_w = use_vgc_r ? vgc_ps.active : apple_ps.active;
+
+        // CDC clk_logic -> clk_pixel (synchronous 2:1 clocks)
+        reg [7:0] ps_r_pix_r, ps_g_pix_r, ps_b_pix_r;
+        reg       ps_active_pix_r;
+        always @(posedge clk_pixel_w) begin
+            ps_r_pix_r      <= ps_r_w;
+            ps_g_pix_r      <= ps_g_w;
+            ps_b_pix_r      <= ps_b_w;
+            ps_active_pix_r <= ps_active_w;
+        end
+
+        assign ssp_apple_r_w      = ps_r_pix_r;
+        assign ssp_apple_g_w      = ps_g_pix_r;
+        assign ssp_apple_b_w      = ps_b_pix_r;
+        assign ssp_apple_active_w = ps_active_pix_r;
+
+    end endgenerate
 
     wire [15:0] sg_audio_l;
     wire [15:0] sg_audio_r;
@@ -704,10 +925,10 @@ module top #(
 
         .screen_x_i(hdmi_x),
         .screen_y_i(hdmi_y),
-        .apple_vga_r_i(vgc_vga_r),
-        .apple_vga_g_i(vgc_vga_g),
-        .apple_vga_b_i(vgc_vga_b),
-        .apple_vga_active_i(apple_vga_active),
+        .apple_vga_r_i(ssp_apple_r_w),
+        .apple_vga_g_i(ssp_apple_g_w),
+        .apple_vga_b_i(ssp_apple_b_w),
+        .apple_vga_active_i(ssp_apple_active_w),
 
         .scanlines_i(SCANLINES_ENABLE | sw_scanlines_w),
 

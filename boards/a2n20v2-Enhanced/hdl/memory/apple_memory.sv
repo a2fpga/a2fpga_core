@@ -33,6 +33,7 @@ module apple_memory #(
     input video_bank_i,
     input video_rd_i,
     output [31:0] video_data_o,
+    output video_ready_o,
 
     input vgc_active_i,
     input [12:0] vgc_address_i,
@@ -318,5 +319,6 @@ module apple_memory #(
     assign video_mem_if.byte_en = 4'b1111;
     assign video_mem_if.burst = 1'b0;
     assign video_data_o = video_mem_if.q;
+    assign video_ready_o = video_mem_if.ready;   // SDRAM read-data beat (for apple_video_gen)
 
 endmodule

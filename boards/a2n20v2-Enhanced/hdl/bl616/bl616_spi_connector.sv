@@ -5,7 +5,11 @@
 // and providing SDRAM access via the XFER portal.
 module bl616_spi_connector #(
     parameter USE_CRC        = 0,
-    parameter CLOCK_SPEED_HZ = 54_000_000
+    parameter CLOCK_SPEED_HZ = 54_000_000,
+    // Standalone fallback: if no BL616 is detected (mcu_ready never latches)
+    // within STANDALONE_TIMEOUT cycles after reset, release the Apple bus
+    // anyway so the card works without the MCU firmware running.
+    parameter bit STANDALONE_FALLBACK_ENABLE = 1
 )(
     input  wire clk,
     input  wire rst_n,
@@ -32,6 +36,7 @@ module bl616_spi_connector #(
     // System status
     input  wire        sdram_init_complete_i,
     output wire        mcu_ready_o,
+    output wire        standalone_o,   // high once standalone fallback engages (no BL616)
 
     // CardROM
     input  wire        cardrom_active_i,
@@ -119,6 +124,34 @@ module bl616_spi_connector #(
     end
 
     // -------------------------------------------------------
+    // Standalone fallback -- engage the Apple bus without the MCU
+    //
+    // On some Tang Nano 20K boards our BL616 firmware only loads as a
+    // 2nd-stage bootloader when no PC is attached to the BL616 USB port, so it
+    // may never run. A present BL616 is ready long before FPGA configuration
+    // completes and reads the STATUS register (mcu_ready_r) almost immediately.
+    // So if we have not seen the MCU within STANDALONE_TIMEOUT cycles after
+    // reset, assume there is none and release the Apple bus ourselves. If the
+    // MCU shows up first, we defer to it (standalone never engages).
+    // -------------------------------------------------------
+    localparam STANDALONE_TIMEOUT = CLOCK_SPEED_HZ / 10;  // ~100 ms
+    localparam SA_CW = $clog2(STANDALONE_TIMEOUT + 1);
+    reg standalone_r;
+    reg [SA_CW-1:0] standalone_cnt_r;
+    always @(posedge clk or negedge rst_n) begin
+        if (!rst_n) begin
+            standalone_r <= 1'b0;
+            standalone_cnt_r <= '0;
+        end else if (STANDALONE_FALLBACK_ENABLE && !standalone_r && !mcu_ready_r) begin
+            if (standalone_cnt_r >= STANDALONE_TIMEOUT[SA_CW-1:0])
+                standalone_r <= 1'b1;
+            else
+                standalone_cnt_r <= standalone_cnt_r + 1'b1;
+        end
+    end
+    assign standalone_o = standalone_r;
+
+    // -------------------------------------------------------
     // Constants
     // -------------------------------------------------------
     localparam [7:0] DEVICE_ID0 = "A";
@@ -204,7 +237,7 @@ module bl616_spi_connector #(
     // -------------------------------------------------------
     // Interface assignments -- A2 bus control
     // -------------------------------------------------------
-    assign a2bus_control_if.ready = a2bus_ready_r;
+    assign a2bus_control_if.ready = a2bus_ready_r || standalone_r;
     assign cardrom_release_o = cardrom_release_r;
 
     // -------------------------------------------------------
