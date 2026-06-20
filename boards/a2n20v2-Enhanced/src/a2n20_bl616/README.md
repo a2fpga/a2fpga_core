@@ -262,6 +262,76 @@ Output: `build/build_out/<project>_bl616.bin`
 3. Release button — BL616 enumerates as CDC-ACM device
 4. macOS: appears as `/dev/tty.usbmodemXXXX`
 
+### Flash (Recommended — `a2n20-mcu-program` wrapper)
+
+`tools/a2n20-mcu-program` wraps `bflb-iot-tool`, auto-detects the board state
+(fused/unfused/bricked/boot mode) and picks the right flash strategy and
+address. It flashes either firmware build:
+
+- `firmware/build/build_out/a2n20_bl616_bl616.bin` — default **FT2232 device**
+  firmware (JTAG+UART bridge, CLI).
+- `firmware_host/build/build_out/a2n20_bl616_host_bl616.bin` — **USB-host**
+  firmware (standalone XInput joystick mode). See
+  [`firmware_host/`](firmware_host/).
+
+```bash
+# Interactive (guides you through boot mode), auto-detect strategy:
+./tools/a2n20-mcu-program
+
+# Flash the host build explicitly:
+./tools/a2n20-mcu-program --stage2 \
+    --firmware firmware_host/build/build_out/a2n20_bl616_host_bl616.bin
+```
+
+On a **fused** board (enumerates as "USB Debugger"), the signed Sipeed Stage 1
+at `0x0` is kept and firmware is written as Stage 2 at `0x40000`; Stage 1
+chain-loads it when no PC is attached.
+
+**Non-interactive / scripted / agent use.** Put the board in boot mode first
+(hold UPDATE while connecting USB-C to the Debug port — it appears as
+`/dev/cu.usbmodemXXXX`), then drive the flash without prompts:
+
+```bash
+./tools/a2n20-mcu-program --stage2 \
+    --firmware firmware_host/build/build_out/a2n20_bl616_host_bl616.bin \
+    --port /dev/cu.usbmodemXXXX --non-interactive
+```
+
+- `--non-interactive` (aka `--yes`/`-y`): never blocks on prompts, assumes the
+  board is already in boot mode, and implies `--skip-verify` (verify needs a
+  physical power-cycle). Exits **non-zero** if flashing fails — earlier versions
+  printed "Programming complete!" even on a failed write.
+- The flash **baud rate auto-falls-back** (default 500000 → 115200) on write
+  failure; 2000000 is unreliable on some cables and is no longer the default.
+- `--verify-flash` reads each written region back from the chip and
+  byte-compares it to the image — confirms a correct flash **without** a
+  power-cycle (useful since a running host-mode firmware is invisible from the
+  PC). A real mismatch exits non-zero. Combine with a flash:
+  ```bash
+  ./tools/a2n20-mcu-program --stage2 \
+      --firmware firmware_host/build/build_out/a2n20_bl616_host_bl616.bin \
+      --port /dev/cu.usbmodemXXXX --non-interactive --verify-flash
+  ```
+  Or **verify-only** (no rewrite) — `--verify-flash` with no `--stage1`/`--stage2`,
+  board in boot mode. Defaults to 0x40000; override with `--addr`:
+  ```bash
+  ./tools/a2n20-mcu-program --verify-flash \
+      --firmware firmware_host/build/build_out/a2n20_bl616_host_bl616.bin \
+      --port /dev/cu.usbmodemXXXX --non-interactive
+  ```
+- `--detect` reports board state (from USB descriptors) and exits without
+  flashing.
+- `--probe-cli` identifies the **running** firmware over serial: it opens the
+  device's serial port(s), sends the `Ctrl-X Ctrl-C Enter` break-in + `help`,
+  and reports who answers. Ours shows the `a2n20>` prompt and the A2N20 banner;
+  the stock firmware shows `TangNano20K />` with `pll`/`chip_id`/`reboot`/etc.
+  The JTAG/MPSSE channel is detected and skipped. No serial ports at all is
+  itself a signal — the board is in boot mode or running the USB-host firmware
+  (a USB host exposes no serial device).
+
+Coding agents: the **`flash-mcu`** skill (`.claude/skills/flash-mcu/`) drives
+this for you.
+
 ### Flash (Developer — via SDK)
 
 The SDK includes `BLFlashCommand-macos` and a `make flash` target:

@@ -509,6 +509,7 @@ module top #(
     wire [4:0] mcu_led_w;
     wire       mcu_ws2812_w;
     wire       mcu_ready_w;
+    wire [39:0] mcu_scratch_w;   // 5 MCU scratch regs {s4,s3,s2,s1,s0} for debug overlay
 
     bl616_spi_connector #(
         .USE_CRC(0),
@@ -530,6 +531,7 @@ module top #(
         .sdram_init_complete_i(sdram_init_complete),
         .mcu_ready_o(mcu_ready_w),
         .standalone_o(standalone_w),
+        .scratch_o(mcu_scratch_w),
         .cardrom_active_i(!inh_n_w),
         .cardrom_release_o(cardrom_release_w),
         .button_i(s2),
@@ -1133,19 +1135,26 @@ module top #(
         .reset_n (device_reset_n_w),
         .enable_i(FORCE_DEBUG_OVERLAY ? 1'b1 : show_debug_overlay_r),
 
+        // MCU/BL616 debug instrumentation: 5 scratch regs (0x07,0x0C-0x0F) the
+        // firmware writes over SPI. hex[0]=stage, [1]=btn-lo, [2]=btn-hi,
+        // [3]=event counter (heartbeat), [4]=status flags.
         .hex_values ({
-            {2'b0, doc_osc_mode_w[0], 2'b0, doc_osc_mode_w[1]},
-            {2'b0, doc_osc_mode_w[2], 2'b0, doc_osc_mode_w[3]},
-            {2'b0, doc_osc_mode_w[4], 2'b0, doc_osc_mode_w[5]}, 
-            {2'b0, doc_osc_mode_w[6], 2'b0, doc_osc_mode_w[7]},
-            8'h0,       
+            mcu_scratch_w[7:0],     // scratch0: firmware stage code
+            mcu_scratch_w[15:8],    // scratch1: XInput button low byte
+            mcu_scratch_w[23:16],   // scratch2: XInput button high byte
+            mcu_scratch_w[31:24],   // scratch3: event/heartbeat counter
+            mcu_scratch_w[39:32],   // scratch4: status flag bits
             8'h0,
             8'h0,
             8'h0
-        }), 
+        }),
 
-        .debug_bits_0_i (doc_osc_halt_w), 
-        .debug_bits_1_i ({1'b0, 1'b0, a2mem_if.TEXT_MODE, a2mem_if.SHRG_MODE, a2mem_if.HIRES_MODE, a2mem_if.RAMWRT, a2mem_if.AN3, a2mem_if.STORE80}),
+        // Bit row 0 = what the FPGA + firmware think the MCU is doing:
+        //   bit0 = mcu_ready (FPGA saw MCU read STATUS 0x06), bit1 = standalone
+        //   (watchdog fired, no MCU), bits2-7 = firmware status flags (scratch4).
+        .debug_bits_0_i ({mcu_scratch_w[37:32], standalone_w, mcu_ready_w}),
+        // Bit row 1 = live XInput button low byte (each press lights a block).
+        .debug_bits_1_i (mcu_scratch_w[15:8]),
 
         .screen_x_i     (hdmi_x),
         .screen_y_i     (hdmi_y),

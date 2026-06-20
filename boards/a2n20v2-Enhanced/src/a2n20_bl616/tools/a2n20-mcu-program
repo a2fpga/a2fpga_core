@@ -21,10 +21,13 @@ Dependencies:
 """
 
 import argparse
+import glob
 import os
+import re
 import shutil
 import subprocess
 import sys
+import tempfile
 import time
 
 from serial.tools import list_ports
@@ -33,8 +36,10 @@ from serial.tools import list_ports
 ADDR_STAGE1 = "0x0"
 ADDR_STAGE2 = "0x40000"
 
-# Default baudrate
-DEFAULT_BAUDRATE = 2000000
+# Default baudrate. 500000 is reliable across the cables/ports we've tested;
+# 2000000 frequently fails mid-write ("BFLB FLASH WRITE FAIL"). flash_image()
+# auto-falls-back to slower rates on failure, so this is just the start point.
+DEFAULT_BAUDRATE = 500000
 
 # Bouffalo VID/PID — ROM bootloader / CDC DEMO (secure boot failure)
 BOUFFALO_VID = 0x349B
@@ -110,8 +115,20 @@ def recovery_path(name):
 
 # --- User interaction ---
 
+# Set from --non-interactive. When True the tool never blocks on input and
+# assumes the board is already in the required state (e.g. boot mode); intended
+# for scripts and coding agents driving the flash.
+NON_INTERACTIVE = False
+
+# Set from --verify-flash. When True, flash_image() reads the region back after
+# a successful write and byte-compares it to the source image.
+VERIFY_FLASH = False
+
 def prompt(msg="Press Enter when ready..."):
-    """Prompt the user, handling non-interactive (piped) input gracefully."""
+    """Prompt the user, handling non-interactive (piped/agent) use gracefully."""
+    if NON_INTERACTIVE:
+        print(msg + yellow("  [--non-interactive: continuing]"))
+        return
     try:
         input(msg)
     except EOFError:
@@ -274,17 +291,12 @@ def wait_for_boot_port(specified_port=None):
 
 # --- Flash operations ---
 
-def flash_image(port, image_path, address, baudrate, label, verbose=False):
-    """Flash a binary image to the BL616 at the specified address."""
-    if not os.path.isfile(image_path):
-        print(red("ERROR:") + f" {label} not found: {image_path}")
-        sys.exit(1)
+def _bflb_flash_once(port, image_path, address, baudrate, verbose):
+    """Run bflb-iot-tool once. Returns (ok, combined_output_text).
 
-    size_kb = os.path.getsize(image_path) / 1024
-    print(f"  Image: {os.path.basename(image_path)} ({size_kb:.0f} KB)")
-    print(f"  Address: {address}")
-    print(f"  Port: {port}")
-
+    bflb-iot-tool frequently exits 0 even when the write failed, so success
+    requires BOTH a zero exit code AND no 'fail'/'error' in its output.
+    """
     cmd = [
         "bflb-iot-tool",
         "--chipname", "bl616",
@@ -308,42 +320,315 @@ def flash_image(port, image_path, address, baudrate, label, verbose=False):
             timeout=120,
         )
     except subprocess.TimeoutExpired:
-        print(red("  [ERROR]") + " Flash command timed out after 120 seconds")
-        sys.exit(1)
+        return False, "flash command timed out after 120 seconds"
     except FileNotFoundError:
         print(red("  [ERROR]") + " bflb-iot-tool not found in PATH")
         sys.exit(1)
 
-    if result.returncode != 0:
-        print(red("  [ERROR]") + f" {label} flash failed (exit code {result.returncode})")
-        if not verbose and result.stdout:
-            print()
-            print("  bflb-iot-tool output:")
-            for line in result.stdout.strip().splitlines():
-                print(f"    {line}")
-        if not verbose and result.stderr:
-            print()
-            print("  bflb-iot-tool errors:")
-            for line in result.stderr.strip().splitlines():
-                print(f"    {line}")
-        print()
-        print("  Suggestions:")
-        print("  - Make sure the board is still in boot mode")
-        print("  - Try a lower baudrate with --baudrate 115200")
-        print("  - Disconnect and re-enter boot mode, then retry")
+    output = (result.stdout or "") + (result.stderr or "")
+    ok = (result.returncode == 0
+          and "fail" not in output.lower()
+          and "error" not in output.lower())
+    return ok, output
+
+
+def flash_image(port, image_path, address, baudrate, label, verbose=False):
+    """Flash a binary image to the BL616, auto-retrying at slower baud rates.
+
+    On total failure this EXITS the process (non-zero) — so if it returns, the
+    flash genuinely succeeded and callers need not check the return value.
+    """
+    if not os.path.isfile(image_path):
+        print(red("ERROR:") + f" {label} not found: {image_path}")
         sys.exit(1)
 
-    # Check for error/fail strings in stdout even on exit code 0
-    if not verbose and result.stdout:
-        stdout_lower = result.stdout.lower()
-        if "error" in stdout_lower or "fail" in stdout_lower:
-            print(yellow("  [WARN]") + " Flash may have issues:")
-            for line in result.stdout.strip().splitlines():
-                print(f"    {line}")
-            return False
+    size_kb = os.path.getsize(image_path) / 1024
+    print(f"  Image: {os.path.basename(image_path)} ({size_kb:.0f} KB)")
+    print(f"  Address: {address}")
+    print(f"  Port: {port}")
 
-    print(green("  [OK]") + f" {label} flashed successfully")
-    return True
+    # Start at the requested baud, then fall back to progressively slower,
+    # more reliable rates if the write fails.
+    bauds = [baudrate]
+    for b in (500000, 115200):
+        if b < baudrate and b not in bauds:
+            bauds.append(b)
+
+    last_output = ""
+    for i, baud in enumerate(bauds):
+        if i > 0:
+            print(yellow(f"  write failed — retrying at {baud} baud..."))
+        ok, last_output = _bflb_flash_once(port, image_path, address, baud, verbose)
+        if ok:
+            print(green("  [OK]") + f" {label} flashed successfully (baud {baud})")
+            if VERIFY_FLASH and not verify_flash_image(port, image_path, address, baud, verbose):
+                # Read-back mismatch is a hard error.
+                sys.exit(1)
+            return True
+
+    # Every baud rate failed — this is a hard error.
+    print(red("  [ERROR]") + f" {label} flash failed after trying baud rate(s): "
+          + ", ".join(str(b) for b in bauds))
+    if not verbose and last_output.strip():
+        print()
+        print("  bflb-iot-tool output (last attempt):")
+        for line in last_output.strip().splitlines():
+            print(f"    {line}")
+    print()
+    print("  Suggestions:")
+    print("  - Make sure the board is still in boot mode (re-enter with UPDATE)")
+    print("  - Try a different USB cable / port")
+    print("  - Run with --verbose to see full tool output")
+    sys.exit(1)
+
+
+def _bflb_iot_tool_dir():
+    """Return the bflb_iot_tool package directory, where its --read writes
+    'flash.bin'. Resolved via the interpreter behind the bflb-iot-tool CLI."""
+    exe = shutil.which("bflb-iot-tool")
+    py = sys.executable
+    if exe:
+        try:
+            with open(exe) as f:
+                first = f.readline()
+            if first.startswith("#!"):
+                py = first[2:].strip().split()[0]
+        except Exception:
+            pass
+    try:
+        out = subprocess.run(
+            [py, "-c", "import bflb_iot_tool,os;print(os.path.dirname(bflb_iot_tool.__file__))"],
+            capture_output=True, text=True, timeout=15)
+        path = out.stdout.strip()
+        return path or None
+    except Exception:
+        return None
+
+
+def verify_flash_image(port, image_path, address, baudrate, verbose=False):
+    """Read the flashed region back from the chip and byte-compare it to the
+    source image.
+
+    Returns True on an exact match. Returns False ONLY on a confirmed byte
+    mismatch (real corruption). If the read-back itself can't be completed
+    (tool/port error, output file not found), prints a warning and returns True
+    — we don't fail an otherwise-successful flash because the verify plumbing
+    misbehaved; the caller already confirmed the write succeeded.
+    """
+    print(bold("  Verifying flash (read-back compare)..."))
+
+    # Callers pass the address either as an int or as a string like "0x40000".
+    if isinstance(address, str):
+        address = int(address, 0)
+
+    with open(image_path, "rb") as fp:
+        src = fp.read()
+    n = len(src)
+    # bflb-iot-tool --read uses an INCLUSIVE end address.
+    start_hex = f"{address:x}"
+    end_hex = f"{address + n - 1:x}"
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        cmd = [
+            "bflb-iot-tool",
+            "--chipname", "bl616",
+            "--interface", "uart",
+            "--port", port,
+            "--baudrate", str(baudrate),
+            "--read",
+            "--start", start_hex,
+            "--end", end_hex,
+            "--outdir", tmpdir,
+        ]
+        if verbose:
+            print(f"  Command: {' '.join(cmd)}")
+        # bflb-iot-tool writes the read-back to 'flash.bin' in its own package
+        # dir (not cwd/outdir). Use mtime to distinguish a fresh read from any
+        # stale flash.bin left by a previous run.
+        start = time.time() - 2  # small clock-skew margin
+        try:
+            result = subprocess.run(cmd, cwd=tmpdir, capture_output=not verbose,
+                                    text=True, timeout=120)
+        except (subprocess.TimeoutExpired, FileNotFoundError) as e:
+            print(yellow("  [WARN]") + f" read-back could not run ({e}); "
+                  "skipping verify (flash itself succeeded).")
+            return True
+
+        # Search likely locations for a freshly-written flash.bin.
+        search = [os.path.join(tmpdir, "flash.bin"), os.path.join(os.getcwd(), "flash.bin")]
+        pkg = _bflb_iot_tool_dir()
+        if pkg:
+            search.append(os.path.join(pkg, "flash.bin"))
+        search += glob.glob(os.path.join(tmpdir, "**", "flash.bin"), recursive=True)
+
+        read_path = next((p for p in search
+                          if os.path.isfile(p) and os.path.getmtime(p) >= start), None)
+        if read_path is None:
+            print(yellow("  [WARN]") + " read-back file not found; skipping "
+                  "verify (flash itself succeeded). Re-run with --verbose to see "
+                  "the read output.")
+            if not verbose and result.stdout:
+                for line in result.stdout.strip().splitlines()[-5:]:
+                    print(f"    {line}")
+            return True
+
+        with open(read_path, "rb") as fp:
+            back = fp.read()
+
+    # The read-back may be padded up to a sector boundary; compare the first n.
+    if len(back) < n:
+        print(yellow("  [WARN]") + f" read-back short ({len(back)} < {n} bytes); "
+              "skipping verify.")
+        return True
+
+    if back[:n] == src:
+        print(green("  [OK]") + f" verified {n} bytes at 0x{address:x} match the image")
+        return True
+
+    # Confirmed mismatch — report the first differing offset.
+    first_diff = next((i for i in range(n) if back[i] != src[i]), None)
+    print(red("  [ERROR]") + f" read-back MISMATCH at 0x{address:x} "
+          f"(first differing byte at offset {first_diff})")
+    print("  The flash does not match the image. Re-enter boot mode and reflash.")
+    return False
+
+
+# --- CLI probe (identify running firmware) ---
+
+# Break-in sequence shared by the A2N20 firmware CLI: Ctrl-X, Ctrl-C, Enter.
+CLI_BREAKIN = bytes([0x18, 0x03, 0x0D])
+
+# Strip ANSI color/escape sequences (the stock firmware colorizes its prompt).
+ANSI_RE = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
+
+
+def _is_mpsse_noise(raw):
+    """An FT2232 JTAG/MPSSE channel answers stray bytes with 0xFA ('bad
+    command') + the offending byte. Detect that so we don't mistake it for a
+    CLI talking back."""
+    if not raw:
+        return False
+    fa = raw.count(0xFA)
+    printable = sum(1 for b in raw if (32 <= b < 127) or b in (9, 10, 13))
+    return fa >= 2 and printable < len(raw) * 0.5
+
+
+def probe_cli_port(port, verbose=False):
+    """Send the Ctrl-X Ctrl-C Enter break-in (then 'help' if it looks like a
+    real CLI) and return (raw_bytes, error)."""
+    try:
+        import serial  # pyserial (already a dependency: list_ports)
+    except ImportError:
+        return None, "pyserial not installed (pip install pyserial)"
+
+    try:
+        ser = serial.Serial(port, 115200, timeout=0.4)
+    except Exception as e:  # noqa: BLE001
+        return None, f"could not open {port}: {e}"
+
+    try:
+        ser.reset_input_buffer()
+        # Send the three bytes as separate keystrokes (some break-in state
+        # machines step per byte).
+        for b in CLI_BREAKIN:
+            ser.write(bytes([b]))
+            ser.flush()
+            time.sleep(0.05)
+        time.sleep(0.4)
+        data = ser.read(4096)
+        # Only ask for 'help' if this wasn't a JTAG/MPSSE channel — otherwise we
+        # just get 0xFA noise back.
+        if not _is_mpsse_noise(data):
+            ser.write(b"help\r")
+            ser.flush()
+            time.sleep(0.6)
+            data += ser.read(8192)
+    except Exception as e:  # noqa: BLE001
+        return None, f"I/O error on {port}: {e}"
+    finally:
+        try:
+            ser.close()
+        except Exception:
+            pass
+
+    return data, None
+
+
+def identify_cli(raw):
+    """Classify a raw probe response. Returns (label, kind) where kind is one of
+    'a2n20', 'other', 'jtag', 'none'."""
+    if not raw:
+        return "no CLI response", "none"
+    if _is_mpsse_noise(raw):
+        return "JTAG/MPSSE channel (not a CLI)", "jtag"
+    text = raw.decode("latin-1", "replace")
+    if not text.strip():
+        return "no CLI response", "none"
+    low = text.lower()
+    if "a2n20>" in low or "a2n20 bl616 firmware" in low:
+        ver = ""
+        for line in text.splitlines():
+            if "A2N20 BL616 Firmware" in line:
+                ver = "  (" + ANSI_RE.sub("", line).strip() + ")"
+                break
+        return "A2N20 firmware (ours)" + ver, "a2n20"
+    if "tangnano20k" in low:
+        return "stock Tang Nano 20K firmware (Gowin/Sipeed) — prompt 'TangNano20K />'", "other"
+    return "responded, but NOT A2N20 (unrecognized firmware)", "other"
+
+
+def probe_cli(args):
+    """Probe the device's serial port(s) to see which firmware is running."""
+    if args.port:
+        candidates = [args.port]
+    else:
+        candidates = [p.device for p in find_ports(vid=FTDI_VID)]
+
+    if not candidates:
+        print(yellow("No FTDI serial ports found."))
+        print()
+        print("  This is expected if the board is in boot mode, or is running")
+        print("  the USB-HOST firmware (it's a USB host, not a serial device).")
+        print("  If you know the port, pass it explicitly: --port /dev/cu.XXXX")
+        sys.exit(2)
+
+    print(bold("Probing serial port(s) with Ctrl-X Ctrl-C Enter break-in..."))
+    print()
+    found_a2n20 = False
+    saw_cli = False
+    for port in candidates:
+        print(bold(f"Port: {port}"))
+        raw, err = probe_cli_port(port, verbose=args.verbose)
+        if err:
+            print(f"  {yellow('skip')}: {err}")
+            print()
+            continue
+        label, kind = identify_cli(raw)
+        found_a2n20 = found_a2n20 or (kind == "a2n20")
+        saw_cli = saw_cli or (kind in ("a2n20", "other"))
+        color = green if kind == "a2n20" else yellow
+        print(f"  {color('->')} {label}")
+        if kind in ("a2n20", "other"):
+            clean = ANSI_RE.sub("", raw.decode("latin-1", "replace"))
+            print("  --- response ---")
+            for line in clean.replace("\r", "").splitlines():
+                if line.strip():
+                    print(f"  | {line.strip()}")
+            print("  ----------------")
+        elif kind == "jtag" and args.verbose:
+            print(f"  ({len(raw)} bytes, e.g. {raw[:12].hex()})")
+        print()
+
+    if found_a2n20:
+        print(green("A2N20 firmware is running and reachable over serial."))
+        sys.exit(0)
+    if saw_cli:
+        print(yellow("A CLI responded, but it is NOT the A2N20 firmware "
+                     "(likely the stock/Gowin firmware)."))
+        sys.exit(1)
+    print(yellow("No A2N20 CLI found. Only a JTAG/MPSSE channel or silence — "
+                 "the board may be running the stock or host-mode firmware."))
+    sys.exit(1)
 
 
 # --- Main flow helpers ---
@@ -624,6 +909,24 @@ def run_auto(args):
             print()
 
 
+def run_verify_only(args):
+    """Verify-only: read the flashed region back and compare to --firmware,
+    without writing anything. Requires the board in boot mode."""
+    fw = args.firmware
+    check_file_exists(fw, "Firmware",
+                      build_hint="Build the firmware first, or pass --firmware PATH")
+    addr = int(args.addr, 0) if args.addr else int(ADDR_STAGE2, 0)
+
+    print(f"Mode: Verify-only — read-back compare of "
+          f"{os.path.basename(fw)} at 0x{addr:x} (no writing)")
+    print()
+
+    port = enter_boot_mode(args, 1)
+    print()
+    ok = verify_flash_image(port, fw, addr, args.baudrate, verbose=args.verbose)
+    sys.exit(0 if ok else 1)
+
+
 def run_manual(args):
     """Manual mode: flash user-specified images at explicit addresses."""
     stage1_path = args.stage1
@@ -719,8 +1022,33 @@ examples:
                         help="Show bflb-iot-tool output")
     parser.add_argument("--skip-verify", action="store_true",
                         help="Skip post-flash verification")
+    parser.add_argument("--non-interactive", "--yes", "-y", action="store_true",
+                        dest="non_interactive",
+                        help="Never prompt; assume the board is already in boot "
+                             "mode. For scripts/agents. Pair with --port. "
+                             "Implies --skip-verify (verify needs a power-cycle).")
+    parser.add_argument("--verify-flash", action="store_true", dest="verify_flash",
+                        help="After each successful write, read the region back "
+                             "from the chip and byte-compare it to the image. "
+                             "No power-cycle needed (unlike the default verify).")
+    parser.add_argument("--probe-cli", action="store_true", dest="probe_cli",
+                        help="Identify the running firmware: open the device's "
+                             "serial port(s), send the Ctrl-X Ctrl-C Enter "
+                             "break-in + 'help', and report what answers. No "
+                             "flashing.")
+    parser.add_argument("--addr", metavar="ADDR",
+                        help="Flash address for standalone --verify-flash "
+                             "(default 0x40000 = Stage 2). Needs boot mode.")
 
     args = parser.parse_args()
+
+    # Non-interactive use can't perform the physical power-cycle that
+    # verify_firmware() waits on, so skip it automatically.
+    global NON_INTERACTIVE, VERIFY_FLASH
+    NON_INTERACTIVE = args.non_interactive
+    VERIFY_FLASH = args.verify_flash
+    if args.non_interactive:
+        args.skip_verify = True
 
     print_banner()
 
@@ -733,10 +1061,22 @@ examples:
         print()
         sys.exit(0)
 
+    # --probe-cli mode: talk to the serial CLI to see which firmware is live
+    if args.probe_cli:
+        probe_cli(args)
+        return  # probe_cli() exits
+
     # Check dependencies
     check_bflb_iot_tool()
 
     manual_mode = args.stage1 is not None or args.stage2 is not None
+
+    # --verify-flash with no stage flags = verify-only (read back & compare,
+    # no writing). Combined with --stage1/--stage2 it instead verifies each
+    # write (handled inside flash_image via VERIFY_FLASH).
+    if args.verify_flash and not manual_mode:
+        run_verify_only(args)
+        return  # exits
 
     if manual_mode:
         # Describe manual mode

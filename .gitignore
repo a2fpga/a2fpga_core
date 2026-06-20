@@ -47,6 +47,10 @@ src/cardrom/cardrom
 !/boards/a2n20v2-Enhanced/src/a2n20_bl616/firmware/build/build_out/
 /boards/a2n20v2-Enhanced/src/a2n20_bl616/firmware/build/build_out/*
 !/boards/a2n20v2-Enhanced/src/a2n20_bl616/firmware/build/build_out/a2n20_bl616_bl616.bin
+/boards/a2n20v2-Enhanced/src/a2n20_bl616/firmware_host/build/*
+!/boards/a2n20v2-Enhanced/src/a2n20_bl616/firmware_host/build/build_out/
+/boards/a2n20v2-Enhanced/src/a2n20_bl616/firmware_host/build/build_out/*
+!/boards/a2n20v2-Enhanced/src/a2n20_bl616/firmware_host/build/build_out/a2n20_bl616_host_bl616.bin
 !/boards/a2n20v2-Enhanced/src/a2n20_bl616/recovery/*.bin
 *.m4a
 *.wav

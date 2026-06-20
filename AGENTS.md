@@ -37,7 +37,9 @@ build environment") — it detects what's installed and guides the rest. Referen
 | Understand *why* a design choice was made | [docs/adr/](docs/adr/) (decision records) |
 | Find what to work on next | [docs/ROADMAP.md](docs/ROADMAP.md) + `gh issue list` + `boards/<board>/TODO.md` |
 | Build a board | `/build` skill, or [docs/setup-gowin-cli.md](docs/setup-gowin-cli.md) |
-| Flash a board | `/flash` skill, or [docs/boards.md](docs/boards.md) |
+| Flash a board (FPGA bitstream) | `/flash` skill, or [docs/boards.md](docs/boards.md) |
+| Flash the BL616 MCU firmware (a2n20v2-Enhanced) | `/flash-mcu` skill, or [BL616 README](boards/a2n20v2-Enhanced/src/a2n20_bl616/README.md) |
+| Show on-screen status / debug values (any board) | **DebugOverlay** — [docs/video-pipeline.md](docs/video-pipeline.md#debug-overlay-on-screen-status--diagnostics) (`hdl/debug/debugoverlay.sv`) |
 
 ## Starting a session
 

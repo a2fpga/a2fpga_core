@@ -37,6 +37,7 @@ module bl616_spi_connector #(
     input  wire        sdram_init_complete_i,
     output wire        mcu_ready_o,
     output wire        standalone_o,   // high once standalone fallback engages (no BL616)
+    output wire [39:0] scratch_o,      // 5 MCU scratch regs packed {s4,s3,s2,s1,s0} (0x07,0x0C-0x0F)
 
     // CardROM
     input  wire        cardrom_active_i,
@@ -176,6 +177,8 @@ module bl616_spi_connector #(
 
     // Scratch registers
     reg [7:0] scratch_r [0:4]; // scratch0..scratch4
+    // Packed export so top-level (e.g. DebugOverlay) can read MCU-written status.
+    assign scratch_o = {scratch_r[4], scratch_r[3], scratch_r[2], scratch_r[1], scratch_r[0]};
 
     // Video control
     reg video_enable_r;

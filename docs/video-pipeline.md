@@ -155,6 +155,39 @@ and `vgc_gen`.
 | [`framebuffer_480p.sv`](../hdl/video/framebuffer_480p.sv) | a2mega DDR3 framebuffer (board frame store) |
 | [`direct_display.sv`](../hdl/video/direct_display.sv) | Consumer: pixel stream → HDMI (HDMI-locked, no buffer) |
 | [`f18a_gen.sv`](../hdl/video/f18a_gen.sv) | F18A/TMS9918A (SuperSprite) generator |
+| [`debugoverlay.sv`](../hdl/debug/debugoverlay.sv) | On-screen status overlay (see below) |
+
+## Debug overlay (on-screen status / diagnostics)
+
+[`hdl/debug/debugoverlay.sv`](../hdl/debug/debugoverlay.sv) is the project's
+**on-screen status channel**. It sits at the very end of the pipeline, taking the
+final RGB (`r_i/g_i/b_i`) and compositing a small overlay on top before the HDMI
+encoder — so it draws **over whatever is on screen** (Apple II, SHR, anything)
+without disturbing video memory or the `video_control_if` mode. Shared by every
+board (`a2mega`, `a2n20v2`, `a2n20v2-GS`, `a2n20v2-Enhanced`, `a2p25`).
+
+It renders, top-left:
+- a 14-char **VERSION** string (each board passes its `BUILD_DATETIME`),
+- **`NUM_HEX_BYTES`** (default 8) hex bytes from the `hex_values[]` input, and
+- two 8-bit rows from `debug_bits_0_i` / `debug_bits_1_i`.
+
+**Enable:** the `FORCE_DEBUG_OVERLAY` top-level parameter (on **a2n20v2-Enhanced
+it defaults to 1 — always on**) or the runtime `show_debug_overlay_r` toggle (the
+**`s2`** button). When you need to surface a value on screen, this is the
+mechanism — don't fight the text-screen / `video_control` override.
+
+**Driving it from the BL616/MCU (a2n20v2-Enhanced):** wire what you want to show
+into the `DebugOverlay` instance's `hex_values`/`debug_bits` in
+[`boards/a2n20v2-Enhanced/hdl/top.sv`](../boards/a2n20v2-Enhanced/hdl/top.sv).
+`bl616_spi_connector` already has **5 MCU read/write scratch registers**
+(`scratch_r[0..4]`, SPI regs `0x07`, `0x0C`–`0x0F`); expose them as module
+outputs and connect them to `hex_values`, then have the firmware
+`fpga_spi_reg_write(0x07/0x0C..0x0F, status)` at each stage. With
+`FORCE_DEBUG_OVERLAY=1` the values appear immediately — a reliable status/heartbeat
+channel that works in **any** USB role (the SPI link is independent of USB),
+which is exactly what you want when the firmware presents no serial console
+(e.g. USB-host builds). The default `hex_values` wiring currently shows DOC/Ensoniq
+oscillator state + Apple II mode flags — repurpose or extend it for your probe.
 
 ## See also
 
