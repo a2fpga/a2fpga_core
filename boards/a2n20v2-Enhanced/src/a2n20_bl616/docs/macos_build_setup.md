@@ -77,32 +77,41 @@ echo 'export PATH=/opt/riscv-toolchain/xuantie/bin:$PATH' >> ~/.zshrc
 
 ## Bouffalo SDK
 
-The SDK should be cloned as a sibling of the project directory:
+**Pin the SDK to the tested tag `v2.3.27` (CherryUSB v1.5.3).** A bare clone
+lands on `master`, whose CherryUSB API differs and will not build without
+porting — this is the #1 cause of "works on one machine, not another".
 
 ```bash
-# From the parent directory containing a2n20_tn20k_bl616/
-git clone https://github.com/bouffalolab/bouffalo_sdk.git
+git clone --branch v2.3.27 --depth 1 https://github.com/bouffalolab/bouffalo_sdk.git
+# existing clone:  cd bouffalo_sdk && git fetch --tags && git checkout v2.3.27
+git -C bouffalo_sdk describe --tags    # verify -> v2.3.27
 ```
 
-Expected layout:
-```
-parent/
-├── a2n20_tn20k_bl616/
-│   └── firmware/           # Our firmware
-└── bouffalo_sdk/           # SDK
-```
-
-The firmware Makefile sets `BL_SDK_BASE` to `../../bouffalo_sdk` relative to `firmware/`.
+Clone it anywhere; the build does **not** rely on a particular relative layout.
+`BL_SDK_BASE` is passed explicitly to `make` (the Makefile's default relative
+path is not used). No macOS patches to the SDK are needed at v2.3.27 — upstream
+handles Darwin directly (older notes about editing `bflb_flash.cmake` /
+`project.build` are obsolete).
 
 ## Smoke Test
 
+Build with the T-Head toolchain first on `PATH` and `BL_SDK_BASE` set
+explicitly. After any toolchain/SDK change, `rm -rf build` first.
+
 ```bash
-cd a2n20_tn20k_bl616/firmware
-export PATH=/opt/riscv-toolchain/xuantie/bin:$PATH
-make CHIP=bl616 BOARD=bl616dk
+cd a2fpga_core/boards/a2n20v2-Enhanced/src/a2n20_bl616/firmware
+PATH=/opt/riscv-toolchain/xuantie/bin:$PATH BL_SDK_BASE=/path/to/bouffalo_sdk \
+    make CHIP=bl616 BOARD=bl616dk
+# -> build/build_out/a2n20_bl616_bl616.bin
+
+# the USB-host build is built the same way:
+cd ../firmware_host
+PATH=/opt/riscv-toolchain/xuantie/bin:$PATH BL_SDK_BASE=/path/to/bouffalo_sdk \
+    make CHIP=bl616 BOARD=bl616dk
+# -> build/build_out/a2n20_bl616_host_bl616.bin
 ```
 
-Expected: `build/build_out/a2n20_bl616_bl616.bin` exists and is non-zero.
+Expected: a clean run ends with `Built target combine` and the `.bin` exists.
 
 ## Flashing
 

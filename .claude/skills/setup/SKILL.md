@@ -44,18 +44,31 @@ Detect: `openFPGALoader --version` (or `openfpgaloader`).
 
 ## Step 4 — BL616 firmware toolchain (only for a2n20v2-Enhanced firmware dev)
 
-Only if the user is developing the BL616 MCU firmware. Detect:
+Only if the user is developing the BL616 MCU firmware. This needs **three** things — the
+T-Head toolchain, the Bouffalo SDK **at the right tag**, and the env pointing at both. Detect all
+three:
 ```bash
-ls /opt/riscv-toolchain/xuantie/bin/riscv64-unknown-elf-gcc 2>/dev/null; echo "BL_SDK_BASE=$BL_SDK_BASE"
+# 1) T-Head RISC-V GCC (XuanTie) — NOT Homebrew's riscv64-unknown-elf-gcc
+/opt/riscv-toolchain/xuantie/bin/riscv64-unknown-elf-gcc -dumpversion 2>/dev/null   # expect 10.4.0
+# 2) Bouffalo SDK present AND pinned to the tested tag
+echo "BL_SDK_BASE=$BL_SDK_BASE"
+[ -n "$BL_SDK_BASE" ] && git -C "$BL_SDK_BASE" describe --tags 2>/dev/null           # expect v2.3.27
 ```
-- This needs the **T-Head** RISC-V GCC (XuanTie) and the Bouffalo SDK. **Do not** substitute
-  Homebrew's `riscv64-unknown-elf-gcc` — it lacks the T-Head extensions BL616 requires, and the
-  T-Head toolchain must be first on PATH.
-- Building the toolchain is involved (build-from-source). Don't attempt it inline — point the user
-  to the authoritative steps in
+- **T-Head GCC:** required for the BL616 extensions (`xtheade`, `zpsfoperand`); **do not** substitute
+  Homebrew's `riscv64-unknown-elf-gcc`, and it must be **first on PATH**. Building it is from-source
+  and involved — don't attempt inline; point to the README's Toolchain section.
+- **SDK version is critical.** The firmware is written against a specific bundled CherryUSB.
+  **Require tag `v2.3.27` (CherryUSB v1.5.3).** If `describe --tags` shows anything else (or a bare
+  `master`), the build will likely fail with CherryUSB API errors — this is the most common
+  cross-machine setup mistake. Fix (confirm with the user first; a bump to a newer SDK is a
+  deliberate port): `cd "$BL_SDK_BASE" && git fetch --tags && git checkout v2.3.27`.
+- Authoritative steps (toolchain build, SDK pin, env vars, both `firmware/` and `firmware_host/`
+  builds) are in
   [boards/a2n20v2-Enhanced/src/a2n20_bl616/README.md](../../../boards/a2n20v2-Enhanced/src/a2n20_bl616/README.md)
-  (Prerequisites → Toolchain → Bouffalo SDK), and offer to run the documented `make CHIP=bl616
-  BOARD=bl616dk` build once it's in place.
+  (Build Environment Setup) and its
+  [docs/macos_build_setup.md](../../../boards/a2n20v2-Enhanced/src/a2n20_bl616/docs/macos_build_setup.md).
+  Once in place, offer to run `PATH=/opt/riscv-toolchain/xuantie/bin:$PATH BL_SDK_BASE=<path> make
+  CHIP=bl616 BOARD=bl616dk` (a clean run ends with `Built target combine`).
 
 ## Step 5 — ESP32-S3 toolchain (only for a2mega / a2p25)
 

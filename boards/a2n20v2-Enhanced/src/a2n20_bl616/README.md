@@ -236,11 +236,36 @@ make newlib -j$(sysctl -n hw.ncpu)
 
 ### SDK Setup
 
+> **Pin the SDK to a known-good tag.** This firmware is written against the
+> CherryUSB version bundled in a specific bouffalo_sdk release. A bare
+> `git clone` lands on `master`, whose CherryUSB API may differ and **will not
+> build** without porting. Always check out the tested tag:
+>
+> **Required: `v2.3.27` (CherryUSB v1.5.3).**
+
 ```bash
-git clone https://github.com/bouffalolab/bouffalo_sdk.git
+git clone --branch v2.3.27 --depth 1 https://github.com/bouffalolab/bouffalo_sdk.git
+# (or, on an existing clone:)
+#   cd bouffalo_sdk && git fetch --tags && git checkout v2.3.27
+
+# The build needs these two env vars every time. BL_SDK_BASE MUST be set
+# explicitly — the Makefiles' default relative path does not resolve here.
 export BL_SDK_BASE=/path/to/bouffalo_sdk
-export PATH=$PATH:/opt/riscv-toolchain/xuantie/bin
+export PATH=/opt/riscv-toolchain/xuantie/bin:$PATH   # T-Head GCC must be first
 ```
+
+To confirm an existing checkout is on the right version:
+
+```bash
+git -C "$BL_SDK_BASE" describe --tags                       # -> v2.3.27
+grep CHERRYUSB_VERSION_STR "$BL_SDK_BASE"/components/usb/cherryusb/common/usb_version.h
+# -> #define CHERRYUSB_VERSION_STR "v1.5.3"
+```
+
+Bumping to a newer SDK is a deliberate port (the CherryUSB host/device APIs
+change across releases — e.g. the v0.10→v1.x rewrite threaded a `busid` arg
+through the whole device API and replaced the `usbh_pipe_t` model). No macOS
+patches to the SDK are needed at v2.3.27 — upstream handles Darwin directly.
 
 ### Why T-Head Toolchain
 
@@ -253,12 +278,31 @@ BL616 uses T-Head E907 core with arch flags not in upstream GCC:
 
 ### Build
 
+There are **two** firmware builds in this tree, built the same way:
+
+- `firmware/` — the default **FT2232 device** firmware (USB JTAG+UART bridge + CLI).
+- `firmware_host/` — the **USB-host** firmware (XInput gamepad + USB-Ethernet).
+
 ```bash
+# device firmware:
 cd firmware
-make CHIP=bl616 BOARD=bl616dk
+PATH=/opt/riscv-toolchain/xuantie/bin:$PATH BL_SDK_BASE=/path/to/bouffalo_sdk \
+    make CHIP=bl616 BOARD=bl616dk
+# -> build/build_out/a2n20_bl616_bl616.bin
+
+# host firmware:
+cd ../firmware_host
+PATH=/opt/riscv-toolchain/xuantie/bin:$PATH BL_SDK_BASE=/path/to/bouffalo_sdk \
+    make CHIP=bl616 BOARD=bl616dk
+# -> build/build_out/a2n20_bl616_host_bl616.bin
 ```
 
-Output: `build/build_out/<project>_bl616.bin`
+Notes:
+- **Always** pass `BL_SDK_BASE` explicitly and put the **T-Head** toolchain first
+  on `PATH` (see [SDK Setup](#sdk-setup)).
+- After a toolchain or SDK change, `rm -rf build` first — the cmake cache pins
+  the old paths otherwise.
+- A clean build ends with `Built target combine` and produces the `.bin` above.
 
 ### Enter Boot Mode
 
