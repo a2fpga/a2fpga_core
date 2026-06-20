@@ -186,31 +186,35 @@ depends on whether the BL616 is a USB **device** or **host**:
 the one.** (A high-speed USB-Ethernet dongle does *not* hit the full-speed
 transport caveats from §4.2 — it's a bulk, HS device.)
 
-### Chosen approach: CDC-ECM (RTL8153 config-switch) + lwIP — IMPLEMENTED (builds; HW test pending)
+### Chosen approach: STOCK CDC-ECM (RTL8153) + lwIP on CherryUSB v1.5.3 — IMPLEMENTED (builds; HW test pending)
 The Realtek **RTL8153** (`0x0BDA` / `0x8153`) is a **dual-configuration** device:
 config 1 = Realtek vendor protocol (class `0xFF`), config 2 = standard
-**CDC-ECM**. We drive it via CDC-ECM rather than porting the large
-`usbh_rtl8152.c` vendor driver — but the bundled CherryUSB (v0.10.0) only ever
-enumerates **config 1** (it hardcodes `SET_CONFIGURATION(1)`; no hook to pick a
-config), so a stock `INTF_CLASS=CDC` match never fires.
-- **Driver:** `firmware_host/usb_net/usbh_cdc_ecm.{c,h}` (in our tree; SDK
-  CherryUSB stays byte-for-byte unmodified). It **matches the adapter by
-  VID+PID+class 0xFF** on the config-1 vendor interface, then in `connect()`:
-  `SET_CONFIGURATION(2)` → fetch & **parse the config-2 descriptor itself** →
-  activate the ECM int-in + bulk in/out endpoints → `SET_INTERFACE` the data
-  altsetting → `SET_ETHERNET_PACKET_FILTER`. `usbh_set_interface` /
-  `usbh_get_string_desc` are absent from v0.10.0, so they're done as raw
-  `usbh_control_transfer` calls in-tree.
-- **IP:** RX/TX wired into an **lwIP** netif (`CONFIG_LWIP 1`); DHCP for
-  addressing. lwIP needs `bl_rand()` (normally from the wifi/RF component) — we
-  provide a small xorshift PRNG in `main.c` rather than pulling in wifi.
+**CDC-ECM**. CherryUSB enumerates only the *first* configuration, so a stock
+`INTF_CLASS=CDC` match would never fire on config 1.
+- **The keystone:** CherryUSB **v1.5.3** (SDK v2.3.27) adds the weak hook
+  `usbh_get_hport_active_config_index(hport)`. We override it in `main.c` to
+  return config index **1** (the CDC-ECM config) for VID 0x0BDA / PID 0x8153, so
+  the enumerator selects config 2 and the **stock `usbh_cdc_ecm.c`** matches —
+  **no SDK edits, no custom driver**. Enable with
+  `set(CONFIG_CHERRYUSB_HOST_CDC_ECM 1)` in proj.conf.
+  (History: on the old v0.10.0 SDK there was no such hook, so we hand-rolled a
+  driver that did `SET_CONFIGURATION(2)` + manual config-2 parse. That driver is
+  deleted now that the SDK is current — see the migration note in
+  `AGENTS.md`/memory.)
+- **IP glue (main.c):** implement the stock driver's bridge hooks —
+  `usbh_cdc_ecm_eth_input()` (RX → lwIP), `ecm_linkoutput()` via
+  `usbh_cdc_ecm_get_eth_txbuf()`/`usbh_cdc_ecm_eth_output()` (TX), and the
+  `usbh_cdc_ecm_run/stop` weak overrides (netif_add + DHCP on the tcpip thread,
+  start `usbh_cdc_ecm_rx_thread`). `CONFIG_LWIP 1`; lwIP needs `bl_rand()` —
+  a small xorshift PRNG in `main.c` (not crypto), so we don't pull in wifi.
 - **MVP proof:** once DHCP binds, the leased IP's four octets are written to the
-  HDMI DebugOverlay (stage `0xEA`); connect-time progress walks stages
-  `0xE0..0xE8` (`0xEF` = error) so a headless host build is debuggable on screen.
+  HDMI DebugOverlay (stage `0xEA`). `g_net_active` keeps the gamepad "searching"
+  overlay writes from fighting the IP display.
 - **Coexistence:** dongle + gamepad can both live under a hub — no mode switch.
-- **Other adapters:** for non-Realtek dongles, upstream CherryUSB also ships
-  `usbh_asix`, `usbh_cdc_ncm`, `usbh_rndis`, and a single-config `usbh_cdc_ecm`
-  (which *would* match without the config switch) — portable the same way.
+- **Other adapters:** v1.5.3 also ships `usbh_rtl8152` (native Realtek; handles
+  the 8153 chip but its id_table lists only 0x8152, so it'd need an SDK edit),
+  `usbh_asix`, `usbh_cdc_ncm`, `usbh_rndis` — any of which could be wired the
+  same way.
 
 ### Networking roadmap (smallest → largest)
 | Tier | What | Apple II sees | Effort |
