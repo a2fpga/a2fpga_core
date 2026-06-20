@@ -201,38 +201,21 @@ Regardless of board variant, entering boot mode (UPDATE button) lets you reflash
 
 ## Build Environment Setup (macOS)
 
-### Prerequisites
+> **Full step-by-step (Homebrew prerequisites + building the T-Head toolchain
+> from source) lives in [docs/macos_build_setup.md](docs/macos_build_setup.md).**
+> That doc is the single source of truth for the host setup; this section only
+> covers the pieces specific to *this* firmware (the SDK version pin + the build
+> commands). New machine? Start with that doc, then come back here.
 
-```bash
-brew install cmake make ninja
-brew install python3 gawk gnu-sed gmp mpfr libmpc isl zlib expat
-brew install coreutils texinfo
-```
+### Toolchain (T-Head RISC-V GCC) — summary
 
-### Toolchain (T-Head RISC-V GCC)
-
-No pre-built macOS binaries exist. Build from source:
-
-```bash
-git clone --recurse-submodules https://github.com/XUANTIE-RV/xuantie-gnu-toolchain.git
-cd xuantie-gnu-toolchain
-
-# macOS patches
-cd riscv-newlib
-wget https://raw.githubusercontent.com/p4ddy1/pine_ox64/main/riscv-newlib.patch
-git apply riscv-newlib.patch
-cd ..
-sed -i '' "s/.*=host-darwin.o$//" riscv-gcc/gcc/config.host
-sed -i '' "s/.* x-darwin.$//" riscv-gcc/gcc/config.host
-
-sudo mkdir -p /opt/riscv-toolchain
-sudo chown -R $USER /opt/riscv-toolchain
-
-export PATH=$(brew --prefix)/opt/coreutils/libexec/gnubin:$PATH
-
-./configure --prefix=/opt/riscv-toolchain/xuantie --with-cmodel=medany --enable-multilib --enable-gdb
-make newlib -j$(sysctl -n hw.ncpu)
-```
+The BL616's T-Head E907 needs vendor GCC extensions (`xtheade`, `zpsfoperand`)
+that upstream/Homebrew RISC-V GCC lacks, and there are no prebuilt macOS
+binaries — so it's a one-time **build from source** into
+`/opt/riscv-toolchain/xuantie`, kept **first on `PATH`**. Full steps:
+[docs/macos_build_setup.md](docs/macos_build_setup.md#t-head-risc-v-toolchain).
+Verify: `/opt/riscv-toolchain/xuantie/bin/riscv64-unknown-elf-gcc -dumpversion`
+→ `10.4.0`.
 
 ### SDK Setup
 
@@ -399,9 +382,14 @@ Or call BLFlashCommand directly:
 
 ```bash
 $BL_SDK_BASE/tools/bflb_tools/bouffalo_flash_cube/BLFlashCommand-macos \
-    --interface=uart --baudrate=2000000 --port=/dev/tty.usbmodemXXXX \
+    --interface=uart --baudrate=500000 --port=/dev/tty.usbmodemXXXX \
     --chipname=bl616 --config=flash_prog_cfg.ini
 ```
+
+> **Baud rate:** use **500000**. `2000000` is unreliable on some USB-C cables
+> (intermittent `BFLB FLASH WRITE FAIL`); the `a2n20-mcu-program` wrapper
+> defaults to 500000 and auto-falls-back to 115200. Drop to 115200 if 500000
+> still fails on your cable.
 
 ### Flash (End User — via pip, no SDK required)
 
@@ -412,11 +400,11 @@ pip install bflb-iot-tool
 
 # Standalone at 0x0
 bflb-iot-tool --chipname bl616 --interface uart --port /dev/tty.usbmodemXXXX \
-    --baudrate 2000000 --firmware a2n20_bl616_bl616.bin --addr 0x0 --single
+    --baudrate 500000 --firmware a2n20_bl616_bl616.bin --addr 0x0 --single
 
 # Stage 2 at 0x40000
 bflb-iot-tool --chipname bl616 --interface uart --port /dev/tty.usbmodemXXXX \
-    --baudrate 2000000 --firmware a2n20_bl616_bl616.bin --addr 0x40000 --single
+    --baudrate 500000 --firmware a2n20_bl616_bl616.bin --addr 0x40000 --single
 ```
 
 The `--single` flag flashes a raw binary without boot2/partition table/device tree — just the firmware at the specified address.
