@@ -32,6 +32,7 @@
 #include "lwip/etharp.h"
 #include "usbh_cdc_ecm.h"
 #include "usbh_rtl8152.h"   /* stock vendor driver for the RTL8152 adapter */
+#include "usbh_asix.h"      /* stock vendor driver for ASIX AX88772x adapters */
 #include <string.h>
 
 /* lwIP's LWIP_RAND() calls bl_rand() (normally from the SDK wifi/RF component,
@@ -707,24 +708,25 @@ static void rtl_netif_setup_cb(void *ctx)
     dhcp_start(&g_rtl_netif);
 }
 
-/* Live multiline dashboard (40x24 screen) so we can watch all RX/TX/EHCI/bulk-IN
- * dynamics at once instead of a lossy single-line alternation. */
-static void rtl_ip_report_thread(void *arg)
+/* Shared USB-Ethernet status overlay (used by every adapter's glue). Spawned by
+ * a driver's run(); renders a clean status (link / rx / tx / IP) and exits +
+ * self-deletes on disconnect (g_net_active) so a re-plug spawns exactly one
+ * fresh reporter instead of accumulating threads that fight over the screen. */
+typedef bool (*eth_link_fn)(void);
+static void eth_report_thread(struct netif *netif, const char *chip,
+                              const volatile uint32_t *rxp,
+                              const volatile uint32_t *txp,
+                              eth_link_fn link_up)
 {
-    struct netif *netif = (struct netif *)arg;
-    volatile uint32_t *hcor = (volatile uint32_t *)CONFIG_USB_EHCI_HCOR_BASE;
     uint32_t iter = 0;
-    /* static: keep these big buffers OFF the small thread stack (a [512]+[48]
-     * on-stack pair overflowed the 1024-byte stack -> thread died at frame 1). */
+    /* static: keep these buffers OFF the small thread stack. */
     static char s[1024];
     static char line[48];
-    /* Clear ONCE; then overwrite in place with fixed-width lines so the screen
-     * never blanks between frames (per-frame clear caused visible flicker). */
+    /* Clear ONCE, then overwrite in place with fixed-width lines (per-frame
+     * clear caused visible flicker). */
     fpga_screen_clear();
     fpga_spi_reg_write(REG_TEXT_MODE, 1);
     fpga_spi_reg_write(REG_VIDEO_ENABLE, 1);
-    /* Each EMIT formats one line then left-pads to 39 cols (overwrites stale
-     * chars); the trailing \n advances to the next row. */
 #define EMIT(...) do { \
         if (n >= 0 && (size_t)n + 42 < sizeof(s)) { \
             snprintf(line, sizeof(line), __VA_ARGS__); \
@@ -732,18 +734,13 @@ static void rtl_ip_report_thread(void *arg)
             if (_w > 0) n += _w; \
         } \
     } while (0)
-    (void)hcor;
-    /* Exit (and self-delete) when the device is unplugged, so a re-plug spawns a
-     * single fresh reporter instead of accumulating threads fighting the screen. */
     while (g_net_active) {
         uint32_t ip = netif_ip4_addr(netif)->addr;
         const uint8_t *o = (const uint8_t *)&ip;
-        struct usbh_rtl8152 *r = g_rtl;
         int n = 0;
-        EMIT("A2N20 USB-Ethernet (RTL8152)  #%lu", (unsigned long)(++iter));
-        EMIT("link:%s  ver:%u",
-             (r && r->connect_status) ? "up" : "down", r ? r->version : 0);
-        EMIT("rx:%lu  tx:%lu", (unsigned long)g_rtl_rx, (unsigned long)g_rtl_tx);
+        EMIT("A2N20 USB-Ethernet (%s)  #%lu", chip, (unsigned long)(++iter));
+        EMIT("link:%s", link_up() ? "up" : "down");
+        EMIT("rx:%lu  tx:%lu", (unsigned long)*rxp, (unsigned long)*txp);
         if (ip != 0) {
             EMIT("IP: %u.%u.%u.%u", o[0], o[1], o[2], o[3]);
         } else {
@@ -757,6 +754,12 @@ static void rtl_ip_report_thread(void *arg)
     }
 #undef EMIT
     usb_osal_thread_delete(NULL);
+}
+
+static bool rtl_link_up(void) { return g_rtl && g_rtl->connect_status; }
+static void rtl_ip_report_thread(void *arg)
+{
+    eth_report_thread((struct netif *)arg, "RTL8152", &g_rtl_rx, &g_rtl_tx, rtl_link_up);
 }
 
 void usbh_rtl8152_run(struct usbh_rtl8152 *class)
@@ -790,6 +793,108 @@ void usbh_rtl8152_stop(struct usbh_rtl8152 *class)
     g_netif_ready = false;  /* eth_input drops any in-flight frames */
     g_rtl = NULL;
     tcpip_callback(rtl_netif_teardown_cb, NULL);
+}
+
+/* ===================== USB-Ethernet (ASIX AX88772x) glue ====================
+ * Same pattern as the RTL8152 glue above, against the stock CherryUSB usbh_asix
+ * vendor driver (AX88772 / 772A / 772B). Both drivers are enabled and coexist —
+ * whichever adapter is plugged in, only its own run()/stop() fires (one Ethernet
+ * adapter at a time; g_net_active / g_netif_ready are shared). Uses the same
+ * pbuf pool (CMakeLists -DPBUF_POOL_SIZE) — that fix applies to all adapters. */
+static struct netif      g_asix_netif;
+static struct usbh_asix  *g_asix = NULL;
+static volatile uint32_t g_asix_rx = 0;   /* frames delivered to lwIP */
+static volatile uint32_t g_asix_tx = 0;   /* frames sent via linkoutput */
+
+void usbh_asix_eth_input(uint8_t *buf, uint32_t buflen)
+{
+    if (buflen == 0 || !g_netif_ready || g_asix_netif.input == NULL) {
+        return;
+    }
+    struct pbuf *p = pbuf_alloc(PBUF_RAW, buflen, PBUF_POOL);
+    if (p == NULL) {
+        return;
+    }
+    pbuf_take(p, buf, buflen);
+    g_asix_rx++;
+    if (g_asix_netif.input(p, &g_asix_netif) != ERR_OK) {
+        pbuf_free(p);
+    }
+}
+
+static err_t asix_linkoutput(struct netif *netif, struct pbuf *p)
+{
+    (void)netif;
+    uint8_t *txbuf = usbh_asix_get_eth_txbuf();
+    if (txbuf == NULL) {
+        return ERR_IF;
+    }
+    pbuf_copy_partial(p, txbuf, p->tot_len, 0);
+    g_asix_tx++;
+    return (usbh_asix_eth_output(p->tot_len) < 0) ? ERR_IF : ERR_OK;
+}
+
+static err_t asix_netif_init(struct netif *netif)
+{
+    struct usbh_asix *a = (struct usbh_asix *)usbh_find_class_instance("/dev/asix");
+    netif->name[0] = 'e';
+    netif->name[1] = 'n';
+    netif->output = etharp_output;
+    netif->linkoutput = asix_linkoutput;
+    netif->mtu = 1500;
+    netif->flags = NETIF_FLAG_BROADCAST | NETIF_FLAG_ETHARP;
+    netif->hwaddr_len = 6;
+    if (a) {
+        memcpy(netif->hwaddr, a->mac, 6);
+    }
+    return ERR_OK;
+}
+
+static void asix_netif_setup_cb(void *ctx)
+{
+    (void)ctx;
+    ip4_addr_t any;
+    ip4_addr_set_zero(&any);
+    netif_add(&g_asix_netif, &any, &any, &any, NULL, asix_netif_init, tcpip_input);
+    netif_set_default(&g_asix_netif);
+    netif_set_up(&g_asix_netif);
+    netif_set_link_up(&g_asix_netif);
+    g_netif_ready = true;
+    dhcp_start(&g_asix_netif);
+}
+
+static void asix_netif_teardown_cb(void *ctx)
+{
+    (void)ctx;
+    dhcp_stop(&g_asix_netif);
+    netif_remove(&g_asix_netif);
+}
+
+static bool asix_link_up(void) { return g_asix && g_asix->connect_status; }
+static void asix_ip_report_thread(void *arg)
+{
+    eth_report_thread((struct netif *)arg, "ASIX", &g_asix_rx, &g_asix_tx, asix_link_up);
+}
+
+void usbh_asix_run(struct usbh_asix *class)
+{
+    g_asix = class;
+    g_asix_rx = 0;
+    g_net_active = true;
+    tcpip_callback(asix_netif_setup_cb, NULL);
+    usb_osal_thread_create("asix_rx", 3072, CONFIG_USBHOST_PSC_PRIO + 1,
+                           usbh_asix_rx_thread, NULL);
+    usb_osal_thread_create("asix_ip", 2048, CONFIG_USBHOST_PSC_PRIO + 1,
+                           asix_ip_report_thread, &g_asix_netif);
+}
+
+void usbh_asix_stop(struct usbh_asix *class)
+{
+    (void)class;
+    g_net_active = false;
+    g_netif_ready = false;
+    g_asix = NULL;
+    tcpip_callback(asix_netif_teardown_cb, NULL);
 }
 
 int main(void)
