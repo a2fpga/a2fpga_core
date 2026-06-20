@@ -14,9 +14,10 @@ grounded assessment of which other USB device classes are feasible.
   **`firmware_host/`** build is a **USB host**. They are separate images.
 - **Working today:** USB-host **XInput gamepad** → pressing **Select** toggles
   the HDMI display between the Apple II output and an MCU-drawn menu.
-- The BL616 also has **native WiFi 6 + BLE** radios (it's marketed as a wireless
-  SoC). Those use the on-chip radio and the SDK's `wifi6`/`bluetooth` stacks —
-  **not** USB. For wireless, the native radio is the path, not a USB dongle.
+- The BL616 has **native WiFi 6 + BLE** radios, **but on the Tang Nano 20K there
+  is no antenna wired to them — so wireless (native *or* USB dongle) is not an
+  option.** Card↔PC communication therefore goes over **wired USB-Ethernet**
+  (a host-mode RTL8152 dongle + lwIP) — see §7.
 
 ## 1. The hardware
 
@@ -27,7 +28,7 @@ grounded assessment of which other USB device classes are feasible.
 | Companion controller | **None** (no OHCI/UHCI) |
 | Physical connector | the USB-C **Debug** port |
 | VBUS | tied to the card's +5V plane through a 6 V / 2 A fuse (bidirectional — so VBUS reads "present" whether or not a PC is attached; it is **not** a reliable "PC connected?" signal) |
-| Native radios | WiFi 6 + BLE 5 (on-chip; SDK `components/wireless/{wifi6,bluetooth}`) |
+| Native radios | WiFi 6 + BLE 5 (on-chip; SDK `components/wireless/{wifi6,bluetooth}`) — **but no antenna is wired on the Tang Nano 20K, so they're unusable here** |
 | TCP/IP | lwIP (`components/net/lwip`) |
 
 ## 2. Architecture & hard constraints
@@ -151,9 +152,9 @@ WiFi/BLE). "Bridge" = the Apple-II-side integration work, separate from USB.
 | **Mass storage** | MSC (bulk) | ✅ `usbh_msc` + FatFS | **High** | Same FatFS layer we already use for SD; serve disk images from a USB stick. HS bulk, no special init. |
 | **Mouse / keyboard** | HID | ✅ `usbh_hid` | **High** | Same machinery as the gamepad; add HID **report-descriptor parsing** (the reference projects include a `hidparser`). Bridge to an Apple II mouse card / keyboard reg. |
 | **Serial** | CDC-ACM | ✅ `usbh_cdc_acm` | **Medium** | Works for true CDC-ACM. FTDI/CH340/CP210x/PL2303 use **vendor** drivers (upstream CherryUSB, not bundled — port them). Bridge to a Super Serial Card. |
-| **Wired ethernet** | CDC-ECM / RNDIS / AX88179 / RTL8152 | ❌ (lwIP ✅) | **Medium-hard** | Port the adapter class driver from upstream CherryUSB, wire to lwIP, bridge to an Uthernet-style Apple II network card. Substantial. |
-| **WiFi (USB dongle)** | vendor | ❌ | **Impractical** | USB WiFi dongles need proprietary vendor drivers + firmware blobs + a dongle-specific stack. **Use the BL616's native WiFi 6 instead** (on-chip radio + SDK `wifi6`); the real work is the Apple-II network bridge, not USB. |
-| **Bluetooth (USB dongle)** | Bluetooth HCI-over-USB | ❌ (native BLE ✅) | **Possible but redundant** | HCI-over-USB is standard (upstream CherryUSB has `usbh_bluetooth`), but the BL616 has **native BLE** — prefer that. |
+| **Wired ethernet** | CDC-ECM / RNDIS / AX88179 / RTL8152 | ❌ (lwIP ✅) | **Medium** | The **primary card↔PC channel** for host mode — see §7. Port the adapter class driver from upstream CherryUSB, wire to lwIP. We standardize on **RTL8152**. |
+| **WiFi** | (USB dongle / native) | ❌ | **Not available** | The Tang Nano 20K has **no antenna wired to the BL616**, so the native WiFi 6 radio is unusable. USB WiFi dongles need proprietary vendor drivers + firmware blobs — impractical. So WiFi is off the table; use wired Ethernet (§7). |
+| **Bluetooth** | (USB dongle / native) | ❌ | **Not available** | Same antenna problem rules out native BLE. A USB Bluetooth (HCI-over-USB) dongle is theoretically possible but needs a full host BT stack (L2CAP + RFCOMM/GATT) — impractical. |
 
 ### Cross-cutting caveats
 - **One port, one role.** Host mode gives up the FT2232 programmer. Multiple
@@ -164,7 +165,54 @@ WiFi/BLE). "Bridge" = the Apple-II-side integration work, separate from USB.
   easy half; getting its data to the Apple II in a form a program can use (slot
   card emulation, registers, SDRAM) is the bulk of each feature.
 
-## 7. References
+## 7. Card ↔ PC communication
+
+The card's only physical link to a PC is the BL616's USB. The right approach
+depends on whether the BL616 is a USB **device** or **host**:
+
+- **BL616 as a USB *device* (gadget) → PC.** The PC enumerates the BL616 directly
+  as a COM port (CDC-ACM) or a USB-Ethernet gadget (RNDIS/ECM). Simplest, no extra
+  hardware — and the existing FT2232 device firmware already gives a serial-to-PC
+  channel. **But it needs *device* mode**, which is mutually exclusive with USB
+  *host* on the single port — so it only fits when the card isn't also hosting
+  peripherals.
+- **BL616 as a USB *host* + a network *adapter* → network → PC.** When the card
+  must stay in **host mode** (peripherals on a hub; no clean runtime
+  host↔device switch, and re-cabling a hub of devices is impractical), it reaches
+  a PC by hosting a **USB-Ethernet adapter** as one more device on the hub,
+  running an IP stack, and talking to the PC **over the network**.
+
+**This project targets the host-mode case, so the host + Ethernet-adapter path is
+the one.** (A high-speed USB-Ethernet dongle does *not* hit the full-speed
+transport caveats from §4.2 — it's a bulk, HS device.)
+
+### Chosen approach: RTL8152 USB-Ethernet + lwIP
+- **Dongle:** standardize on **RTL8152/8153** (Realtek `0x0BDA`, PID `0x8152`/`0x8153`)
+  — ~$5, ubiquitous, USB 2.0 high-speed. CherryUSB upstream ships
+  `usbh_rtl8152.c` (also `usbh_asix`, `usbh_cdc_ecm`, `usbh_cdc_ncm`,
+  `usbh_rndis` if other adapters are ever wanted).
+- **Port:** the bundled SDK CherryUSB (~v0.10) has **no** net drivers; pull
+  `usbh_rtl8152.c` from upstream into `firmware_host/` and **adapt it to the
+  bundled API** (same kind of adaptation as `usbh_xinput.c`); add it via *our*
+  CMakeLists, not the SDK's. Match by VID/PID.
+- **IP:** wire the driver's RX/TX into an **lwIP** netif (lwIP is in the SDK);
+  DHCP for addressing.
+- **Coexistence:** the dongle and a gamepad both live under the hub — no mode
+  switch.
+
+### Networking roadmap (smallest → largest)
+| Tier | What | Apple II sees | Effort |
+|---|---|---|---|
+| **1 — MVP** | **MCU on the net**: DHCP + ping / tiny HTTP server. Then config + SD-over-network (HTTP → FatFS / A2FPGA registers). | nothing (MCU-only) | RTL8152 port + lwIP |
+| **2** | **Virtual modem**: a Hayes-AT parser on the BL616 bridges the FPGA serial ↔ TCP sockets (the Fujinet / "WiFi modem" model). | its existing serial card + a "modem"; works with stock comms software | medium, mostly MCU-side |
+| **3** | **Uthernet emulation**: a real IP stack on the Apple II via an emulated network card (IP65 / Contiki). | a network card | large, FPGA + bridge |
+
+**Start with Tier 1** — the immediate goal is just proving Ethernet comms from the
+MCU to the network (no Apple II changes). Note that Apple-II **serial-over-Ethernet
+is Tier 2 (the virtual-modem pattern) handled on the *MCU*, not the PC**; Tier 3
+(Uthernet) is only needed if the Apple II should run its own IP stack.
+
+## 8. References
 
 - This firmware: [`firmware_host/`](../firmware_host/) — `usbh_xinput.c`, `main.c`.
 - **nand2mario/firmware-bl616** — `usb/usb_gamepad.cpp`: XInput + HID gamepad host
