@@ -529,6 +529,40 @@ include $(BL_SDK_BASE)/project.build
 - Package firmware binary and flashing tools
 - **Success criteria**: A2N20 users can update BL616 firmware and boot disk images
 
+## USB-Ethernet (RTL8152) host networking
+
+The USB-host build (`firmware_host/`) can host a **USB-Ethernet adapter** so the
+card joins the LAN: the BL616 runs the USB host, brings up the adapter, runs
+lwIP + DHCP, and shows the leased IP on the HDMI overlay. Hardware-verified
+(gets a DHCP lease, pings both ways, hot-pluggable with the gamepad).
+
+**Adapter:** Realtek **RTL8152** (USB `0x0bda/0x8152`). Use the stock CherryUSB
+`usbh_rtl8152` vendor driver — **no SDK patches needed**. (The **RTL8153**
+`0x8153` is *not* supported by that driver's `rtl_ops_init` for its chip version,
+so use an RTL8152-based adapter.)
+
+**What enables it (all in `firmware_host/`, CherryUSB unmodified):**
+- `proj.conf`: `set(CONFIG_CHERRYUSB_HOST_RTL8152 1)` + `CONFIG_LWIP 1`.
+- `usb_config.h`: `CONFIG_USBHOST_RTL8152_ETH_MAX_RX_SIZE = 16*1024`. The chip
+  reports `rx_buf_sz = 16K`; a smaller value makes `usbh_rtl8152_connect()`
+  return `-USB_ERR_NOMEM` and the adapter never comes up.
+- `CMakeLists.txt`: **`-DPBUF_POOL_SIZE=16 -DPBUF_POOL_BUFSIZE=1600`**.
+  ⚠️ **Critical gotcha:** the SDK's `lwipopts.h` defaults `PBUF_POOL_SIZE` to **0**
+  unless `CFG_ETHERNET_ENABLE` is defined — with a zero pool, `pbuf_alloc()`
+  fails for *every* received frame and RX is silently dropped (no DHCP, no IP),
+  even though the chip, USB stack, and driver are all working. This one line is
+  what makes RX work.
+- `main.c`: `usbh_get_hport_active_config_index()` returns 0 (RTL8152 uses its
+  default vendor config); lwIP netif glue (`usbh_rtl8152_eth_input` → lwIP, TX via
+  the driver's tx buffer); spawns the driver's `usbh_rtl8152_rx_thread` + a status
+  reporter. On unplug, `usbh_rtl8152_stop` calls `netif_remove` (via
+  `tcpip_callback`) so a re-plug can re-add the netif (hot-plug).
+
+**Test:** flash the host build (`/flash-mcu`), then with **no PC on the BL616
+USB port**, plug the RTL8152 adapter (Ethernet cabled to your LAN) into the host
+port. The overlay shows `link: up` then `IP: x.x.x.x`; ping that IP from another
+host.
+
 ## Key Design Decisions
 
 1. **SPI as primary FPGA channel**: SPI (GPIO0-3 → FPGA pins 86/13/75/76) provides ~20 MHz throughput for register-based communication. JTAG (GPIO10/12/14/16 → FPGA dedicated pins 5-8) is fully independent — both operate simultaneously. No interrupt line available, so MCU polls FPGA status registers via SPI.
