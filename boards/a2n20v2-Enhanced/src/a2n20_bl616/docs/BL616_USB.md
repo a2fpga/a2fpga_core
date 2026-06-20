@@ -152,7 +152,7 @@ WiFi/BLE). "Bridge" = the Apple-II-side integration work, separate from USB.
 | **Mass storage** | MSC (bulk) | ✅ `usbh_msc` + FatFS | **High** | Same FatFS layer we already use for SD; serve disk images from a USB stick. HS bulk, no special init. |
 | **Mouse / keyboard** | HID | ✅ `usbh_hid` | **High** | Same machinery as the gamepad; add HID **report-descriptor parsing** (the reference projects include a `hidparser`). Bridge to an Apple II mouse card / keyboard reg. |
 | **Serial** | CDC-ACM | ✅ `usbh_cdc_acm` | **Medium** | Works for true CDC-ACM. FTDI/CH340/CP210x/PL2303 use **vendor** drivers (upstream CherryUSB, not bundled — port them). Bridge to a Super Serial Card. |
-| **Wired ethernet** | CDC-ECM / RNDIS / AX88179 / RTL8152 | ✅ in-tree (CDC-ECM + lwIP, HW test pending) | **Medium** | The **primary card↔PC channel** for host mode — see §7. We drive the **RTL8153 via CDC-ECM** (in-tree `usb_net/usbh_cdc_ecm.c`, switches the adapter to its config-2 CDC-ECM) wired to lwIP. |
+| **Wired ethernet** | RTL8152 / CDC-ECM / RNDIS / AX88179 | ✅ **working (HW verified: DHCP IP + ping)** | **Medium** | The **primary card↔PC channel** for host mode — see §7. We drive an **RTL8152 via the stock `usbh_rtl8152` vendor driver** + lwIP (CDC-ECM/RTL8153 was tried first but the RTL8153 isn't supported by the vendor driver's chip-version table). |
 | **WiFi** | (USB dongle / native) | ❌ | **Not available** | The Tang Nano 20K has **no antenna wired to the BL616**, so the native WiFi 6 radio is unusable. USB WiFi dongles need proprietary vendor drivers + firmware blobs — impractical. So WiFi is off the table; use wired Ethernet (§7). |
 | **Bluetooth** | (USB dongle / native) | ❌ | **Not available** | Same antenna problem rules out native BLE. A USB Bluetooth (HCI-over-USB) dongle is theoretically possible but needs a full host BT stack (L2CAP + RFCOMM/GATT) — impractical. |
 
@@ -186,40 +186,49 @@ depends on whether the BL616 is a USB **device** or **host**:
 the one.** (A high-speed USB-Ethernet dongle does *not* hit the full-speed
 transport caveats from §4.2 — it's a bulk, HS device.)
 
-### Chosen approach: STOCK CDC-ECM (RTL8153) + lwIP on CherryUSB v1.5.3 — IMPLEMENTED (builds; HW test pending)
-The Realtek **RTL8153** (`0x0BDA` / `0x8153`) is a **dual-configuration** device:
-config 1 = Realtek vendor protocol (class `0xFF`), config 2 = standard
-**CDC-ECM**. CherryUSB enumerates only the *first* configuration, so a stock
-`INTF_CLASS=CDC` match would never fire on config 1.
-- **The keystone:** CherryUSB **v1.5.3** (SDK v2.3.27) adds the weak hook
-  `usbh_get_hport_active_config_index(hport)`. We override it in `main.c` to
-  return config index **1** (the CDC-ECM config) for VID 0x0BDA / PID 0x8153, so
-  the enumerator selects config 2 and the **stock `usbh_cdc_ecm.c`** matches —
-  **no SDK edits, no custom driver**. Enable with
-  `set(CONFIG_CHERRYUSB_HOST_CDC_ECM 1)` in proj.conf.
-  (History: on the old v0.10.0 SDK there was no such hook, so we hand-rolled a
-  driver that did `SET_CONFIGURATION(2)` + manual config-2 parse. That driver is
-  deleted now that the SDK is current — see the migration note in
-  `AGENTS.md`/memory.)
-- **IP glue (main.c):** implement the stock driver's bridge hooks —
-  `usbh_cdc_ecm_eth_input()` (RX → lwIP), `ecm_linkoutput()` via
-  `usbh_cdc_ecm_get_eth_txbuf()`/`usbh_cdc_ecm_eth_output()` (TX), and the
-  `usbh_cdc_ecm_run/stop` weak overrides (netif_add + DHCP on the tcpip thread,
-  start `usbh_cdc_ecm_rx_thread`). `CONFIG_LWIP 1`; lwIP needs `bl_rand()` —
-  a small xorshift PRNG in `main.c` (not crypto), so we don't pull in wifi.
-- **MVP proof:** once DHCP binds, the leased IP's four octets are written to the
-  HDMI DebugOverlay (stage `0xEA`). `g_net_active` keeps the gamepad "searching"
-  overlay writes from fighting the IP display.
-- **Coexistence:** dongle + gamepad can both live under a hub — no mode switch.
-- **Other adapters:** v1.5.3 also ships `usbh_rtl8152` (native Realtek; handles
-  the 8153 chip but its id_table lists only 0x8152, so it'd need an SDK edit),
-  `usbh_asix`, `usbh_cdc_ncm`, `usbh_rndis` — any of which could be wired the
-  same way.
+### Chosen approach: STOCK `usbh_rtl8152` vendor driver + lwIP — WORKING (HW verified: DHCP IP + ping + hot-plug)
+Use an **RTL8152** adapter (`0x0BDA` / `0x8152`) with the **stock CherryUSB
+`usbh_rtl8152` vendor driver** — **no SDK edits, no custom driver**. The driver's
+`usbh_rtl8152_connect()` does the full chip bring-up (version detect, MAC RX/TX
+enable, RX filter, autoneg) and runs its own `usbh_rtl8152_rx_thread`.
+- **Enable:** `set(CONFIG_CHERRYUSB_HOST_RTL8152 1)` + `set(CONFIG_LWIP 1)` in
+  proj.conf.
+- **Two non-obvious build settings — both REQUIRED:**
+  - `usb_config.h`: `CONFIG_USBHOST_RTL8152_ETH_MAX_RX_SIZE = 16*1024`. The chip
+    reports `rx_buf_sz = 16K`; anything smaller makes `usbh_rtl8152_connect()`
+    return `-USB_ERR_NOMEM` and the adapter never comes up.
+  - `CMakeLists.txt`: **`-DPBUF_POOL_SIZE=16 -DPBUF_POOL_BUFSIZE=1600`**. ⚠️ The
+    SDK's `lwipopts.h` defaults `PBUF_POOL_SIZE` to **0** unless
+    `CFG_ETHERNET_ENABLE` is defined → `pbuf_alloc()` fails for *every* received
+    frame → RX is silently dropped (no DHCP), even though the chip, USB stack,
+    and driver are all healthy. This one line is what makes RX work.
+- **IP glue (main.c):** override the driver's weak hooks —
+  `usbh_rtl8152_eth_input()` (RX → lwIP), `rtl_linkoutput()` via
+  `usbh_rtl8152_get_eth_txbuf()`/`usbh_rtl8152_eth_output()` (TX), and
+  `usbh_rtl8152_run/stop` (netif add/remove + DHCP on the tcpip thread; spawn the
+  driver's rx_thread). `usbh_get_hport_active_config_index()` returns 0 (the
+  RTL8152 uses its default vendor config). `stop` must `netif_remove` (via
+  `tcpip_callback`), else a re-plug `netif_add`s an already-added netif and
+  hot-plug fails. lwIP needs `bl_rand()` — a small xorshift PRNG in main.c.
+- **MVP proof:** the DHCP-leased IP is shown on the HDMI overlay; verified by
+  pinging it from a PC, and the adapter hot-swaps with the gamepad under a hub.
+
+**Why not CDC-ECM / RTL8153.** We first tried an **RTL8153** (`0x8153`,
+dual-config) via the stock `usbh_cdc_ecm` driver — forcing its config-2 CDC-ECM
+with the `usbh_get_hport_active_config_index` hook. It enumerated and TX worked,
+but **RX never delivered frames**, which sent us down a long EHCI/data-toggle
+rabbit hole. The real blocker turned out to be the `PBUF_POOL_SIZE=0` lwIP
+default above — it dropped RX on *every* path, CDC-ECM and vendor alike.
+Separately, the stock `usbh_rtl8152` driver's `rtl_ops_init` does **not**
+implement the RTL8153's chip version (RTL_VER_09), so the 8153 can't use the
+vendor driver. Net: use an **RTL8152** on the native vendor driver + the
+pbuf-pool fix. (`usbh_asix`, `usbh_cdc_ncm`, `usbh_rndis` ship too and could be
+wired the same way for other adapters.)
 
 ### Networking roadmap (smallest → largest)
 | Tier | What | Apple II sees | Effort |
 |---|---|---|---|
-| **1 — MVP** | **MCU on the net**: DHCP + ping / tiny HTTP server. Then config + SD-over-network (HTTP → FatFS / A2FPGA registers). | nothing (MCU-only) | CDC-ECM driver + lwIP (**implemented**, HW test pending) |
+| **1 — MVP** | **MCU on the net**: DHCP + ping / tiny HTTP server. Then config + SD-over-network (HTTP → FatFS / A2FPGA registers). | nothing (MCU-only) | RTL8152 vendor driver + lwIP (**DONE — HW verified: DHCP IP + ping**) |
 | **2** | **Virtual modem**: a Hayes-AT parser on the BL616 bridges the FPGA serial ↔ TCP sockets (the Fujinet / "WiFi modem" model). | its existing serial card + a "modem"; works with stock comms software | medium, mostly MCU-side |
 | **3** | **Uthernet emulation**: a real IP stack on the Apple II via an emulated network card (IP65 / Contiki). | a network card | large, FPGA + bridge |
 
