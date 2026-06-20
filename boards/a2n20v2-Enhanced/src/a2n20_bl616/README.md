@@ -135,6 +135,11 @@ FPGA pins 5-8 are the GW2AR-18's **dedicated JTAG pins** — independent from th
 
 USB D+/D- are dedicated analog pins on the BL616 QFN40 package (not GPIOs). Hardwired to the Debug USB-C connector.
 
+For USB **host** support (reading gamepads/storage/etc. instead of acting as the
+FT2232 device), the architecture, hard-won lessons, and a per-device-class
+feasibility roadmap are in **[docs/BL616_USB.md](docs/BL616_USB.md)**. The working
+example is the USB-host XInput gamepad build in [`firmware_host/`](firmware_host/).
+
 ### GPIO Register Addresses (BL616)
 
 BL616 GLB base: `0x20000000`.
@@ -534,7 +539,10 @@ include $(BL_SDK_BASE)/project.build
 - **nand2mario blog**: https://nand2mario.github.io/posts/2025/mcu_for_better_fpga_gaming/
 - **FPGA-Companion SPI protocol**: https://github.com/MiSTle-Dev/FPGA-Companion/blob/main/SPI.md
 - **FPGA-Companion TN20K versions wiki**: https://github.com/MiSTle-Dev/.github/wiki/Versions_TangNano20k
-- **Ecosystem reference doc**: `docs/bl616_ecosystem.md`
+- **Ecosystem reference doc**: [`docs/bl616_ecosystem.md`](docs/bl616_ecosystem.md)
+- **USB host support, lessons & device roadmap**: [`docs/BL616_USB.md`](docs/BL616_USB.md)
+- **nand2mario/firmware-bl616** (USB gamepad host reference): https://github.com/nand2mario/firmware-bl616
+- **FPGA-Companion BL616 source** (USB host reference): https://github.com/MiSTle-Dev/FPGA-Companion/tree/main/src/bl616
 
 ### Board Variant & eFuse Research
 - **FPGA-Companion issue #79** (board variant bricking, recovery procedures): https://github.com/MiSTle-Dev/FPGA-Companion/issues/79
