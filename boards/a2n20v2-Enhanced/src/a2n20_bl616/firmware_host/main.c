@@ -644,42 +644,18 @@ static struct netif      g_rtl_netif;
 static struct usbh_rtl8152 *g_rtl = NULL;
 static volatile uint32_t g_rtl_rx = 0;   /* frames delivered to lwIP */
 static volatile uint32_t g_rtl_tx = 0;   /* frames sent via linkoutput */
-static volatile int      g_rtl_tx_ret = -99; /* last bulk-OUT (eth_output) return: 0=completed OK */
 
-/* On-device visibility into the stock driver's connect() (no serial in host
- * mode). The driver calls this weak hook with: 1=connect entered  2=raw chip
- * version reg  3=mapped RTL_VER  4=rtl_ops_init ok  5=init/up ok(rx_buf_sz)
- * 6=rx_buf_sz ok  7=MAC read ret  8=eps set -> run(). The LAST code shown is how
- * far connect got; if NOTHING shows, connect() was never called (class match
- * failed -> the adapter's vendor interface isn't 0xff/0x00/0x00 in its active
- * config). */
-/* Capture driver diag codes into an array (don't fight the dashboard). The
- * driver's rx_thread also reports device registers here: 20=PLA_RCR (RX filter),
- * 21=PLA_CR (CR_RE|CR_TE in low byte), 22=RX_FIFO_EMPTY, 23=RXFIFO_FULL. */
-static volatile uint32_t g_rtl_dbg[32];
-void rtl8152_dbg(uint8_t code, uint32_t val)
-{
-    if (code < 32) {
-        g_rtl_dbg[code] = val;
-    }
-}
-
-/* RX: the driver's rx_thread calls this per Ethernet frame. */
-/* diag counters: in=called w/ data, nr=dropped not-ready, np=dropped no-pbuf */
-static volatile uint32_t g_in_calls = 0, g_in_notready = 0, g_in_nopbuf = 0;
+/* RX: the driver's rx_thread calls this once per received Ethernet frame.
+ * NOTE: this needs a non-zero lwIP pbuf pool — see CMakeLists.txt
+ * (PBUF_POOL_SIZE defaults to 0 in the SDK lwipopts, which silently drops
+ * every RX frame here). */
 void usbh_rtl8152_eth_input(uint8_t *buf, uint32_t buflen)
 {
-    if (buflen == 0) {
-        return;
-    }
-    g_in_calls++;
-    if (!g_netif_ready || g_rtl_netif.input == NULL) {
-        g_in_notready++;
+    if (buflen == 0 || !g_netif_ready || g_rtl_netif.input == NULL) {
         return;
     }
     struct pbuf *p = pbuf_alloc(PBUF_RAW, buflen, PBUF_POOL);
     if (p == NULL) {
-        g_in_nopbuf++;
         return;
     }
     pbuf_take(p, buf, buflen);
@@ -699,8 +675,7 @@ static err_t rtl_linkoutput(struct netif *netif, struct pbuf *p)
     }
     pbuf_copy_partial(p, txbuf, p->tot_len, 0);
     g_rtl_tx++;
-    g_rtl_tx_ret = usbh_rtl8152_eth_output(p->tot_len); /* 0 = bulk-OUT completed */
-    return (g_rtl_tx_ret < 0) ? ERR_IF : ERR_OK;
+    return (usbh_rtl8152_eth_output(p->tot_len) < 0) ? ERR_IF : ERR_OK;
 }
 
 static err_t rtl_netif_init(struct netif *netif)
@@ -757,45 +732,23 @@ static void rtl_ip_report_thread(void *arg)
             if (_w > 0) n += _w; \
         } \
     } while (0)
-    while (1) {
+    (void)hcor;
+    /* Exit (and self-delete) when the device is unplugged, so a re-plug spawns a
+     * single fresh reporter instead of accumulating threads fighting the screen. */
+    while (g_net_active) {
         uint32_t ip = netif_ip4_addr(netif)->addr;
         const uint8_t *o = (const uint8_t *)&ip;
         struct usbh_rtl8152 *r = g_rtl;
         int n = 0;
-        EMIT("A2N20 USB-ETH RTL8152   #%lu", (unsigned long)(++iter));
-        EMIT("ver:%u  conn:%d", r ? r->version : 0, r ? (int)r->connect_status : -1);
-        EMIT("rx frames: %lu", (unsigned long)g_rtl_rx);
-        EMIT("tx frames: %lu  txret:%d", (unsigned long)g_rtl_tx, g_rtl_tx_ret);
-        EMIT("bulkin ec:%d al:%lu tg:%d",
-             r ? r->bulkin_urb.errorcode : 0,
-             r ? (unsigned long)r->bulkin_urb.actual_length : 0,
-             r ? r->bulkin_urb.data_toggle : 0);
-        EMIT("mac %02x:%02x:%02x:%02x:%02x:%02x",
-             r ? r->mac[0] : 0, r ? r->mac[1] : 0, r ? r->mac[2] : 0,
-             r ? r->mac[3] : 0, r ? r->mac[4] : 0, r ? r->mac[5] : 0);
-        EMIT("spd %lu/%lu", r ? (unsigned long)r->speed[0] : 0,
-             r ? (unsigned long)r->speed[1] : 0);
-        /* chip RX state: rcr=filter (want bits AB|APM|AM=0x0e set), cr=CR_RE|CR_TE
-         * (low byte, want bits 0x0c), fifo empty/full = is the chip capturing? */
-        EMIT("rcr:%08lx cr:%02lx", (unsigned long)g_rtl_dbg[20],
-             (unsigned long)(g_rtl_dbg[21] & 0xff));
-        EMIT("fifoE:%lx F:%lx", (unsigned long)g_rtl_dbg[22],
-             (unsigned long)g_rtl_dbg[23]);
-        /* uctrl=USB_USB_CTRL: RX_ZERO_EN(0x80)+RX_AGG_DISABLE(0x10) must be CLEAR */
-        EMIT("uctrl:%04lx", (unsigned long)g_rtl_dbg[24]);
-        /* chip tally: txp/rxp = MAC packet counts (rxp climbing = chip IS rxing);
-         * rxerr/rxmiss = RX errors / FIFO-overflow drops */
-        EMIT("txp:%lu rxp:%lu", (unsigned long)g_rtl_dbg[25], (unsigned long)g_rtl_dbg[26]);
-        EMIT("rxerr:%lu rxmiss:%lx", (unsigned long)g_rtl_dbg[27], (unsigned long)g_rtl_dbg[28]);
-        /* lastal=last completed bulk-IN byte count (>0 => reads return data ->
-         * parse is dropping it); plen=last parsed rx_desc frame length */
-        EMIT("lastal:%lu plen:%lu", (unsigned long)g_rtl_dbg[30], (unsigned long)g_rtl_dbg[31]);
-        /* eth_input fate: in=called  nr=dropped(netif !ready)  np=dropped(no pbuf) */
-        EMIT("in:%lu nr:%lu np:%lu", (unsigned long)g_in_calls,
-             (unsigned long)g_in_notready, (unsigned long)g_in_nopbuf);
-        EMIT("ehci cmd:%08lx", (unsigned long)hcor[0]);
-        EMIT("ehci sts:%08lx", (unsigned long)hcor[1]);
-        EMIT("ip: %u.%u.%u.%u", o[0], o[1], o[2], o[3]);
+        EMIT("A2N20 USB-Ethernet (RTL8152)  #%lu", (unsigned long)(++iter));
+        EMIT("link:%s  ver:%u",
+             (r && r->connect_status) ? "up" : "down", r ? r->version : 0);
+        EMIT("rx:%lu  tx:%lu", (unsigned long)g_rtl_rx, (unsigned long)g_rtl_tx);
+        if (ip != 0) {
+            EMIT("IP: %u.%u.%u.%u", o[0], o[1], o[2], o[3]);
+        } else {
+            EMIT("IP: (requesting via DHCP...)");
+        }
         (void)n;
         fpga_screen_home();
         fpga_screen_puts(s);
@@ -803,6 +756,7 @@ static void rtl_ip_report_thread(void *arg)
         usb_osal_msleep(500);
     }
 #undef EMIT
+    usb_osal_thread_delete(NULL);
 }
 
 void usbh_rtl8152_run(struct usbh_rtl8152 *class)
@@ -819,14 +773,23 @@ void usbh_rtl8152_run(struct usbh_rtl8152 *class)
                            rtl_ip_report_thread, &g_rtl_netif);
 }
 
+/* netif teardown must run on the tcpip thread (lwIP isn't reentrant). netif_remove
+ * is essential: without it, a re-plug calls netif_add on an already-added netif
+ * (lwIP list corruption) -> hot-plug back to the adapter fails. */
+static void rtl_netif_teardown_cb(void *ctx)
+{
+    (void)ctx;
+    dhcp_stop(&g_rtl_netif);
+    netif_remove(&g_rtl_netif);
+}
+
 void usbh_rtl8152_stop(struct usbh_rtl8152 *class)
 {
     (void)class;
-    g_net_active = false;
-    g_netif_ready = false;
+    g_net_active = false;   /* report thread sees this and self-deletes */
+    g_netif_ready = false;  /* eth_input drops any in-flight frames */
     g_rtl = NULL;
-    netif_set_down(&g_rtl_netif);
-    dhcp_stop(&g_rtl_netif);
+    tcpip_callback(rtl_netif_teardown_cb, NULL);
 }
 
 int main(void)
