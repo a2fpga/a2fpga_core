@@ -74,6 +74,10 @@
 
 static volatile uint8_t g_flags = 0;
 static volatile uint8_t g_counter = 0;
+/* Set by the connect callback for EVERY new controller; the poll thread (re)runs
+ * the init when it sees this. A flag (not pointer identity) because a freed class
+ * struct's address gets reused — so a new pad can look "same" by pointer. */
+static volatile bool g_need_init = false;
 
 static inline void dbg_stage(uint8_t s) { fpga_spi_reg_write(DBG_STAGE, s); }
 static inline void dbg_set(uint8_t f)   { g_flags |= f;  fpga_spi_reg_write(DBG_FLAGS, g_flags); }
@@ -171,6 +175,7 @@ void usbh_xinput_run(struct usbh_xinput *xinput_class)
     (void)xinput_class;
     dbg_stage(STG_CONNECTED);
     dbg_set(F_CONNECTED);
+    g_need_init = true;   /* tell the poll thread to (re)init this controller */
     fpga_screen_clear();
     fpga_screen_home();
     fpga_screen_puts("XInput controller connected");
@@ -212,13 +217,28 @@ static void xinput_in_cb(void *arg, int nbytes)
     }
 }
 
+/* Find the first connected XInput controller. The device slot ("/dev/xinputN")
+ * isn't always N=0 across hot-plugs (the old slot may not be freed before the
+ * new pad enumerates), so scan a few. */
+static struct usbh_xinput *xinput_find(void)
+{
+    for (int m = 0; m < 4; m++) {
+        char name[16];
+        snprintf(name, sizeof(name), "/dev/xinput%d", m);
+        struct usbh_xinput *xc = (struct usbh_xinput *)usbh_find_class_instance(name);
+        if (xc) {
+            return xc;
+        }
+    }
+    return NULL;
+}
+
 static void xinput_thread(void *arg)
 {
     (void)arg;
-    struct usbh_xinput *xinput_class;
 
     while (1) {
-        xinput_class = (struct usbh_xinput *)usbh_find_class_instance("/dev/xinput0");
+        struct usbh_xinput *xinput_class = xinput_find();
         if (xinput_class == NULL) {
             /* Not connected. Show EHCI port status: hex[1]=PORTSC low (bit0 CCS),
              * hex[2]=PORTSC high. Only the thread does SPI here. */
@@ -233,21 +253,23 @@ static void xinput_thread(void *arg)
             continue;
         }
 
-        if (xinput_class != g_dev) {
-            /* Fresh connection: run the full XInput init (control transfers + EP2
-             * packets) FIRST, then arm the async IN read. The control transfers
-             * must not race a pending IN URB, hence this order. */
+        /* (Re)initialize on a fresh connection. Triggered by g_need_init (set by
+         * the connect callback for EVERY new pad) OR a changed instance pointer —
+         * either alone is unreliable for hot-plug, together they're robust. */
+        if (g_need_init || xinput_class != g_dev) {
+            g_need_init = false;
+            g_dev = xinput_class;
             g_prev_buttons = 0;
+            /* Full XInput init (control transfers + EP2 packets) FIRST, then arm
+             * the async IN read (control transfers must not race a pending IN). */
             int ir = xinput_send_init(xinput_class);
             fpga_spi_reg_write(DBG_BTN_HI, (uint8_t)(-ir)); /* hex[2] = init result */
             usbh_int_urb_fill(&g_in_urb, xinput_class->intin, g_xinput_buf,
                               sizeof(g_xinput_buf), 0, xinput_in_cb, xinput_class);
             usbh_submit_urb(&g_in_urb);
-            g_dev = xinput_class;
         }
 
-        /* Connected: the callback owns the overlay/SPI now (avoids bus contention);
-         * the thread just watches for disconnect. */
+        /* Connected: the callback owns the overlay/SPI now; thread just polls. */
         usb_osal_msleep(500);
     }
 }
