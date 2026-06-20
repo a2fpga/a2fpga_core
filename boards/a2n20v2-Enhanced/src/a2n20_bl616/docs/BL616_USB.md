@@ -152,7 +152,7 @@ WiFi/BLE). "Bridge" = the Apple-II-side integration work, separate from USB.
 | **Mass storage** | MSC (bulk) | ✅ `usbh_msc` + FatFS | **High** | Same FatFS layer we already use for SD; serve disk images from a USB stick. HS bulk, no special init. |
 | **Mouse / keyboard** | HID | ✅ `usbh_hid` | **High** | Same machinery as the gamepad; add HID **report-descriptor parsing** (the reference projects include a `hidparser`). Bridge to an Apple II mouse card / keyboard reg. |
 | **Serial** | CDC-ACM | ✅ `usbh_cdc_acm` | **Medium** | Works for true CDC-ACM. FTDI/CH340/CP210x/PL2303 use **vendor** drivers (upstream CherryUSB, not bundled — port them). Bridge to a Super Serial Card. |
-| **Wired ethernet** | CDC-ECM / RNDIS / AX88179 / RTL8152 | ❌ (lwIP ✅) | **Medium** | The **primary card↔PC channel** for host mode — see §7. Port the adapter class driver from upstream CherryUSB, wire to lwIP. We standardize on **RTL8152**. |
+| **Wired ethernet** | CDC-ECM / RNDIS / AX88179 / RTL8152 | ✅ in-tree (CDC-ECM + lwIP, HW test pending) | **Medium** | The **primary card↔PC channel** for host mode — see §7. We drive the **RTL8153 via CDC-ECM** (in-tree `usb_net/usbh_cdc_ecm.c`, switches the adapter to its config-2 CDC-ECM) wired to lwIP. |
 | **WiFi** | (USB dongle / native) | ❌ | **Not available** | The Tang Nano 20K has **no antenna wired to the BL616**, so the native WiFi 6 radio is unusable. USB WiFi dongles need proprietary vendor drivers + firmware blobs — impractical. So WiFi is off the table; use wired Ethernet (§7). |
 | **Bluetooth** | (USB dongle / native) | ❌ | **Not available** | Same antenna problem rules out native BLE. A USB Bluetooth (HCI-over-USB) dongle is theoretically possible but needs a full host BT stack (L2CAP + RFCOMM/GATT) — impractical. |
 
@@ -186,24 +186,36 @@ depends on whether the BL616 is a USB **device** or **host**:
 the one.** (A high-speed USB-Ethernet dongle does *not* hit the full-speed
 transport caveats from §4.2 — it's a bulk, HS device.)
 
-### Chosen approach: RTL8152 USB-Ethernet + lwIP
-- **Dongle:** standardize on **RTL8152/8153** (Realtek `0x0BDA`, PID `0x8152`/`0x8153`)
-  — ~$5, ubiquitous, USB 2.0 high-speed. CherryUSB upstream ships
-  `usbh_rtl8152.c` (also `usbh_asix`, `usbh_cdc_ecm`, `usbh_cdc_ncm`,
-  `usbh_rndis` if other adapters are ever wanted).
-- **Port:** the bundled SDK CherryUSB (~v0.10) has **no** net drivers; pull
-  `usbh_rtl8152.c` from upstream into `firmware_host/` and **adapt it to the
-  bundled API** (same kind of adaptation as `usbh_xinput.c`); add it via *our*
-  CMakeLists, not the SDK's. Match by VID/PID.
-- **IP:** wire the driver's RX/TX into an **lwIP** netif (lwIP is in the SDK);
-  DHCP for addressing.
-- **Coexistence:** the dongle and a gamepad both live under the hub — no mode
-  switch.
+### Chosen approach: CDC-ECM (RTL8153 config-switch) + lwIP — IMPLEMENTED (builds; HW test pending)
+The Realtek **RTL8153** (`0x0BDA` / `0x8153`) is a **dual-configuration** device:
+config 1 = Realtek vendor protocol (class `0xFF`), config 2 = standard
+**CDC-ECM**. We drive it via CDC-ECM rather than porting the large
+`usbh_rtl8152.c` vendor driver — but the bundled CherryUSB (v0.10.0) only ever
+enumerates **config 1** (it hardcodes `SET_CONFIGURATION(1)`; no hook to pick a
+config), so a stock `INTF_CLASS=CDC` match never fires.
+- **Driver:** `firmware_host/usb_net/usbh_cdc_ecm.{c,h}` (in our tree; SDK
+  CherryUSB stays byte-for-byte unmodified). It **matches the adapter by
+  VID+PID+class 0xFF** on the config-1 vendor interface, then in `connect()`:
+  `SET_CONFIGURATION(2)` → fetch & **parse the config-2 descriptor itself** →
+  activate the ECM int-in + bulk in/out endpoints → `SET_INTERFACE` the data
+  altsetting → `SET_ETHERNET_PACKET_FILTER`. `usbh_set_interface` /
+  `usbh_get_string_desc` are absent from v0.10.0, so they're done as raw
+  `usbh_control_transfer` calls in-tree.
+- **IP:** RX/TX wired into an **lwIP** netif (`CONFIG_LWIP 1`); DHCP for
+  addressing. lwIP needs `bl_rand()` (normally from the wifi/RF component) — we
+  provide a small xorshift PRNG in `main.c` rather than pulling in wifi.
+- **MVP proof:** once DHCP binds, the leased IP's four octets are written to the
+  HDMI DebugOverlay (stage `0xEA`); connect-time progress walks stages
+  `0xE0..0xE8` (`0xEF` = error) so a headless host build is debuggable on screen.
+- **Coexistence:** dongle + gamepad can both live under a hub — no mode switch.
+- **Other adapters:** for non-Realtek dongles, upstream CherryUSB also ships
+  `usbh_asix`, `usbh_cdc_ncm`, `usbh_rndis`, and a single-config `usbh_cdc_ecm`
+  (which *would* match without the config switch) — portable the same way.
 
 ### Networking roadmap (smallest → largest)
 | Tier | What | Apple II sees | Effort |
 |---|---|---|---|
-| **1 — MVP** | **MCU on the net**: DHCP + ping / tiny HTTP server. Then config + SD-over-network (HTTP → FatFS / A2FPGA registers). | nothing (MCU-only) | RTL8152 port + lwIP |
+| **1 — MVP** | **MCU on the net**: DHCP + ping / tiny HTTP server. Then config + SD-over-network (HTTP → FatFS / A2FPGA registers). | nothing (MCU-only) | CDC-ECM driver + lwIP (**implemented**, HW test pending) |
 | **2** | **Virtual modem**: a Hayes-AT parser on the BL616 bridges the FPGA serial ↔ TCP sockets (the Fujinet / "WiFi modem" model). | its existing serial card + a "modem"; works with stock comms software | medium, mostly MCU-side |
 | **3** | **Uthernet emulation**: a real IP stack on the Apple II via an emulated network card (IP65 / Contiki). | a network card | large, FPGA + bridge |
 

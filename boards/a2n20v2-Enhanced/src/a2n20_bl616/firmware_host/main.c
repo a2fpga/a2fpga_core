@@ -26,6 +26,28 @@
 #include "fpga_spi.h"
 #include "fpga_screen.h"
 
+#include "lwip/tcpip.h"   /* lwIP for the USB-Ethernet (CDC-ECM) net path */
+#include "lwip/netif.h"
+#include "lwip/dhcp.h"
+#include "lwip/etharp.h"
+#include "usbh_cdc_ecm.h"
+#include <string.h>
+
+/* lwIP's LWIP_RAND() calls bl_rand() (normally from the SDK wifi/RF component,
+ * which we don't pull in). It's used for DHCP xids / initial sequence numbers /
+ * local-port randomization — not crypto — so an xorshift PRNG is fine. */
+int bl_rand(void)
+{
+    static uint32_t s = 0;
+    if (s == 0) {
+        s = (uint32_t)bflb_mtimer_get_time_us() | 1u;
+    }
+    s ^= s << 13;
+    s ^= s >> 17;
+    s ^= s << 5;
+    return (int)(s & 0x7fffffff);
+}
+
 /* video_control register map (see BL616_SPI_PROTOCOL.md / bl616_spi_connector.sv) */
 #define REG_VIDEO_ENABLE 0x10
 #define REG_TEXT_MODE    0x11
@@ -78,6 +100,10 @@ static volatile uint8_t g_counter = 0;
  * the init when it sees this. A flag (not pointer identity) because a freed class
  * struct's address gets reused — so a new pad can look "same" by pointer. */
 static volatile bool g_need_init = false;
+/* True while a USB-Ethernet (CDC-ECM) device owns the DebugOverlay (it reports
+ * the DHCP IP on the same scratch regs). When set, the xinput poll thread stops
+ * writing its "searching" status so the two don't fight over the overlay. */
+static volatile bool g_net_active = false;
 
 static inline void dbg_stage(uint8_t s) { fpga_spi_reg_write(DBG_STAGE, s); }
 static inline void dbg_set(uint8_t f)   { g_flags |= f;  fpga_spi_reg_write(DBG_FLAGS, g_flags); }
@@ -241,12 +267,15 @@ static void xinput_thread(void *arg)
         struct usbh_xinput *xinput_class = xinput_find();
         if (xinput_class == NULL) {
             /* Not connected. Show EHCI port status: hex[1]=PORTSC low (bit0 CCS),
-             * hex[2]=PORTSC high. Only the thread does SPI here. */
-            uint32_t portsc = EHCI_PORTSC0;
-            dbg_stage(STG_SEARCH);
-            fpga_spi_reg_write(DBG_BTN_LO, (uint8_t)(portsc & 0xFF));
-            fpga_spi_reg_write(DBG_BTN_HI, (uint8_t)((portsc >> 8) & 0xFF));
-            dbg_tick();              /* heartbeat while searching */
+             * hex[2]=PORTSC high. Only the thread does SPI here. BUT if a CDC-ECM
+             * device is active it owns the overlay (DHCP IP), so stay quiet. */
+            if (!g_net_active) {
+                uint32_t portsc = EHCI_PORTSC0;
+                dbg_stage(STG_SEARCH);
+                fpga_spi_reg_write(DBG_BTN_LO, (uint8_t)(portsc & 0xFF));
+                fpga_spi_reg_write(DBG_BTN_HI, (uint8_t)((portsc >> 8) & 0xFF));
+                dbg_tick();              /* heartbeat while searching */
+            }
             g_dev = NULL;
             g_prev_buttons = 0;
             usb_osal_msleep(500);
@@ -274,6 +303,99 @@ static void xinput_thread(void *arg)
     }
 }
 
+/* ===================== USB-Ethernet (CDC-ECM) glue =======================
+ * usbh_cdc_ecm.c (in usb_net/) handles the USB side: it matches the RTL8153
+ * by VID/PID, switches it to its config-2 CDC-ECM, and brings up the bulk
+ * data path. The hooks below provide (a) breadcrumb tracing onto the HDMI
+ * DebugOverlay during connect, and (b) the lwIP netif + DHCP bring-up. Once
+ * DHCP binds, the leased IP's four octets are written to the overlay hex regs
+ * (stage 0xEA) — that on-screen IP is the MVP proof of MCU-on-network. */
+
+static struct netif g_ecm_netif;
+
+/* Breadcrumb overrides (weak in usbh_cdc_ecm.c). Stage 0xE0..0xEF tracks how
+ * far connect() got; bytes 0..2 carry parsed intf numbers / MAC bytes. */
+void ecm_dbg_stage(uint8_t code) { fpga_spi_reg_write(DBG_STAGE, code); }
+void ecm_dbg_byte(uint8_t idx, uint8_t val)
+{
+    switch (idx) {
+        case 0: fpga_spi_reg_write(DBG_BTN_LO, val);  break;
+        case 1: fpga_spi_reg_write(DBG_BTN_HI, val);  break;
+        case 2: fpga_spi_reg_write(DBG_COUNTER, val); break;
+        default: break;
+    }
+}
+
+static err_t ecm_netif_init(struct netif *netif)
+{
+    struct usbh_cdc_ecm *ecm = usbh_cdc_ecm_get_class();
+    netif->name[0] = 'e';
+    netif->name[1] = 'n';
+    netif->output = etharp_output;
+    netif->linkoutput = usbh_cdc_ecm_linkoutput;
+    netif->mtu = 1500;
+    netif->flags = NETIF_FLAG_BROADCAST | NETIF_FLAG_ETHARP;
+    netif->hwaddr_len = 6;
+    if (ecm) {
+        memcpy(netif->hwaddr, ecm->mac, 6);
+    }
+    return ERR_OK;
+}
+
+/* Runs on the lwIP tcpip thread (via tcpip_callback) — lwIP core calls must
+ * not be made from the USB enumeration thread directly. */
+static void ecm_netif_setup_cb(void *ctx)
+{
+    (void)ctx;
+    ip4_addr_t any;
+    ip4_addr_set_zero(&any);
+    netif_add(&g_ecm_netif, &any, &any, &any, NULL, ecm_netif_init, tcpip_input);
+    netif_set_default(&g_ecm_netif);
+    netif_set_up(&g_ecm_netif);
+    netif_set_link_up(&g_ecm_netif);
+    dhcp_start(&g_ecm_netif);
+}
+
+/* Poll the netif and surface the DHCP-leased IP on the overlay hex regs. */
+static void ecm_ip_report_thread(void *arg)
+{
+    struct netif *netif = (struct netif *)arg;
+    uint32_t last = 0;
+    while (1) {
+        uint32_t ip = netif_ip4_addr(netif)->addr; /* network byte order */
+        if (ip != last) {
+            last = ip;
+            if (ip != 0) {
+                const uint8_t *o = (const uint8_t *)&ip;
+                fpga_spi_reg_write(DBG_STAGE, 0xEA); /* 0xEA = DHCP bound */
+                fpga_spi_reg_write(DBG_BTN_LO, o[0]);
+                fpga_spi_reg_write(DBG_BTN_HI, o[1]);
+                fpga_spi_reg_write(DBG_COUNTER, o[2]);
+                fpga_spi_reg_write(DBG_FLAGS, o[3]);
+            }
+        }
+        usb_osal_msleep(500);
+    }
+}
+
+void usbh_cdc_ecm_run(struct usbh_cdc_ecm *ecm)
+{
+    g_net_active = true;                          /* take over the overlay */
+    ecm->netif = &g_ecm_netif;
+    tcpip_callback(ecm_netif_setup_cb, NULL);     /* netif+dhcp on tcpip thread */
+    usbh_cdc_ecm_lwip_thread_init(&g_ecm_netif);  /* bulk-IN rx thread */
+    usb_osal_thread_create("ecm_ip", 1024, CONFIG_USBHOST_PSC_PRIO + 1,
+                           ecm_ip_report_thread, &g_ecm_netif);
+}
+
+void usbh_cdc_ecm_stop(struct usbh_cdc_ecm *ecm)
+{
+    (void)ecm;
+    g_net_active = false;
+    netif_set_down(&g_ecm_netif);
+    dhcp_stop(&g_ecm_netif);
+}
+
 int main(void)
 {
     board_init();
@@ -295,6 +417,8 @@ int main(void)
     dbg_stage(STG_PRE_USB);
 
     printf("A2N20 BL616 USB-host (XInput) build started\r\n");
+
+    tcpip_init(NULL, NULL);   /* bring up the lwIP TCP/IP thread before USB host */
 
     usbh_initialize();
     dbg_stage(STG_USBH_INIT);
