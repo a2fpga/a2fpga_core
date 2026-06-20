@@ -56,6 +56,7 @@
         <File path="../../hdl/ssc/ssc_rom.vhd" type="file.vhdl" enable="1"/>
         <File path="../../hdl/ssc/super_serial_card.sv" type="file.verilog" enable="1"/>
         <File path="../../hdl/supersprite/supersprite.sv" type="file.verilog" enable="1"/>
+        <File path="../../hdl/uthernet2/uthernet2.sv" type="file.verilog" enable="1"/>
         <File path="../../hdl/support/cdc.sv" type="file.verilog" enable="1"/>
         <File path="../../hdl/support/cdc_denoise.sv" type="file.verilog" enable="1"/>
         <File path="../../hdl/support/cdc_fifo.sv" type="file.verilog" enable="1"/>

@@ -15,6 +15,7 @@ reconfigurable at runtime by the coprocessor). Default assignment:
 | Mockingboard | 2 | 4 | Sweet Micro Systems Mockingboard (2× AY-3-8910 + 2× 6522) |
 | Super Serial Card | 3 | 2 | Apple Super Serial Card (6551 ACIA) |
 | Disk II | 4 | 5 | Apple Disk II controller (RAMDISK) — **not currently built, see below** |
+| Uthernet II | 5 | 3 | a2RetroSystems Uthernet II (WIZnet W5100) — a2n20v2-Enhanced only; FPGA front-end + BL616 MACRAW bridge, see [boards/a2n20v2-Enhanced/docs/UTHERNET2.md](../boards/a2n20v2-Enhanced/docs/UTHERNET2.md) |
 
 ## SuperSprite — [`supersprite.sv`](../hdl/supersprite/supersprite.sv)
 

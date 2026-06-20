@@ -47,6 +47,9 @@ module top #(
     parameter bit DISK_II_ENABLE = 1,
     parameter bit [7:0] DISK_II_ID = 4,
 
+    parameter bit UTHERNET2_ENABLE = 1,
+    parameter bit [7:0] UTHERNET2_ID = 5,
+
     parameter bit ENSONIQ_ENABLE = 1,
     parameter bit ENSONIQ_MONO_MIX = 0, // If true, mono mix is used instead of stereo
 
@@ -511,6 +514,17 @@ module top #(
     wire       mcu_ready_w;
     wire [39:0] mcu_scratch_w;   // 5 MCU scratch regs {s4,s3,s2,s1,s0} for debug overlay
 
+    // Uthernet2 (W5100) backing-store host link (SPI SPACE 3 <-> card port B)
+    wire        u2_host_wr_w;
+    wire [15:0] u2_host_addr_w;
+    wire [7:0]  u2_host_wdata_w;
+    wire [7:0]  u2_host_rdata_w;   // driven by the card
+    wire [3:0]  u2_cmd_pending_w;  // driven by the card
+    wire [3:0]  u2_cmd_clr_w;
+    wire [15:0] u2_dbg_wr_count_w; // DEBUG: port-B write instrumentation (card -> connector)
+    wire [15:0] u2_dbg_last_addr_w;
+    wire [7:0]  u2_dbg_last_wdata_w;
+
     bl616_spi_connector #(
         .USE_CRC(0),
         .CLOCK_SPEED_HZ(CLOCK_SPEED_HZ)
@@ -547,7 +561,16 @@ module top #(
         .fifo_rdata(fifo_rdata_w),
         .fifo_pop(fifo_pop_w),
         .capture_mode_o(capture_mode_w),
-        .capture_enable_o(capture_enable_w)
+        .capture_enable_o(capture_enable_w),
+        .w5100_host_wr(u2_host_wr_w),
+        .w5100_host_addr(u2_host_addr_w),
+        .w5100_host_wdata(u2_host_wdata_w),
+        .w5100_host_rdata(u2_host_rdata_w),
+        .w5100_cmd_pending(u2_cmd_pending_w),
+        .w5100_cmd_clr(u2_cmd_clr_w),
+        .w5100_dbg_wr_count(u2_dbg_wr_count_w),
+        .w5100_dbg_last_addr(u2_dbg_last_addr_w),
+        .w5100_dbg_last_wdata(u2_dbg_last_wdata_w)
     );
 
     assign ws2812 = mcu_ws2812_w;
@@ -560,6 +583,12 @@ module top #(
     assign slotmaker_config_if.wr = 1'b0;
     assign slotmaker_config_if.card_i = 8'b0;
     assign slotmaker_config_if.reconfig = 1'b0;
+
+    // No BL616: Uthernet2 backing store has no host -- tie the link idle
+    assign u2_host_wr_w    = 1'b0;
+    assign u2_host_addr_w  = 16'b0;
+    assign u2_host_wdata_w = 8'b0;
+    assign u2_cmd_clr_w    = 4'b0;
 
     video_control_if video_control_if();
     assign video_control_if.enable = 1'b0;
@@ -1003,20 +1032,49 @@ module top #(
         .uart_tx_o(ssc_uart_tx)
     );
 
+    // Uthernet II (W5100) Ethernet card
+
+    wire [7:0] u2_d_w;
+    wire u2_rd;
+    wire u2_irq_n;
+
+    Uthernet2 #(
+        .ENABLE(UTHERNET2_ENABLE),
+        .ID(UTHERNET2_ID)
+    ) uthernet2 (
+        .a2bus_if(a2bus_if),
+        .slot_if(slot_if),
+
+        .data_o(u2_d_w),
+        .rd_en_o(u2_rd),
+        .irq_n_o(u2_irq_n),
+
+        .w5100_host_wr(u2_host_wr_w),
+        .w5100_host_addr(u2_host_addr_w),
+        .w5100_host_wdata(u2_host_wdata_w),
+        .w5100_host_rdata(u2_host_rdata_w),
+        .cmd_pending_o(u2_cmd_pending_w),
+        .cmd_pending_clr(u2_cmd_clr_w),
+        .dbg_portb_wr_count(u2_dbg_wr_count_w),
+        .dbg_portb_last_addr(u2_dbg_last_addr_w),
+        .dbg_portb_last_wdata(u2_dbg_last_wdata_w)
+    );
+
     // Data output
 
-    assign data_out_en_w = ssp_rd || mb_rd || ssc_rd || diskii_rd || cardrom_rd;
+    assign data_out_en_w = ssp_rd || mb_rd || ssc_rd || u2_rd || diskii_rd || cardrom_rd;
 
     assign data_out_w = ssc_rd ? ssc_d_w :
-        ssp_rd ? ssp_d_w : 
-        mb_rd ? mb_d_w : 
+        ssp_rd ? ssp_d_w :
+        mb_rd ? mb_d_w :
+        u2_rd ? u2_d_w :
         diskii_rd ? diskii_d_w :
         cardrom_rd ? cardrom_d_w :
         a2bus_if.data;
 
     // Interrupts
 
-    assign irq_n_w = mb_irq_n && vdp_irq_n && ssc_irq_n;
+    assign irq_n_w = mb_irq_n && vdp_irq_n && ssc_irq_n && u2_irq_n;
 
     // Audio
 

@@ -33,6 +33,7 @@
 #include "usbh_cdc_ecm.h"
 #include "usbh_rtl8152.h"   /* stock vendor driver for the RTL8152 adapter */
 #include "usbh_asix.h"      /* stock vendor driver for ASIX AX88772x adapters */
+#include "w5100.h"          /* emulated W5100 (Uthernet II) MACRAW bridge */
 #include <string.h>
 
 /* lwIP's LWIP_RAND() calls bl_rand() (normally from the SDK wifi/RF component,
@@ -652,6 +653,13 @@ static volatile uint32_t g_rtl_tx = 0;   /* frames sent via linkoutput */
  * every RX frame here). */
 void usbh_rtl8152_eth_input(uint8_t *buf, uint32_t buflen)
 {
+    /* Bridge mode: once the Apple II has opened a MACRAW socket, all wire frames
+     * belong to it (it runs its own stack). Hand them to the W5100 RX ring and do
+     * NOT deliver to the BL616's own lwIP. */
+    if (w5100_macraw_active()) {
+        w5100_macraw_rx(buf, buflen);
+        return;
+    }
     if (buflen == 0 || !g_netif_ready || g_rtl_netif.input == NULL) {
         return;
     }
@@ -795,6 +803,109 @@ void usbh_rtl8152_stop(struct usbh_rtl8152 *class)
     tcpip_callback(rtl_netif_teardown_cb, NULL);
 }
 
+/* ===================== Uthernet II (W5100) MACRAW bridge ====================
+ * The Apple II runs its own TCP/IP stack (IP65, etc.) over the emulated W5100 in
+ * MACRAW mode and appears on the LAN with its own MAC/IP. We bridge its frames
+ * at layer 2 to the RTL8152 adapter:
+ *   - TX: w5100.c hands us a complete Ethernet frame -> send it verbatim.
+ *   - RX: usbh_rtl8152_eth_input() routes wire frames to w5100_macraw_rx().
+ * Receiving frames for the Apple II's MAC requires the adapter in promiscuous
+ * mode (its own MAC filter would drop them). The stock driver doesn't export a
+ * promiscuous API, so we do the one OCP register write (PLA_RCR |= AAP) here via
+ * a control transfer, replicating the driver's generic_ocp_write path. Keeps the
+ * SDK pristine.
+ *
+ * !! HARDWARE-VALIDATION PENDING: the promiscuous OCP write and the end-to-end
+ * bridge have not yet been exercised on real hardware. !!
+ */
+#define RTL8152_REQ_REGS  0x05
+#define RTL8152_PLA_RCR   0xc010
+#define RTL8152_MCU_PLA   0x0100
+#define RTL8152_BYTE_EN_DWORD 0x00ff
+#define RTL8152_RCR_AAP   0x00000001   /* accept all physical (promiscuous) */
+
+static USB_NOCACHE_RAM_SECTION USB_MEM_ALIGNX uint8_t g_ocp_buf[8];
+
+/* Read-modify-write PLA_RCR to add the Accept-All-Physical (promiscuous) bit.
+ * Mirrors ocp_read_dword/ocp_write_dword in usbh_rtl8152.c:
+ *   read : GET_REGS  wValue=index  wIndex=MCU_PLA            wLength=4
+ *   write: SET_REGS  wValue=index  wIndex=MCU_PLA|BYTE_EN    wLength=4   */
+static int rtl8152_set_promiscuous(struct usbh_rtl8152 *r)
+{
+    if (!r || !r->hport) return -1;
+    struct usb_setup_packet *setup = r->hport->setup;
+
+    setup->bmRequestType = USB_REQUEST_DIR_IN | USB_REQUEST_VENDOR | USB_REQUEST_RECIPIENT_DEVICE;
+    setup->bRequest = RTL8152_REQ_REGS;
+    setup->wValue   = RTL8152_PLA_RCR;
+    setup->wIndex   = RTL8152_MCU_PLA;
+    setup->wLength  = 4;
+    int ret = usbh_control_transfer(r->hport, setup, g_ocp_buf);
+    if (ret < 0) return ret;
+
+    uint32_t rcr = (uint32_t)g_ocp_buf[0] | ((uint32_t)g_ocp_buf[1] << 8) |
+                   ((uint32_t)g_ocp_buf[2] << 16) | ((uint32_t)g_ocp_buf[3] << 24);
+    rcr |= RTL8152_RCR_AAP;
+    g_ocp_buf[0] = (uint8_t)rcr;        g_ocp_buf[1] = (uint8_t)(rcr >> 8);
+    g_ocp_buf[2] = (uint8_t)(rcr >> 16); g_ocp_buf[3] = (uint8_t)(rcr >> 24);
+
+    setup->bmRequestType = USB_REQUEST_DIR_OUT | USB_REQUEST_VENDOR | USB_REQUEST_RECIPIENT_DEVICE;
+    setup->bRequest = RTL8152_REQ_REGS;
+    setup->wValue   = RTL8152_PLA_RCR;
+    setup->wIndex   = RTL8152_MCU_PLA | RTL8152_BYTE_EN_DWORD;
+    setup->wLength  = 4;
+    return usbh_control_transfer(r->hport, setup, g_ocp_buf);
+}
+
+/* The stock driver's MAC-set routine (non-static): CRWECR config-unlock -> PLA_IDR
+ * -> relock. We call it to make the dongle adopt the Apple II's MAC. */
+extern int r8152_write_hwaddr(struct usbh_rtl8152 *tp, unsigned char *mac);
+
+/* ---- w5100.c weak-hook overrides ---- */
+void w5100_bridge_tx(const uint8_t *frame, uint32_t len)
+{
+    if (!g_rtl || len == 0) return;
+    uint8_t *tx = usbh_rtl8152_get_eth_txbuf();
+    if (!tx) return;
+    memcpy(tx, frame, len);
+    usbh_rtl8152_eth_output(len);
+}
+
+/* Dongle MAC -- valid only once the adapter has enumerated (driver fills r->mac
+ * during its enable step, after run()), so report "not ready" while it is zero. */
+bool w5100_bridge_dongle_mac(uint8_t mac[6])
+{
+    if (!g_rtl) return false;
+    if ((g_rtl->mac[0] | g_rtl->mac[1] | g_rtl->mac[2] |
+         g_rtl->mac[3] | g_rtl->mac[4] | g_rtl->mac[5]) == 0)
+        return false;
+    memcpy(mac, g_rtl->mac, 6);
+    return true;
+}
+
+/* Primary path: program the dongle's hardware MAC = the Apple II's SHAR. */
+void w5100_bridge_set_dongle_mac(const uint8_t mac[6])
+{
+    if (g_rtl) r8152_write_hwaddr(g_rtl, (unsigned char *)mac);
+}
+
+/* Fallback path (W5100_BRIDGE_FORCE_PROMISC): accept all frames instead. */
+void w5100_bridge_set_promiscuous(void)
+{
+    if (g_rtl) rtl8152_set_promiscuous(g_rtl);
+}
+
+/* W5100 service task: poll the command doorbell and run the MACRAW engine. */
+static void w5100_thread(void *arg)
+{
+    (void)arg;
+    w5100_init();
+    for (;;) {
+        w5100_poll();
+        vTaskDelay(pdMS_TO_TICKS(1));
+    }
+}
+
 /* ===================== USB-Ethernet (ASIX AX88772x) glue ====================
  * Same pattern as the RTL8152 glue above, against the stock CherryUSB usbh_asix
  * vendor driver (AX88772 / 772A / 772B). Both drivers are enabled and coexist —
@@ -913,6 +1024,9 @@ int main(void)
     fpga_screen_clear();
     fpga_screen_home();
     fpga_screen_puts("USB host mode: waiting for joystick...");
+    /* MCU build marker on the text screen (parallels the FPGA version string on
+     * the overlay) so we can confirm which MCU image is actually running. */
+    fpga_screen_puts("\nMCU BUILD " MCU_BUILD_STR "  " __DATE__ " " __TIME__ "\n");
     fpga_spi_reg_write(REG_TEXT_MODE, 1);
     fpga_spi_reg_write(REG_VIDEO_ENABLE, 1);
     dbg_stage(STG_PRE_USB);
@@ -926,6 +1040,11 @@ int main(void)
     dbg_set(F_USBH_INIT);
 
     usb_osal_thread_create("xinput", 2048, CONFIG_USBHOST_PSC_PRIO + 1, xinput_thread, NULL);
+
+    /* Uthernet II (W5100) MACRAW engine: polls the FPGA command doorbell and
+     * bridges socket 0 to the USB-Ethernet adapter. */
+    usb_osal_thread_create("w5100", 3072, CONFIG_USBHOST_PSC_PRIO + 1, w5100_thread, NULL);
+
     dbg_stage(STG_SCHED);
     dbg_set(F_THREAD_UP);
 

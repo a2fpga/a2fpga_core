@@ -209,7 +209,7 @@ Same layout as Page 4, offset by 0x10.
 | 0x77 | FIFO_POP          | W   | Write any value to pop entry       |
 | 0x78 | CAPTURE_MODE      | R/W | Capture filter mode [2:0]          |
 | 0x79 | CAPTURE_ENABLE    | R/W | Capture enable                     |
-| 0x7A | reserved          |     |                                    |
+| 0x7A | U2_CMD_PENDING    | R/W | Uthernet2 doorbell: R=pending sockets [3:0]; W=write-1-to-clear |
 | 0x7B | reserved          |     |                                    |
 | 0x7C | reserved          |     |                                    |
 | 0x7D | reserved          |     |                                    |
@@ -234,7 +234,8 @@ Same layout as Page 4, offset by 0x10.
 | 0     | Local 256B RAM                 | 0x000000-0x0000FF    |
 | 1     | SDRAM (byte addressed)         | 0x000000-0xFFFFFF    |
 | 2     | Bus event FIFO (bulk read)     | N/A (sequential)     |
-| 3-7   | Reserved                       |                      |
+| 3     | Uthernet2 (W5100) backing store | 0x0000-0x07FF regs, 0x4000-0x7FFF buffers (W5100 addrs) |
+| 4-7   | Reserved                       |                      |
 
 ### SPACE 0: Local RAM
 

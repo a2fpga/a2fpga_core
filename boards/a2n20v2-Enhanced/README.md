@@ -37,6 +37,10 @@ mounting disk images.
 
 - Ensoniq DOC 5503 sound support with 128K of dedicated sound memory for 32 oscillators
 
+- Emulated Uthernet II (WIZnet W5100) Ethernet card, bridged through a USB-Ethernet
+adapter on the BL616 (MACRAW for IP65/ADTPro/Contiki; the Apple II gets its own LAN IP).
+See [docs/UTHERNET2.md](docs/UTHERNET2.md). *(MACRAW implemented; hardware validation pending.)*
+
 The A2N20v2 has a 4-switch DIP switch that controls the following settings:
 
 1. Enable Scanline effect when set to on

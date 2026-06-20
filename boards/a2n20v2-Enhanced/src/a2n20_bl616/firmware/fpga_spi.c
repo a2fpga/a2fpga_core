@@ -20,6 +20,38 @@
 #include "fpga_spi.h"
 #include "fpga_screen.h"
 
+/* Bus mutex (host build only): the SPI link + the shared scratch buffers are
+ * touched by several threads (overlay/status writers, XInput, and the W5100
+ * bridge task). Without serialization a W5100 transfer can interleave with an
+ * overlay write and corrupt network data. Each public primitive takes this for
+ * its whole transaction. Created in fpga_spi_init() (pre-scheduler); calls made
+ * before the scheduler runs simply skip the lock.
+ *
+ * The device-mode build (firmware/) is single-threaded and does not link
+ * FreeRTOS, so the lock compiles out to no-ops unless FPGA_SPI_THREADSAFE is
+ * defined (firmware_host/CMakeLists.txt). */
+#ifdef FPGA_SPI_THREADSAFE
+#include "FreeRTOS.h"
+#include "task.h"
+#include "semphr.h"
+static SemaphoreHandle_t spi_lock;
+static inline void spi_lock_take(void)
+{
+    if (spi_lock && xTaskGetSchedulerState() == taskSCHEDULER_RUNNING)
+        xSemaphoreTake(spi_lock, portMAX_DELAY);
+}
+static inline void spi_lock_give(void)
+{
+    if (spi_lock && xTaskGetSchedulerState() == taskSCHEDULER_RUNNING)
+        xSemaphoreGive(spi_lock);
+}
+#define SPI_LOCK_INIT() do { spi_lock = xSemaphoreCreateMutex(); } while (0)
+#else
+static inline void spi_lock_take(void) {}
+static inline void spi_lock_give(void) {}
+#define SPI_LOCK_INIT() do {} while (0)
+#endif
+
 #define SPI_CS_PIN   GPIO_PIN_0
 #define SPI_CLK_PIN  GPIO_PIN_1
 #define SPI_MISO_PIN GPIO_PIN_2
@@ -77,23 +109,29 @@ void fpga_spi_init(void)
         .rx_fifo_threshold = 0,
     };
     bflb_spi_init(spi0, &spi_cfg);
+
+    SPI_LOCK_INIT();
 }
 
 uint8_t fpga_spi_reg_read(uint8_t reg)
 {
+    spi_lock_take();
     cs_assert();
     spi_xchg_byte(0x80 | (reg & 0x7F));
     uint8_t val = spi_xchg_byte(0xFF);
     cs_deassert();
+    spi_lock_give();
     return val;
 }
 
 void fpga_spi_reg_write(uint8_t reg, uint8_t val)
 {
+    spi_lock_take();
     cs_assert();
     spi_xchg_byte(reg & 0x7F);
     spi_xchg_byte(val);
     cs_deassert();
+    spi_lock_give();
 }
 
 /* Build the 7-byte XFER header at the start of spi_tx_scratch.
@@ -115,6 +153,7 @@ void fpga_spi_xfer_write(uint8_t space, uint32_t addr, const uint8_t *data, uint
     uint32_t cur_addr = addr;
     const uint8_t *src = data;
 
+    spi_lock_take();
     while (remaining > 0) {
         uint16_t chunk = (remaining > XFER_CHUNK_MAX) ? XFER_CHUNK_MAX : remaining;
         build_xfer_header(space, cur_addr, chunk, 0);  /* DIR=0 (write) */
@@ -127,6 +166,7 @@ void fpga_spi_xfer_write(uint8_t space, uint32_t addr, const uint8_t *data, uint
         src      += chunk;
         remaining -= chunk;
     }
+    spi_lock_give();
 }
 
 void fpga_spi_xfer_read(uint8_t space, uint32_t addr, uint8_t *data, uint16_t len)
@@ -135,6 +175,7 @@ void fpga_spi_xfer_read(uint8_t space, uint32_t addr, uint8_t *data, uint16_t le
     uint32_t cur_addr = addr;
     uint8_t *dst = data;
 
+    spi_lock_take();
     while (remaining > 0) {
         uint16_t chunk = (remaining > XFER_CHUNK_MAX) ? XFER_CHUNK_MAX : remaining;
         build_xfer_header(space, cur_addr, chunk, 1);  /* DIR=1 (read) */
@@ -152,6 +193,7 @@ void fpga_spi_xfer_read(uint8_t space, uint32_t addr, uint8_t *data, uint16_t le
         dst      += chunk;
         remaining -= chunk;
     }
+    spi_lock_give();
 }
 
 void fpga_spi_xfer_fill(uint8_t space, uint32_t addr, uint8_t val, uint16_t len)
@@ -159,6 +201,10 @@ void fpga_spi_xfer_fill(uint8_t space, uint32_t addr, uint8_t val, uint16_t len)
     uint16_t remaining = len;
     uint32_t cur_addr = addr;
 
+    spi_lock_take();   /* MUST hold the lock: shares the SPI bus, CS, and the
+                        * spi_tx_scratch buffer with every other SPI op. Missing
+                        * this caused intermittent bus wedges (e.g. fpga_screen
+                        * clear racing the W5100 bridge from another thread). */
     while (remaining > 0) {
         uint16_t chunk = (remaining > XFER_CHUNK_MAX) ? XFER_CHUNK_MAX : remaining;
         build_xfer_header(space, cur_addr, chunk, 0);  /* DIR=0 (write) */
@@ -171,6 +217,7 @@ void fpga_spi_xfer_fill(uint8_t space, uint32_t addr, uint8_t val, uint16_t len)
         cur_addr  += chunk;
         remaining -= chunk;
     }
+    spi_lock_give();
 }
 
 uint8_t fpga_spi_read_status(void)

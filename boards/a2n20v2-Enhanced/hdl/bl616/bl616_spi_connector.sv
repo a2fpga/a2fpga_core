@@ -61,7 +61,20 @@ module bl616_spi_connector #(
     input  wire [31:0] fifo_rdata,
     output wire        fifo_pop,
     output reg  [2:0]  capture_mode_o,
-    output reg         capture_enable_o
+    output reg         capture_enable_o,
+
+    // Uthernet2 (W5100) backing store -- SPI memory SPACE 3 (port B of the card)
+    output wire        w5100_host_wr,
+    output wire [15:0] w5100_host_addr,    // W5100 address (0x0000-0x7FFF)
+    output wire [7:0]  w5100_host_wdata,
+    input  wire [7:0]  w5100_host_rdata,
+    input  wire [3:0]  w5100_cmd_pending,  // doorbell bits from the card (reg 0x7A)
+    output wire [3:0]  w5100_cmd_clr,      // write-1-to-clear (reg 0x7A write)
+
+    // DEBUG: port-B (SPACE 3) write instrumentation from the card (regs 0x7B-0x7E)
+    input  wire [15:0] w5100_dbg_wr_count,
+    input  wire [15:0] w5100_dbg_last_addr,
+    input  wire [7:0]  w5100_dbg_last_wdata
 );
 
     // -------------------------------------------------------
@@ -511,6 +524,39 @@ module bl616_spi_connector #(
     end
 
     // -------------------------------------------------------
+    // SPACE 3: Uthernet2 (W5100) backing store -- card holds the memory (port B).
+    // Drop-free by construction (no SDRAM/arbitration): combinational write/read
+    // passthrough to the card, with a 1-cycle read pipeline matching the card's
+    // registered read (req cycle T -> w5100_host_rdata valid at T+1).
+    // -------------------------------------------------------
+    assign w5100_host_wr    = mem_wr_en && (mem_space == 3'd3);
+    assign w5100_host_wdata = mem_wr_data;
+    assign w5100_host_addr  = (mem_wr_en && (mem_space == 3'd3)) ? mem_wr_addr[15:0]
+                                                                 : mem_rd_addr[15:0];
+
+    reg       w5100_rd_pending_q;
+    reg       w5100_rd_valid_q;
+    reg [7:0] w5100_rd_data_q;
+    always @(posedge clk or negedge rst_n) begin
+        if (!rst_n) begin
+            w5100_rd_pending_q <= 1'b0;
+            w5100_rd_valid_q   <= 1'b0;
+            w5100_rd_data_q    <= 8'h00;
+        end else begin
+            w5100_rd_valid_q   <= 1'b0;
+            w5100_rd_pending_q <= (mem_rd_req && (mem_rd_space == 3'd3));
+            if (w5100_rd_pending_q) begin
+                w5100_rd_data_q  <= w5100_host_rdata;
+                w5100_rd_valid_q <= 1'b1;
+            end
+        end
+    end
+
+    // Doorbell clear strobe (register 0x7A write, write-1-to-clear)
+    reg [3:0] w5100_cmd_clr_r;
+    assign w5100_cmd_clr = w5100_cmd_clr_r;
+
+    // -------------------------------------------------------
     // Memory read mux (combines all spaces)
     // -------------------------------------------------------
     always @(*) begin
@@ -525,6 +571,9 @@ module bl616_spi_connector #(
         end else if (fifo_rd_valid_r) begin
             mem_rd_valid = 1'b1;
             mem_rd_data  = fifo_rd_data_r;
+        end else if (w5100_rd_valid_q) begin
+            mem_rd_valid = 1'b1;
+            mem_rd_data  = w5100_rd_data_q;
         end
     end
 
@@ -699,6 +748,15 @@ module bl616_spi_connector #(
             7'h78: reg_rdata = {5'b0, capture_mode_o};
             7'h79: reg_rdata = {7'b0, capture_enable_o};
 
+            // Uthernet2 command-pending doorbell (bits[3:0] = sockets 0-3)
+            7'h7A: reg_rdata = {4'b0, w5100_cmd_pending};
+
+            // Uthernet2 DEBUG: port-B (SPACE 3) write instrumentation
+            7'h7B: reg_rdata = w5100_dbg_wr_count[7:0];
+            7'h7C: reg_rdata = w5100_dbg_last_addr[7:0];
+            7'h7D: reg_rdata = w5100_dbg_last_addr[15:8];
+            7'h7E: reg_rdata = w5100_dbg_last_wdata;
+
             default: reg_rdata = 8'h00;
         endcase
     end
@@ -754,6 +812,7 @@ module bl616_spi_connector #(
             sd_slow_clk_r    <= 1'b1;
             sd_tx_data_r     <= 8'hFF;
             sd_tx_start_r    <= 1'b0;
+            w5100_cmd_clr_r  <= 4'd0;
         end else begin
             // One-shot clears
             cardrom_release_r <= 1'b0;
@@ -763,6 +822,7 @@ module bl616_spi_connector #(
             slot_reconfig_r   <= 1'b0;
             fifo_reg_pop_r    <= 1'b0;
             sd_tx_start_r     <= 1'b0;
+            w5100_cmd_clr_r   <= 4'd0;
 
             // A2 reset edge detection
             if (system_reset_release_w)
@@ -861,6 +921,9 @@ module bl616_spi_connector #(
                     7'h77: fifo_reg_pop_r  <= 1'b1;  // FIFO_POP
                     7'h78: capture_mode_o   <= reg_wdata[2:0];
                     7'h79: capture_enable_o <= reg_wdata[0];
+
+                    // Uthernet2 doorbell clear (write-1-to-clear sockets 0-3)
+                    7'h7A: w5100_cmd_clr_r <= reg_wdata[3:0];
 
                     default: ;
                 endcase

@@ -19,6 +19,18 @@
 #define FPGA_SPACE_LOCAL  0  /* 256B local RAM */
 #define FPGA_SPACE_SDRAM  1  /* SDRAM (byte addressed) */
 #define FPGA_SPACE_FIFO   2  /* Bus event FIFO */
+#define FPGA_SPACE_W5100  3  /* Uthernet2 (W5100) backing store, W5100 addresses */
+
+/* Uthernet2 command-pending doorbell register (bits[3:0] = sockets 0-3).
+ * Read to see which sockets have a pending Sn_CR; write 1s to clear. */
+#define FPGA_REG_U2_CMD_PENDING  0x7A
+
+/* Uthernet2 DEBUG: port-B (SPACE 3) write instrumentation (read-only). Shows
+ * whether the MCU's SPACE 3 writes reach the card and with what address/data. */
+#define FPGA_REG_U2_DBG_WRCNT    0x7B  /* port-B write count, low byte */
+#define FPGA_REG_U2_DBG_ADDR_LO  0x7C  /* last port-B write address, low */
+#define FPGA_REG_U2_DBG_ADDR_HI  0x7D  /* last port-B write address, high */
+#define FPGA_REG_U2_DBG_WDATA    0x7E  /* last port-B write data */
 
 /* STATUS register (0x06) bit fields */
 #define FPGA_STATUS_RD_PENDING     (1 << 0)
