@@ -9,6 +9,21 @@
  * and delivers a 20-byte input report on an interrupt-IN endpoint. 8BitDo
  * controllers (SN30/SF30 Pro) in X-input mode enumerate as VID 0x045E /
  * PID 0x028E with exactly this interface, which is what this driver claims.
+ *
+ * !! WHERE THE INIT/START SEQUENCE LIVES !!
+ * This driver only binds endpoints + parses reports. The XInput **start
+ * sequence** the SN30/SF30 Pro needs before it streams input — two
+ * GET_STRING_DESCRIPTOR (0x0302/0x0409) control reads + the interrupt-OUT
+ * "magic" packets — is NOT here. It lives in the application:
+ *   firmware_host/main.c  -> k_xbox_init_ctrl[] + k_xbox_ep2[] (the xinput
+ *   thread runs it on connect).
+ * (This mirrors nand2mario/firmware-bl616, which keeps the same sequence in
+ * usb_gamepad.cpp, not in the driver — finding it cost real effort, so look in
+ * main.c, not here, when the controller enumerates but sends no reports.)
+ *
+ * Note: CherryUSB also ships a stock usbh_xbox driver (class/vendor/xbox), but
+ * it is NOT enabled here (CONFIG_CHERRYUSB_HOST_XBOX unset) — we use this one
+ * for the proven SN30 init + interface-only matching (any VID/PID).
  */
 #ifndef USBH_XINPUT_H
 #define USBH_XINPUT_H
