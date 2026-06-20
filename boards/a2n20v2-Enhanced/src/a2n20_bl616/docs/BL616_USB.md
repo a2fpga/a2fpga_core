@@ -216,14 +216,21 @@ enable, RX filter, autoneg) and runs its own `usbh_rtl8152_rx_thread`.
 **Why not CDC-ECM / RTL8153.** We first tried an **RTL8153** (`0x8153`,
 dual-config) via the stock `usbh_cdc_ecm` driver — forcing its config-2 CDC-ECM
 with the `usbh_get_hport_active_config_index` hook. It enumerated and TX worked,
-but **RX never delivered frames**, which sent us down a long EHCI/data-toggle
-rabbit hole. The real blocker turned out to be the `PBUF_POOL_SIZE=0` lwIP
-default above — it dropped RX on *every* path, CDC-ECM and vendor alike.
-Separately, the stock `usbh_rtl8152` driver's `rtl_ops_init` does **not**
+but **RX never delivered frames**. Note this failed at a *different* point than
+the RTL8152 did: on CDC-ECM the **bulk-IN URB never even completed** (the async
+completion callback never fired), so frames never reached the host at all — the
+`PBUF_POOL_SIZE` pool that bit the RTL8152 is *downstream* of that and was never
+exercised on the CDC-ECM path. We did **not** conclusively root-cause the
+CDC-ECM bulk-IN-never-completes (we pivoted to the RTL8152 first); the leading
+suspect is that the **stock CDC-ECM driver does no vendor RX-engine init**
+(`CR_RE`/`rxdy_gated_en(false)`/RX-filter), which the `usbh_rtl8152` vendor
+driver *does* — so the 8153 in CDC-ECM mode apparently wasn't forwarding RX on
+our host. So fixing the pbuf pool alone would likely **not** have made CDC-ECM
+work. Separately, the stock `usbh_rtl8152` driver's `rtl_ops_init` does **not**
 implement the RTL8153's chip version (RTL_VER_09), so the 8153 can't use the
-vendor driver. Net: use an **RTL8152** on the native vendor driver + the
-pbuf-pool fix. (`usbh_asix`, `usbh_cdc_ncm`, `usbh_rndis` ship too and could be
-wired the same way for other adapters.)
+vendor driver either. Net: use an **RTL8152** on the native vendor driver + the
+pbuf-pool fix. (Whether the 8153 could be made to work via CDC-ECM — pbuf fix +
+the missing RX-engine enable — is untested.)
 
 ### Networking roadmap (smallest → largest)
 | Tier | What | Apple II sees | Effort |
