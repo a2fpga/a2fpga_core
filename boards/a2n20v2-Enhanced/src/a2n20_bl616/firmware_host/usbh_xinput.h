@@ -21,8 +21,10 @@ struct usbh_xinput {
     struct usbh_hubport *hport;
     uint8_t intf;       /* interface number */
     uint8_t minor;
-    usbh_pipe_t intin;  /* interrupt IN  (input reports) */
-    usbh_pipe_t intout; /* interrupt OUT (rumble/LED, optional) */
+    struct usb_endpoint_descriptor *intin;  /* interrupt IN  (input reports) */
+    struct usb_endpoint_descriptor *intout; /* interrupt OUT (rumble/LED, optional) */
+    struct usbh_urb intin_urb;              /* armed by the app for async reads */
+    struct usbh_urb intout_urb;             /* used by the init sequence */
 };
 
 /* Decoded controller state from a 20-byte XInput report. */

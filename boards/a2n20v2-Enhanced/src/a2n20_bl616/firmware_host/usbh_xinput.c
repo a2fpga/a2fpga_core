@@ -6,6 +6,8 @@
 #include "usbh_core.h"
 #include "usbh_xinput.h"
 
+#include <errno.h>
+
 #define DEV_FORMAT "/dev/xinput%d"
 
 static uint32_t g_devinuse = 0;
@@ -70,9 +72,9 @@ static int usbh_xinput_connect(struct usbh_hubport *hport, uint8_t intf)
     for (uint8_t i = 0; i < hport->config.intf[intf].altsetting[0].intf_desc.bNumEndpoints; i++) {
         ep_desc = &hport->config.intf[intf].altsetting[0].ep[i].ep_desc;
         if (ep_desc->bEndpointAddress & 0x80) {
-            usbh_hport_activate_epx(&xinput_class->intin, hport, ep_desc);
+            USBH_EP_INIT(xinput_class->intin, ep_desc);
         } else {
-            usbh_hport_activate_epx(&xinput_class->intout, hport, ep_desc);
+            USBH_EP_INIT(xinput_class->intout, ep_desc);
         }
     }
 
@@ -92,10 +94,10 @@ static int usbh_xinput_disconnect(struct usbh_hubport *hport, uint8_t intf)
         usbh_xinput_devno_free(xinput_class);
 
         if (xinput_class->intin) {
-            usbh_pipe_free(xinput_class->intin);
+            usbh_kill_urb(&xinput_class->intin_urb);
         }
         if (xinput_class->intout) {
-            usbh_pipe_free(xinput_class->intout);
+            usbh_kill_urb(&xinput_class->intout_urb);
         }
 
         usbh_xinput_stop(xinput_class);
@@ -127,10 +129,9 @@ static const struct usbh_class_driver xinput_class_driver = {
 
 CLASS_INFO_DEFINE const struct usbh_class_info xinput_class_info = {
     .match_flags = USB_CLASS_MATCH_INTF_CLASS | USB_CLASS_MATCH_INTF_SUBCLASS | USB_CLASS_MATCH_INTF_PROTOCOL,
-    .class = 0xFF,
-    .subclass = 0x5D,
-    .protocol = 0x01,
-    .vid = 0x00,
-    .pid = 0x00,
+    .bInterfaceClass = 0xFF,
+    .bInterfaceSubClass = 0x5D,
+    .bInterfaceProtocol = 0x01,
+    .id_table = NULL,
     .class_driver = &xinput_class_driver,
 };

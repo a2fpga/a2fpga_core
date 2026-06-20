@@ -152,16 +152,15 @@ static int xinput_send_init(struct usbh_xinput *xc)
         setup->wValue        = k_xbox_init_ctrl[i].wValue;
         setup->wIndex        = k_xbox_init_ctrl[i].wIndex;
         setup->wLength       = k_xbox_init_ctrl[i].wLength;
-        ret = usbh_control_transfer(xc->hport->ep0, setup, g_xinput_ctrl);
+        ret = usbh_control_transfer(xc->hport, setup, g_xinput_ctrl);
     }
 
     /* 2) four interrupt-OUT packets (LED/rumble) on EP2 */
     if (xc->intout) {
-        struct usbh_urb urb;
         for (int i = 0; i < 4; i++) {
             memcpy(g_xinput_out, k_xbox_ep2[i], 3);
-            usbh_int_urb_fill(&urb, xc->intout, g_xinput_out, 3, 500, NULL, NULL);
-            usbh_submit_urb(&urb);
+            usbh_int_urb_fill(&xc->intout_urb, xc->hport, xc->intout, g_xinput_out, 3, 500, NULL, NULL);
+            usbh_submit_urb(&xc->intout_urb);
         }
     }
     return ret;
@@ -216,13 +215,12 @@ void usbh_xinput_stop(struct usbh_xinput *xinput_class)
 /* Async interrupt-IN read. Interrupt endpoints NAK until data is ready, and the
  * SDK only ever reads them via this callback pattern (sync reads just time out).
  * Counter ticks per report now, so: MOVING = reports flowing, FROZEN = silent. */
-static struct usbh_urb     g_in_urb;
 static struct usbh_xinput *g_dev = NULL;
 static uint16_t            g_prev_buttons = 0;
 
 static void xinput_in_cb(void *arg, int nbytes)
 {
-    (void)arg;
+    struct usbh_xinput *xc = (struct usbh_xinput *)arg;
     if (nbytes > 0) {
         struct xinput_state st;
         if (usbh_xinput_parse(g_xinput_buf, nbytes, &st)) {
@@ -236,7 +234,9 @@ static void xinput_in_cb(void *arg, int nbytes)
             g_prev_buttons = st.buttons;
         }
         dbg_tick();
-        usbh_submit_urb(&g_in_urb);  /* re-arm for the next report */
+        if (xc) {
+            usbh_submit_urb(&xc->intin_urb);  /* re-arm for the next report */
+        }
     } else {
         fpga_spi_reg_write(DBG_BTN_HI, (uint8_t)(-nbytes)); /* error code */
         g_dev = NULL;                /* force re-arm on next thread loop */
@@ -293,9 +293,9 @@ static void xinput_thread(void *arg)
              * the async IN read (control transfers must not race a pending IN). */
             int ir = xinput_send_init(xinput_class);
             fpga_spi_reg_write(DBG_BTN_HI, (uint8_t)(-ir)); /* hex[2] = init result */
-            usbh_int_urb_fill(&g_in_urb, xinput_class->intin, g_xinput_buf,
-                              sizeof(g_xinput_buf), 0, xinput_in_cb, xinput_class);
-            usbh_submit_urb(&g_in_urb);
+            usbh_int_urb_fill(&xinput_class->intin_urb, xinput_class->hport, xinput_class->intin,
+                              g_xinput_buf, sizeof(g_xinput_buf), 0, xinput_in_cb, xinput_class);
+            usbh_submit_urb(&xinput_class->intin_urb);
         }
 
         /* Connected: the callback owns the overlay/SPI now; thread just polls. */
@@ -304,35 +304,74 @@ static void xinput_thread(void *arg)
 }
 
 /* ===================== USB-Ethernet (CDC-ECM) glue =======================
- * usbh_cdc_ecm.c (in usb_net/) handles the USB side: it matches the RTL8153
- * by VID/PID, switches it to its config-2 CDC-ECM, and brings up the bulk
- * data path. The hooks below provide (a) breadcrumb tracing onto the HDMI
- * DebugOverlay during connect, and (b) the lwIP netif + DHCP bring-up. Once
+ * On CherryUSB v1.5.3 we use the STOCK usbh_cdc_ecm.c driver. Our RTL8153 is
+ * dual-config (config 1 = Realtek vendor, config 2 = CDC-ECM); v1.5.3 added the
+ * weak hook usbh_get_hport_active_config_index(), so we override it to make the
+ * core enumerate config 2 for that adapter — then the stock CDC-ECM class
+ * matches with no SDK edits and no custom driver. The glue below is just the
+ * lwIP netif + DHCP bring-up plus the RX/TX bridge to the stock driver. Once
  * DHCP binds, the leased IP's four octets are written to the overlay hex regs
  * (stage 0xEA) — that on-screen IP is the MVP proof of MCU-on-network. */
 
+#define RTL8153_VID 0x0BDA
+#define RTL8153_PID 0x8153
+
 static struct netif g_ecm_netif;
 
-/* Breadcrumb overrides (weak in usbh_cdc_ecm.c). Stage 0xE0..0xEF tracks how
- * far connect() got; bytes 0..2 carry parsed intf numbers / MAC bytes. */
-void ecm_dbg_stage(uint8_t code) { fpga_spi_reg_write(DBG_STAGE, code); }
-void ecm_dbg_byte(uint8_t idx, uint8_t val)
+/* Tell the enumerator to select config index 1 (the CDC-ECM configuration) for
+ * the dual-config RTL8153; everything else uses the default config 0. */
+uint8_t usbh_get_hport_active_config_index(struct usbh_hubport *hport)
 {
-    switch (idx) {
-        case 0: fpga_spi_reg_write(DBG_BTN_LO, val);  break;
-        case 1: fpga_spi_reg_write(DBG_BTN_HI, val);  break;
-        case 2: fpga_spi_reg_write(DBG_COUNTER, val); break;
-        default: break;
+    if (hport->device_desc.idVendor == RTL8153_VID &&
+        hport->device_desc.idProduct == RTL8153_PID &&
+        hport->device_desc.bNumConfigurations >= 2) {
+        return 1;
+    }
+    return 0;
+}
+
+/* netif->linkoutput: copy the pbuf chain into the driver's TX buffer and send. */
+static err_t ecm_linkoutput(struct netif *netif, struct pbuf *p)
+{
+    (void)netif;
+    /* The stock CDC-ECM TX buffer is CONFIG_USBHOST_CDC_ECM_ETH_MAX_SIZE (1514,
+     * defined privately in the driver). Our 1500-MTU netif never exceeds it, but
+     * guard anyway. */
+    uint8_t *txbuf = usbh_cdc_ecm_get_eth_txbuf();
+    if (txbuf == NULL || p->tot_len > 1514) {
+        return ERR_BUF;
+    }
+    uint8_t *q = txbuf;
+    for (struct pbuf *it = p; it != NULL; it = it->next) {
+        memcpy(q, it->payload, it->len);
+        q += it->len;
+    }
+    return (usbh_cdc_ecm_eth_output(p->tot_len) < 0) ? ERR_IF : ERR_OK;
+}
+
+/* RX hook called by the stock driver's rx thread with one Ethernet frame. */
+void usbh_cdc_ecm_eth_input(uint8_t *buf, uint32_t buflen)
+{
+    if (buflen == 0) {
+        return;
+    }
+    struct pbuf *p = pbuf_alloc(PBUF_RAW, buflen, PBUF_POOL);
+    if (p == NULL) {
+        return;
+    }
+    memcpy(p->payload, buf, buflen);
+    if (g_ecm_netif.input(p, &g_ecm_netif) != ERR_OK) {
+        pbuf_free(p);
     }
 }
 
 static err_t ecm_netif_init(struct netif *netif)
 {
-    struct usbh_cdc_ecm *ecm = usbh_cdc_ecm_get_class();
+    struct usbh_cdc_ecm *ecm = (struct usbh_cdc_ecm *)usbh_find_class_instance("/dev/cdc_ether");
     netif->name[0] = 'e';
     netif->name[1] = 'n';
     netif->output = etharp_output;
-    netif->linkoutput = usbh_cdc_ecm_linkoutput;
+    netif->linkoutput = ecm_linkoutput;
     netif->mtu = 1500;
     netif->flags = NETIF_FLAG_BROADCAST | NETIF_FLAG_ETHARP;
     netif->hwaddr_len = 6;
@@ -380,10 +419,12 @@ static void ecm_ip_report_thread(void *arg)
 
 void usbh_cdc_ecm_run(struct usbh_cdc_ecm *ecm)
 {
+    (void)ecm;
     g_net_active = true;                          /* take over the overlay */
-    ecm->netif = &g_ecm_netif;
     tcpip_callback(ecm_netif_setup_cb, NULL);     /* netif+dhcp on tcpip thread */
-    usbh_cdc_ecm_lwip_thread_init(&g_ecm_netif);  /* bulk-IN rx thread */
+    /* stock driver's bulk-IN rx thread (calls usbh_cdc_ecm_eth_input per frame) */
+    usb_osal_thread_create("ecm_rx", 2048, CONFIG_USBHOST_PSC_PRIO + 1,
+                           usbh_cdc_ecm_rx_thread, NULL);
     usb_osal_thread_create("ecm_ip", 1024, CONFIG_USBHOST_PSC_PRIO + 1,
                            ecm_ip_report_thread, &g_ecm_netif);
 }
@@ -420,7 +461,7 @@ int main(void)
 
     tcpip_init(NULL, NULL);   /* bring up the lwIP TCP/IP thread before USB host */
 
-    usbh_initialize();
+    usbh_initialize(0, CONFIG_USB_EHCI_HCCR_BASE); /* busid 0, BL616 OTG EHCI base */
     dbg_stage(STG_USBH_INIT);
     dbg_set(F_USBH_INIT);
 

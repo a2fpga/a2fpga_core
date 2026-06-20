@@ -1,4 +1,7 @@
-SDK_DEMO_PATH ?= .
+# SDK_DEMO_PATH must be absolute: SDK v2.3.27's extension.cmake builds the
+# linker flag as -T${SDK_DEMO_PATH}/${BUILD_DIR}/generated/linker.ld and the
+# link runs from inside build/, so a relative "." resolves one level too deep.
+SDK_DEMO_PATH ?= $(abspath .)
 BL_SDK_BASE ?= $(SDK_DEMO_PATH)/../../bouffalo_sdk
 
 export BL_SDK_BASE
