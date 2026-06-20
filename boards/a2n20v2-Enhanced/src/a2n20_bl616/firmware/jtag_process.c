@@ -125,14 +125,14 @@ static void jtag_tx_flush(void)
     jtag_tx_buffer[0] = FTDI_MODEM_STATUS_0;
     jtag_tx_buffer[1] = FTDI_MODEM_STATUS_1;
     jtag_tx_busy = true;
-    usbd_ep_start_write(JTAG_IN_EP, jtag_tx_buffer, JTAG_TX_DATA_OFFSET + jtag_tx_pos);
+    usbd_ep_start_write(0, JTAG_IN_EP, jtag_tx_buffer, JTAG_TX_DATA_OFFSET + jtag_tx_pos);
     jtag_tx_pos = 0;
 }
 
 void jtag_start(void)
 {
     /* Arm OUT endpoint with real buffer */
-    usbd_ep_start_read(JTAG_OUT_EP, jtag_rx_buffer, JTAG_EP_MPS);
+    usbd_ep_start_read(0, JTAG_OUT_EP, jtag_rx_buffer, JTAG_EP_MPS);
     /* Send initial status-only packet on IN endpoint */
     jtag_tx_pos = 0;
     jtag_tx_flush();
@@ -445,10 +445,11 @@ static void jtag_process_packet(void)
  * For read-write commands, TDO data accumulates in jtag_tx_buffer and is
  * flushed as soon as the IN endpoint is free (either here or in the IN
  * callback / main loop). */
-void jtag_bulk_out_cb(uint8_t ep, uint32_t nbytes)
+void jtag_bulk_out_cb(uint8_t busid, uint8_t ep, uint32_t nbytes)
 {
+    (void)busid;
     if (nbytes == 0) {
-        usbd_ep_start_read(JTAG_OUT_EP, jtag_rx_buffer, JTAG_EP_MPS);
+        usbd_ep_start_read(0, JTAG_OUT_EP, jtag_rx_buffer, JTAG_EP_MPS);
         return;
     }
 
@@ -471,11 +472,12 @@ void jtag_bulk_out_cb(uint8_t ep, uint32_t nbytes)
     }
 
     /* Always re-arm OUT endpoint — never leave it unarmed */
-    usbd_ep_start_read(JTAG_OUT_EP, jtag_rx_buffer, JTAG_EP_MPS);
+    usbd_ep_start_read(0, JTAG_OUT_EP, jtag_rx_buffer, JTAG_EP_MPS);
 }
 
-void jtag_bulk_in_cb(uint8_t ep, uint32_t nbytes)
+void jtag_bulk_in_cb(uint8_t busid, uint8_t ep, uint32_t nbytes)
 {
+    (void)busid;
     jtag_tx_busy = false;
 
     /* If TDO data accumulated while IN was busy, flush it now */

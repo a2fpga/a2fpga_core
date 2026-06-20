@@ -64,9 +64,10 @@ static void ftdi_set_baudrate(uint32_t itdf_divisor, uint32_t *actual_baudrate)
         *actual_baudrate = FTDI_USB_CLK / divisor;
 }
 
-static int ftdi_vendor_request_handler(struct usb_setup_packet *setup, uint8_t **data, uint32_t *len)
+static int ftdi_vendor_request_handler(uint8_t busid, struct usb_setup_packet *setup, uint8_t **data, uint32_t *len)
 {
     static uint32_t actual_baudrate = 1200;
+    (void)busid;
 
     switch (setup->bRequest) {
     case SIO_READ_EEPROM_REQUEST:
@@ -146,8 +147,9 @@ static int ftdi_vendor_request_handler(struct usb_setup_packet *setup, uint8_t *
     return 0;
 }
 
-static void ftdi_notify_handler(uint8_t event, void *arg)
+static void ftdi_notify_handler(uint8_t busid, uint8_t event, void *arg)
 {
+    (void)busid;
     (void)arg;
     switch (event) {
     case USBD_EVENT_RESET:

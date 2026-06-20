@@ -23,9 +23,11 @@
 /* USB descriptor — defined in usb_descriptor.c */
 extern const uint8_t ftdi_descriptor[];
 
-/* CherryUSB requires this as a non-static symbol */
-void usbd_event_handler(uint8_t event)
+/* CherryUSB v1.x passes this handler to usbd_initialize() and calls it with the
+ * bus id. */
+void usbd_event_handler(uint8_t busid, uint8_t event)
 {
+    (void)busid;
     switch (event) {
     case USBD_EVENT_CONFIGURED:
         /* Arm endpoints and send initial FTDI status packets */
@@ -81,21 +83,21 @@ static struct usbd_interface intf1;  /* UART */
 
 static void usb_init(void)
 {
-    usbd_desc_register(ftdi_descriptor);
+    usbd_desc_register(0, ftdi_descriptor);
 
     /* Interface 0: JTAG */
     usbd_ftdi_add_interface(&intf0);
-    usbd_add_interface(&intf0);
-    usbd_add_endpoint(&jtag_out_ep);
-    usbd_add_endpoint(&jtag_in_ep);
+    usbd_add_interface(0, &intf0);
+    usbd_add_endpoint(0, &jtag_out_ep);
+    usbd_add_endpoint(0, &jtag_in_ep);
 
     /* Interface 1: UART */
     usbd_ftdi_add_interface(&intf1);
-    usbd_add_interface(&intf1);
-    usbd_add_endpoint(&uart_out_ep);
-    usbd_add_endpoint(&uart_in_ep);
+    usbd_add_interface(0, &intf1);
+    usbd_add_endpoint(0, &uart_out_ep);
+    usbd_add_endpoint(0, &uart_in_ep);
 
-    usbd_initialize();
+    usbd_initialize(0, CONFIG_USB_EHCI_HCCR_BASE, usbd_event_handler);
 }
 
 int main(void)

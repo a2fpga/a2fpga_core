@@ -17,7 +17,7 @@ void jtag_purge(void);
 void jtag_start(void);
 
 /* USB endpoint callbacks for JTAG interface */
-void jtag_bulk_out_cb(uint8_t ep, uint32_t nbytes);
-void jtag_bulk_in_cb(uint8_t ep, uint32_t nbytes);
+void jtag_bulk_out_cb(uint8_t busid, uint8_t ep, uint32_t nbytes);
+void jtag_bulk_in_cb(uint8_t busid, uint8_t ep, uint32_t nbytes);
 
 #endif

@@ -146,12 +146,12 @@ void uart_init(void)
 void uart_start(void)
 {
     /* Arm OUT endpoint with real buffer */
-    usbd_ep_start_read(CDC_OUT_EP, uart_usb_out_buf, UART_EP_MPS);
+    usbd_ep_start_read(0, CDC_OUT_EP, uart_usb_out_buf, UART_EP_MPS);
     /* Send initial status-only packet on IN endpoint */
     uart_usb_in_buf[0] = FTDI_MODEM_STATUS_0;
     uart_usb_in_buf[1] = FTDI_MODEM_STATUS_1;
     uart_tx_in_busy = true;
-    usbd_ep_start_write(CDC_IN_EP, uart_usb_in_buf, 2);
+    usbd_ep_start_write(0, CDC_IN_EP, uart_usb_in_buf, 2);
 }
 
 void uart_config(uint32_t baudrate, uint8_t databits, uint8_t parity, uint8_t stopbits)
@@ -178,8 +178,9 @@ void uart_config(uint32_t baudrate, uint8_t databits, uint8_t parity, uint8_t st
 }
 
 /* USB OUT callback — data from host going to UART */
-void uart_bulk_out_cb(uint8_t ep, uint32_t nbytes)
+void uart_bulk_out_cb(uint8_t busid, uint8_t ep, uint32_t nbytes)
 {
+    (void)busid;
     uart_out_nbytes = nbytes;
 
     /* Feed bytes to CLI break-in detector */
@@ -195,12 +196,13 @@ void uart_bulk_out_cb(uint8_t ep, uint32_t nbytes)
         rb_write(usb_rx_buf, &usb_rx_head, USB_RX_BUF_MASK, uart_usb_out_buf, to_write);
     }
     /* Re-arm OUT endpoint */
-    usbd_ep_start_read(CDC_OUT_EP, uart_usb_out_buf, UART_EP_MPS);
+    usbd_ep_start_read(0, CDC_OUT_EP, uart_usb_out_buf, UART_EP_MPS);
 }
 
 /* USB IN callback — done sending data to host */
-void uart_bulk_in_cb(uint8_t ep, uint32_t nbytes)
+void uart_bulk_in_cb(uint8_t busid, uint8_t ep, uint32_t nbytes)
 {
+    (void)busid;
     uart_tx_in_busy = false;
     cli_notify_in_complete();
 }
@@ -252,7 +254,7 @@ void uart_process(void)
                     &uart_usb_in_buf[2], to_send);
 
             uart_tx_in_busy = true;
-            usbd_ep_start_write(CDC_IN_EP, uart_usb_in_buf, to_send + 2);
+            usbd_ep_start_write(0, CDC_IN_EP, uart_usb_in_buf, to_send + 2);
         } else {
             /* Latency timer: send status-only packet periodically */
             static uint64_t last_status_us = 0;
@@ -262,7 +264,7 @@ void uart_process(void)
                 uart_usb_in_buf[0] = FTDI_MODEM_STATUS_0;
                 uart_usb_in_buf[1] = FTDI_MODEM_STATUS_1;
                 uart_tx_in_busy = true;
-                usbd_ep_start_write(CDC_IN_EP, uart_usb_in_buf, 2);
+                usbd_ep_start_write(0, CDC_IN_EP, uart_usb_in_buf, 2);
                 last_status_us = now;
             }
         }

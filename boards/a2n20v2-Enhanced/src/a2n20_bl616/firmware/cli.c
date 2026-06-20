@@ -74,7 +74,7 @@ void cli_write(const char *str)
     memcpy(&cli_out_buf[2], str, len);
 
     cli_tx_busy = true;
-    usbd_ep_start_write(CDC_IN_EP, cli_out_buf, len + 2);
+    usbd_ep_start_write(0, CDC_IN_EP, cli_out_buf, len + 2);
 
     /* Spin-wait for completion — CLI is interactive, latency matters more than throughput */
     uint32_t timeout = 1000000;
