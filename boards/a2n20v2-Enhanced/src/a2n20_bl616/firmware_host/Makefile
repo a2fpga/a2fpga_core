@@ -10,9 +10,21 @@ CHIP ?= bl616
 BOARD ?= bl616dk
 CROSS_COMPILE ?= riscv64-unknown-elf-
 
-# Use Stage 2 flash config if specified: make flash FLASH_CFG=flash_stage2_cfg.ini
-ifdef FLASH_CFG
-cmake_definition += -DCONFIG_FLASH_CFG=$(FLASH_CFG)
-endif
-
 include $(BL_SDK_BASE)/project.build
+
+# SAFETY GUARD: override the SDK's `flash` target so it refuses. The SDK target
+# writes our UNSIGNED app to flash 0x0, which erases the signed Sipeed Stage 1
+# on a fused board and bricks it (our firmware must go to Stage 2 @0x40000). The
+# only supported flasher is ../tools/a2n20-mcu-program (the /flash-mcu skill).
+# (GNU make prints "overriding recipe for target 'flash'" — that is expected.)
+flash:
+	@echo ''
+	@echo 'ERROR: `make flash` is DISABLED for this board.'
+	@echo '       It writes firmware to 0x0 and BRICKS fused boards by erasing the'
+	@echo '       signed Sipeed Stage 1 (our firmware is Stage 2 @0x40000).'
+	@echo '       Use the supported flasher instead (from src/a2n20_bl616/):'
+	@echo '         ./tools/a2n20-mcu-program --stage2 \'
+	@echo '             --firmware firmware_host/build/build_out/a2n20_bl616_host_bl616.bin'
+	@echo '       Coding agents: use the /flash-mcu skill.'
+	@echo ''
+	@exit 1

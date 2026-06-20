@@ -364,55 +364,42 @@ chain-loads it when no PC is attached.
 Coding agents: the **`flash-mcu`** skill (`.claude/skills/flash-mcu/`) drives
 this for you.
 
-### Flash (Developer — via SDK)
+### ⚠️ Do NOT use `make flash` / raw `BLFlashCommand` / `bflb-iot-tool --addr 0x0`
 
-The SDK includes `BLFlashCommand-macos` and a `make flash` target:
-
-```bash
-# Standalone at 0x0 (uses flash_prog_cfg.ini, address = 0x000000)
-cd firmware
-make flash CHIP=bl616 BOARD=bl616dk COMX=/dev/tty.usbmodemXXXX
-
-# Stage 2 at 0x40000 (uses flash_stage2_cfg.ini, address = 0x40000)
-cd firmware
-make flash CHIP=bl616 BOARD=bl616dk COMX=/dev/tty.usbmodemXXXX CONFIG=flash_stage2_cfg.ini
-```
-
-Or call BLFlashCommand directly:
-
-```bash
-$BL_SDK_BASE/tools/bflb_tools/bouffalo_flash_cube/BLFlashCommand-macos \
-    --interface=uart --baudrate=500000 --port=/dev/tty.usbmodemXXXX \
-    --chipname=bl616 --config=flash_prog_cfg.ini
-```
+> **These brick fused boards.** The SDK `make flash` target, raw
+> `BLFlashCommand`, and `bflb-iot-tool ... --addr 0x0` default to writing the
+> firmware at flash **0x0**. On a **fused** board that **erases the signed
+> Sipeed Stage 1 and bricks it** — the ROM only boots a *signed* image at 0x0,
+> and our firmware is unsigned (it belongs at Stage 2 **0x40000**). This has
+> actually bricked a board.
+>
+> Guards in place so it can't happen by accident:
+> - `make flash` is **overridden in the `Makefile`** to print an error and exit
+>   non-zero.
+> - `flash_prog_cfg.ini` is **pinned to `0x40000`** (was `0x0`) as a backstop.
+> - A repo `PreToolUse` hook blocks these commands for coding agents.
+>
+> **Always flash via `tools/a2n20-mcu-program`** (the Recommended section above,
+> or the `/flash-mcu` skill). It auto-detects fused/unfused/bricked and writes
+> to the correct address. To **recover a bricked board**, run the tool's auto
+> mode (it restores the signed Stage 1 from [`recovery/`](recovery/) at 0x0 and
+> the firmware at 0x40000), or force it:
+> ```bash
+> ./tools/a2n20-mcu-program \
+>     --stage1 recovery/bl616_fpga_partner_20kNano.bin \
+>     --stage2 firmware_host/build/build_out/a2n20_bl616_host_bl616.bin
+> ```
 
 > **Baud rate:** use **500000**. `2000000` is unreliable on some USB-C cables
 > (intermittent `BFLB FLASH WRITE FAIL`); the `a2n20-mcu-program` wrapper
 > defaults to 500000 and auto-falls-back to 115200. Drop to 115200 if 500000
 > still fails on your cable.
 
-### Flash (End User — via pip, no SDK required)
-
-End users can flash a pre-built .bin without the full SDK:
-
-```bash
-pip install bflb-iot-tool
-
-# Standalone at 0x0
-bflb-iot-tool --chipname bl616 --interface uart --port /dev/tty.usbmodemXXXX \
-    --baudrate 500000 --firmware a2n20_bl616_bl616.bin --addr 0x0 --single
-
-# Stage 2 at 0x40000
-bflb-iot-tool --chipname bl616 --interface uart --port /dev/tty.usbmodemXXXX \
-    --baudrate 500000 --firmware a2n20_bl616_bl616.bin --addr 0x40000 --single
-```
-
-The `--single` flag flashes a raw binary without boot2/partition table/device tree — just the firmware at the specified address.
-
 ### Flash Config Files
 
-- `flash_prog_cfg.ini` — Standalone at 0x0 (used by `make flash`)
-- `flash_stage2_cfg.ini` — Stage 2 at 0x40000 (used with `CONFIG=flash_stage2_cfg.ini`)
+- `flash_prog_cfg.ini` — pinned to Stage 2 **0x40000** (was 0x0; `make flash`
+  that used it is disabled — see the warning above).
+- `flash_stage2_cfg.ini` — Stage 2 at 0x40000.
 
 ### Restore Stock Firmware
 

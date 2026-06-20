@@ -1,6 +1,6 @@
 ---
 name: flash
-description: Flash an A2FPGA board's bitstream onto the device with openFPGALoader. Use when the user asks to flash, program, upload, load, or deploy a bitstream to a board (a2mega, a2n20v2, a2n20v2-GS, a2n20v2-Enhanced, a2p25, a2n9, a2n20v1).
+description: Flash an A2FPGA board's FPGA BITSTREAM (the .fs gateware) with openFPGALoader. Use when the user asks to flash, program, upload, load, or deploy a BITSTREAM/gateware to a board (a2mega, a2n20v2, a2n20v2-GS, a2n20v2-Enhanced, a2p25, a2n9, a2n20v1). NOT for the a2n20v2-Enhanced BL616 MCU/microcontroller FIRMWARE — for that use the `flash-mcu` skill (different tool, different chip; using this one would not touch the BL616).
 ---
 
 # Flash an A2FPGA board

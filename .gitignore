@@ -37,9 +37,12 @@ src/picosoc/firmware/firmware.hex
 src/cardrom/cardrom_Output.txt
 src/cardrom/_FileInformation.txt
 src/cardrom/cardrom
-# Ignore personal Claude config (settings.local.json, worktrees) but SHARE skills
+# Ignore personal Claude config (settings.local.json, worktrees) but SHARE
+# skills, project hooks, and shared settings (e.g. the BL616 flash-guard hook).
 /.claude/*
 !/.claude/skills/
+!/.claude/settings.json
+!/.claude/hooks/
 /boards/a2p25/src/esp32/build
 /boards/a2p25/src/a2fpga_esp32/build
 /boards/a2p25/src/esp32_usb_jtag/build
