@@ -145,7 +145,9 @@
 #define CONFIG_USBHOST_ASIX_ETH_MAX_TX_SIZE (2048)
 #endif
 #ifndef CONFIG_USBHOST_RTL8152_ETH_MAX_RX_SIZE
-#define CONFIG_USBHOST_RTL8152_ETH_MAX_RX_SIZE (2048)
+/* Realtek sets the chip rx_buf_sz to 16K; usbh_rtl8152_connect() returns
+ * -USB_ERR_NOMEM (stalls at dbg code 5) if this is smaller than rx_buf_sz. */
+#define CONFIG_USBHOST_RTL8152_ETH_MAX_RX_SIZE (16 * 1024)
 #endif
 #ifndef CONFIG_USBHOST_RTL8152_ETH_MAX_TX_SIZE
 #define CONFIG_USBHOST_RTL8152_ETH_MAX_TX_SIZE (2048)
