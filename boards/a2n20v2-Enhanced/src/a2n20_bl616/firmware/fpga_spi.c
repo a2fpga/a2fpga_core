@@ -134,6 +134,18 @@ void fpga_spi_reg_write(uint8_t reg, uint8_t val)
     spi_lock_give();
 }
 
+/* Lock-free register write for FATAL error paths only (e.g. FreeRTOS malloc /
+ * stack-overflow hooks that paint a marker on the overlay then halt). The caller
+ * MUST have stopped all other contexts first (interrupts disabled), since this
+ * bypasses the SPI mutex -- the mutex may itself be held by the faulting task. */
+void fpga_spi_reg_write_raw(uint8_t reg, uint8_t val)
+{
+    cs_assert();
+    spi_xchg_byte(reg & 0x7F);
+    spi_xchg_byte(val);
+    cs_deassert();
+}
+
 /* Build the 7-byte XFER header at the start of spi_tx_scratch.
  * SUB0 format: { 0, RES=0, CRC_EN=0, INC=1, SPACE[2:0], DIR } */
 static inline void build_xfer_header(uint8_t space, uint32_t addr, uint16_t chunk, uint8_t dir)

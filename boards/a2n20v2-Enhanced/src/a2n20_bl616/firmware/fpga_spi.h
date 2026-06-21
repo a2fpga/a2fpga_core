@@ -48,6 +48,9 @@ uint8_t fpga_spi_reg_read(uint8_t reg);
 /* Register write (reg 0x00-0x7E). */
 void fpga_spi_reg_write(uint8_t reg, uint8_t val);
 
+/* Lock-free register write for FATAL error paths only (interrupts must be off). */
+void fpga_spi_reg_write_raw(uint8_t reg, uint8_t val);
+
 /* XFER write: send data to FPGA memory space */
 void fpga_spi_xfer_write(uint8_t space, uint32_t addr, const uint8_t *data, uint16_t len);
 

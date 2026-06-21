@@ -120,6 +120,58 @@ static inline void dbg_tick(void)
     fpga_spi_reg_write(DBG_FLAGS, g_flags);
 }
 
+/* FreeRTOS fatal-error hooks (override the SDK's weak printf-only versions).
+ * Paint a distinctive marker on the DebugOverlay then halt, so a heap/stack
+ * exhaustion shows a cause instead of a silent freeze. Interrupts are disabled
+ * first, so the lock-free raw SPI write is safe even if the faulting task held
+ * the SPI mutex. Markers: byte0/byte4 = 0xED (dead); byte1 = E1 malloc / E2
+ * stack; for stack, byte2:byte3 = first two chars of the faulting task name. */
+void vApplicationMallocFailedHook(void)
+{
+    taskDISABLE_INTERRUPTS();
+    fpga_spi_reg_write_raw(0x07, 0xED);
+    fpga_spi_reg_write_raw(0x0C, 0xE1);   /* E1 = heap/malloc exhausted */
+    fpga_spi_reg_write_raw(0x0D, 0xE1);
+    fpga_spi_reg_write_raw(0x0E, 0xE1);
+    fpga_spi_reg_write_raw(0x0F, 0xED);
+    for (;;) {}
+}
+
+void vApplicationStackOverflowHook(TaskHandle_t xTask, char *pcTaskName)
+{
+    (void)xTask;
+    char c0 = pcTaskName ? pcTaskName[0] : '?';
+    char c1 = pcTaskName ? pcTaskName[1] : '?';
+    taskDISABLE_INTERRUPTS();
+    fpga_spi_reg_write_raw(0x07, 0xED);
+    fpga_spi_reg_write_raw(0x0C, 0xE2);
+    fpga_spi_reg_write_raw(0x0D, (uint8_t)c0);
+    fpga_spi_reg_write_raw(0x0E, (uint8_t)c1);
+    fpga_spi_reg_write_raw(0x0F, 0xED);
+    for (;;) {}
+}
+
+/* Intercept the SDK's exception_entry via linker --wrap (see CMakeLists). The SDK
+ * version only printf's the fault to a UART we can't see; paint it on the overlay:
+ *   byte0=0xEF, byte1=mcause (exception code: 5=load-fault, 7=store-fault,
+ *   2=illegal-instr, ...), byte2:byte3:byte4 = mepc[23:16],[15:8],[7:0].
+ * If the overlay shows EF... a hard fault was caught and mepc locates it; if it
+ * stays frozen with NO EF, it's a hang (SPI poll / deadlock), not a CPU fault. */
+void __wrap_exception_entry(uintptr_t *regs)
+{
+    (void)regs;
+    unsigned long mcause, mepc;
+    __asm__ volatile ("csrr %0, mcause" : "=r"(mcause));
+    __asm__ volatile ("csrr %0, mepc"   : "=r"(mepc));
+    __asm__ volatile ("csrci mstatus, 8");   /* clear MIE: stop other contexts */
+    fpga_spi_reg_write_raw(0x07, 0xEF);
+    fpga_spi_reg_write_raw(0x0C, (uint8_t)mcause);
+    fpga_spi_reg_write_raw(0x0D, (uint8_t)(mepc >> 16));
+    fpga_spi_reg_write_raw(0x0E, (uint8_t)(mepc >> 8));
+    fpga_spi_reg_write_raw(0x0F, (uint8_t)mepc);
+    for (;;) {}
+}
+
 USB_NOCACHE_RAM_SECTION USB_MEM_ALIGNX uint8_t g_xinput_buf[64];
 USB_NOCACHE_RAM_SECTION USB_MEM_ALIGNX uint8_t g_xinput_out[8];
 USB_NOCACHE_RAM_SECTION USB_MEM_ALIGNX uint8_t g_xinput_ctrl[64];
@@ -220,28 +272,30 @@ void usbh_xinput_stop(struct usbh_xinput *xinput_class)
  * Counter ticks per report now, so: MOVING = reports flowing, FROZEN = silent. */
 static struct usbh_xinput *g_dev = NULL;
 static uint16_t            g_prev_buttons = 0;
+/* The URB completion callback runs in HCD/interrupt context, so it must NOT take
+ * the SPI mutex (illegal from an ISR -> hang when the mutex is held). It only
+ * stashes the latest report here; the xinput THREAD consumes it and does all SPI. */
+static volatile uint16_t   g_btn_latest = 0;
+static volatile bool       g_btn_fresh  = false;
+static volatile int        g_btn_err    = 0;
 
+/* URB completion callback -- runs in HCD/interrupt context. MUST be ISR-safe:
+ * NO mutex-taking SPI here (that was the gamepad+Ethernet hang). Just parse the
+ * report, stash it for the thread, and re-arm the URB (both ISR-safe). */
 static void xinput_in_cb(void *arg, int nbytes)
 {
     struct usbh_xinput *xc = (struct usbh_xinput *)arg;
     if (nbytes > 0) {
         struct xinput_state st;
         if (usbh_xinput_parse(g_xinput_buf, nbytes, &st)) {
-            dbg_stage(STG_REPORT);
-            fpga_spi_reg_write(DBG_BTN_LO, (uint8_t)(st.buttons & 0xFF));
-            fpga_spi_reg_write(DBG_BTN_HI, (uint8_t)(st.buttons >> 8));
-            uint16_t pressed = st.buttons & ~g_prev_buttons; /* rising edges */
-            if (pressed & XINPUT_BACK) {                     /* Select pressed */
-                menu_toggle();
-            }
-            g_prev_buttons = st.buttons;
+            g_btn_latest = st.buttons;
+            g_btn_fresh  = true;
         }
-        dbg_tick();
         if (xc) {
             usbh_submit_urb(&xc->intin_urb);  /* re-arm for the next report */
         }
     } else {
-        fpga_spi_reg_write(DBG_BTN_HI, (uint8_t)(-nbytes)); /* error code */
+        g_btn_err = nbytes;
         g_dev = NULL;                /* force re-arm on next thread loop */
     }
 }
@@ -301,8 +355,29 @@ static void xinput_thread(void *arg)
             usbh_submit_urb(&xinput_class->intin_urb);
         }
 
-        /* Connected: the callback owns the overlay/SPI now; thread just polls. */
-        usb_osal_msleep(500);
+        /* Connected: the ISR callback only stashes reports; THIS thread does all
+         * SPI (overlay, menu toggle) so the mutex is never taken from interrupt
+         * context. Poll the stashed state ~50 Hz. */
+        if (g_btn_err) {
+            g_btn_err = 0;
+            g_dev = NULL;            /* re-arm/re-init on the next loop */
+            usb_osal_msleep(50);
+            continue;
+        }
+        if (g_btn_fresh) {
+            g_btn_fresh = false;
+            uint16_t b = g_btn_latest;
+            dbg_stage(STG_REPORT);
+            fpga_spi_reg_write(DBG_BTN_LO, (uint8_t)(b & 0xFF));
+            fpga_spi_reg_write(DBG_BTN_HI, (uint8_t)(b >> 8));
+            uint16_t pressed = b & ~g_prev_buttons;   /* rising edges */
+            if (pressed & XINPUT_BACK) {              /* Select pressed */
+                menu_toggle();
+            }
+            g_prev_buttons = b;
+        }
+        dbg_tick();                  /* heartbeat (thread context) */
+        usb_osal_msleep(20);
     }
 }
 

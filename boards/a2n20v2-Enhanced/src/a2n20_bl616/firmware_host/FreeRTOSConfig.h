@@ -61,6 +61,9 @@
 #define configTICK_RATE_HZ                      ((TickType_t)1000)
 #define configMAX_PRIORITIES                    (32)
 #define configMINIMAL_STACK_SIZE                ((unsigned short)128) /* Only needs to be this high as some demo tasks also use this constant.  In production only the idle task would use this. */
+/* NOTE: the SDK builds FreeRTOS with heap_3 (malloc/free wrappers), so this value
+ * is IGNORED -- the real heap is the C-runtime malloc arena from the linker. Left
+ * at the SDK default; do not assume changing it resizes the heap. */
 #define configTOTAL_HEAP_SIZE                   ((size_t)24 * 1024)
 #define configMAX_TASK_NAME_LEN                 (16)
 #define configUSE_TRACE_FACILITY                1
