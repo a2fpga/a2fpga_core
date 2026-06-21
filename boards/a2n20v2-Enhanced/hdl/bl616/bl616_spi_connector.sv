@@ -313,22 +313,46 @@ module bl616_spi_connector #(
     // -------------------------------------------------------
     // SPACE 1: SDRAM byte access via mem_port_if
     // -------------------------------------------------------
-    // Write accumulator: collect bytes into 32-bit words
-    reg [31:0] sdram_wr_word_r;
-    reg [3:0]  sdram_wr_be_r;       // byte enables
-    reg [20:0] sdram_wr_waddr_r;    // word address of accumulator
-    reg        sdram_wr_pending_r;
+    // Write accumulator: coalesce consecutive bytes into 32-bit words
+    reg [31:0] acc_word_r;
+    reg [3:0]  acc_be_r;            // byte enables
+    reg [20:0] acc_waddr_r;         // word address held in the accumulator
+    reg        acc_valid_r;
+    reg [7:0]  acc_idle_r;          // cycles since last write (end-of-burst flush)
+    localparam [7:0] ACC_IDLE_FLUSH = 8'd200;  // ~3.7us @54MHz; >> inter-byte gap
 
-    // Read cache: cache one 32-bit word
-    reg [31:0] sdram_rd_word_r;
-    reg [20:0] sdram_rd_waddr_r;
-    reg        sdram_rd_cached_r;
-    reg        sdram_rd_pending_r;
-    reg [1:0]  sdram_rd_byte_sel_r;
+    // Write FIFO (word-granular) drained to SDRAM whenever the port is free.
+    // Decouples XFER byte acceptance (which has no backpressure to the SPI master
+    // and must never stall) from SDRAM availability, so framebuffer contention can
+    // no longer drop bytes -- the original single-word accumulator overwrote a
+    // not-yet-flushed word when mem_if.available was low.
+    localparam WF_DEPTH = 32;
+    localparam WF_AW    = 5;            // log2(WF_DEPTH)
+    reg [20:0] wf_addr_m [0:WF_DEPTH-1];
+    reg [31:0] wf_data_m [0:WF_DEPTH-1];
+    reg [3:0]  wf_be_m   [0:WF_DEPTH-1];
+    reg [WF_AW:0] wf_wptr_r, wf_rptr_r; // extra MSB distinguishes full vs empty
+    wire          wf_empty = (wf_wptr_r == wf_rptr_r);
 
-    // SDRAM read response
+    // Read cache: serve sequential byte reads of a word from one SDRAM read
+    reg [31:0] rdc_word_r;
+    reg [20:0] rdc_waddr_r;
+    reg        rdc_valid_r;
+
+    // Pending / in-flight read (held until the port is available, never dropped)
+    reg        rd_pending_r;
+    reg [20:0] rd_waddr_r;
+    reg [1:0]  rd_bsel_r;
+    reg        rd_inflight_r;       // SDRAM read issued, awaiting mem_if.ready
+    reg [1:0]  rd_inflight_bsel_r;
+
+    // SDRAM read response byte (to the read mux)
     reg        sdram_rd_resp_valid_r;
     reg [7:0]  sdram_rd_resp_data_r;
+
+    // Status bits consumed by register 0x06 (kept under their original names)
+    wire sdram_wr_pending_r = acc_valid_r | ~wf_empty;
+    wire sdram_rd_pending_r = rd_pending_r | rd_inflight_r;
 
     // SDRAM port driving
     reg        mem_if_wr_r;
@@ -346,15 +370,21 @@ module bl616_spi_connector #(
 
     always @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
-            sdram_wr_word_r    <= 32'd0;
-            sdram_wr_be_r      <= 4'b0000;
-            sdram_wr_waddr_r   <= 21'd0;
-            sdram_wr_pending_r <= 1'b0;
-            sdram_rd_word_r    <= 32'd0;
-            sdram_rd_waddr_r   <= 21'd0;
-            sdram_rd_cached_r  <= 1'b0;
-            sdram_rd_pending_r <= 1'b0;
-            sdram_rd_byte_sel_r <= 2'd0;
+            acc_word_r  <= 32'd0;
+            acc_be_r    <= 4'b0000;
+            acc_waddr_r <= 21'd0;
+            acc_valid_r <= 1'b0;
+            acc_idle_r  <= 8'd0;
+            wf_wptr_r   <= '0;
+            wf_rptr_r   <= '0;
+            rdc_word_r  <= 32'd0;
+            rdc_waddr_r <= 21'd0;
+            rdc_valid_r <= 1'b0;
+            rd_pending_r  <= 1'b0;
+            rd_waddr_r    <= 21'd0;
+            rd_bsel_r     <= 2'd0;
+            rd_inflight_r <= 1'b0;
+            rd_inflight_bsel_r <= 2'd0;
             sdram_rd_resp_valid_r <= 1'b0;
             sdram_rd_resp_data_r  <= 8'h00;
             mem_if_wr_r <= 1'b0;
@@ -363,17 +393,18 @@ module bl616_spi_connector #(
             mem_if_data_r <= 32'd0;
             mem_if_be_r   <= 4'b0000;
         end else begin
+            // One-shot strobes
             mem_if_wr_r <= 1'b0;
             mem_if_rd_r <= 1'b0;
             sdram_rd_resp_valid_r <= 1'b0;
 
-            // Handle SDRAM read ready
-            if (mem_if.ready && sdram_rd_pending_r) begin
-                sdram_rd_word_r   <= mem_if.q[31:0];
-                sdram_rd_cached_r <= 1'b1;
-                sdram_rd_pending_r <= 1'b0;
-                // Extract requested byte
-                case (sdram_rd_byte_sel_r)
+            // ---- 1) Capture SDRAM read completion ----
+            if (mem_if.ready && rd_inflight_r) begin
+                rdc_word_r    <= mem_if.q[31:0];
+                rdc_waddr_r   <= rd_waddr_r;
+                rdc_valid_r   <= 1'b1;
+                rd_inflight_r <= 1'b0;
+                case (rd_inflight_bsel_r)
                     2'd0: sdram_rd_resp_data_r <= mem_if.q[7:0];
                     2'd1: sdram_rd_resp_data_r <= mem_if.q[15:8];
                     2'd2: sdram_rd_resp_data_r <= mem_if.q[23:16];
@@ -382,86 +413,97 @@ module bl616_spi_connector #(
                 sdram_rd_resp_valid_r <= 1'b1;
             end
 
-            // SDRAM write accumulator
+            // ---- 2) Accept XFER writes (never stalls: accumulator + FIFO) ----
+            // addr[23:2] = word address, addr[1:0] = byte offset
             if (mem_wr_en && (mem_space == 3'd1)) begin
-                // 24-bit byte addr -> 21-bit word addr + 2-bit byte offset
-                // addr[23:2] = word address, addr[1:0] = byte offset
-                if (sdram_wr_pending_r && (mem_wr_addr[23:2] != sdram_wr_waddr_r)) begin
-                    // Different word -- flush old, start new
-                    if (mem_if.available) begin
-                        mem_if_addr_r <= sdram_wr_waddr_r;
-                        mem_if_data_r <= sdram_wr_word_r;
-                        mem_if_be_r   <= sdram_wr_be_r;
-                        mem_if_wr_r   <= 1'b1;
-                    end
-                    sdram_wr_waddr_r <= mem_wr_addr[23:2];
-                    sdram_wr_word_r  <= 32'd0;
-                    sdram_wr_be_r    <= 4'b0000;
-                    // Place new byte
+                acc_idle_r <= 8'd0;
+                if (acc_valid_r && (mem_wr_addr[23:2] != acc_waddr_r)) begin
+                    // Different word: evict current accumulator to FIFO, start new
+                    wf_addr_m[wf_wptr_r[WF_AW-1:0]] <= acc_waddr_r;
+                    wf_data_m[wf_wptr_r[WF_AW-1:0]] <= acc_word_r;
+                    wf_be_m  [wf_wptr_r[WF_AW-1:0]] <= acc_be_r;
+                    wf_wptr_r   <= wf_wptr_r + 1'b1;
+                    acc_waddr_r <= mem_wr_addr[23:2];
+                    acc_word_r  <= 32'd0;
                     case (mem_wr_addr[1:0])
-                        2'd0: begin sdram_wr_word_r[7:0]   <= mem_wr_data; sdram_wr_be_r[0] <= 1'b1; end
-                        2'd1: begin sdram_wr_word_r[15:8]  <= mem_wr_data; sdram_wr_be_r[1] <= 1'b1; end
-                        2'd2: begin sdram_wr_word_r[23:16] <= mem_wr_data; sdram_wr_be_r[2] <= 1'b1; end
-                        2'd3: begin sdram_wr_word_r[31:24] <= mem_wr_data; sdram_wr_be_r[3] <= 1'b1; end
+                        2'd0: begin acc_word_r[7:0]   <= mem_wr_data; acc_be_r <= 4'b0001; end
+                        2'd1: begin acc_word_r[15:8]  <= mem_wr_data; acc_be_r <= 4'b0010; end
+                        2'd2: begin acc_word_r[23:16] <= mem_wr_data; acc_be_r <= 4'b0100; end
+                        2'd3: begin acc_word_r[31:24] <= mem_wr_data; acc_be_r <= 4'b1000; end
                     endcase
-                    sdram_wr_pending_r <= 1'b1;
+                    acc_valid_r <= 1'b1;
                 end else begin
-                    // Same word (or first byte)
-                    sdram_wr_waddr_r <= mem_wr_addr[23:2];
+                    // Same word (or first byte): merge into accumulator
+                    acc_waddr_r <= mem_wr_addr[23:2];
                     case (mem_wr_addr[1:0])
-                        2'd0: begin sdram_wr_word_r[7:0]   <= mem_wr_data; sdram_wr_be_r[0] <= 1'b1; end
-                        2'd1: begin sdram_wr_word_r[15:8]  <= mem_wr_data; sdram_wr_be_r[1] <= 1'b1; end
-                        2'd2: begin sdram_wr_word_r[23:16] <= mem_wr_data; sdram_wr_be_r[2] <= 1'b1; end
-                        2'd3: begin sdram_wr_word_r[31:24] <= mem_wr_data; sdram_wr_be_r[3] <= 1'b1; end
+                        2'd0: begin acc_word_r[7:0]   <= mem_wr_data; acc_be_r[0] <= 1'b1; end
+                        2'd1: begin acc_word_r[15:8]  <= mem_wr_data; acc_be_r[1] <= 1'b1; end
+                        2'd2: begin acc_word_r[23:16] <= mem_wr_data; acc_be_r[2] <= 1'b1; end
+                        2'd3: begin acc_word_r[31:24] <= mem_wr_data; acc_be_r[3] <= 1'b1; end
                     endcase
-                    sdram_wr_pending_r <= 1'b1;
-                    // Auto-flush on full word
-                    if (mem_wr_addr[1:0] == 2'd3 && mem_if.available) begin
-                        // All 4 bytes accumulated -- flush now
-                        mem_if_addr_r <= mem_wr_addr[23:2];
-                        mem_if_data_r <= sdram_wr_word_r;
-                        // Update the last byte into the flush data
-                        mem_if_data_r[31:24] <= mem_wr_data;
-                        mem_if_be_r   <= sdram_wr_be_r | 4'b1000;
-                        mem_if_wr_r   <= 1'b1;
-                        sdram_wr_pending_r <= 1'b0;
-                        sdram_wr_be_r      <= 4'b0000;
+                    acc_valid_r <= 1'b1;
+                    if (mem_wr_addr[1:0] == 2'd3) begin
+                        // Word complete: push merged word to FIFO
+                        wf_addr_m[wf_wptr_r[WF_AW-1:0]] <= mem_wr_addr[23:2];
+                        wf_data_m[wf_wptr_r[WF_AW-1:0]] <= {mem_wr_data, acc_word_r[23:0]};
+                        wf_be_m  [wf_wptr_r[WF_AW-1:0]] <= acc_be_r | 4'b1000;
+                        wf_wptr_r   <= wf_wptr_r + 1'b1;
+                        acc_valid_r <= 1'b0;
+                        acc_be_r    <= 4'b0000;
+                        acc_word_r  <= 32'd0;
                     end
                 end
-                // Invalidate read cache if writing to same word
-                if (sdram_rd_cached_r && (mem_wr_addr[23:2] == sdram_rd_waddr_r))
-                    sdram_rd_cached_r <= 1'b0;
+                // Invalidate read cache on write to the cached word
+                if (rdc_valid_r && (mem_wr_addr[23:2] == rdc_waddr_r))
+                    rdc_valid_r <= 1'b0;
+            end else if (acc_valid_r && (acc_idle_r >= ACC_IDLE_FLUSH || rd_pending_r)) begin
+                // Flush the final partial word: end-of-burst, or to order before a
+                // pending read (write-before-read). Single accumulator-flush site,
+                // and only when !mem_wr_en, so it never collides with a write push.
+                wf_addr_m[wf_wptr_r[WF_AW-1:0]] <= acc_waddr_r;
+                wf_data_m[wf_wptr_r[WF_AW-1:0]] <= acc_word_r;
+                wf_be_m  [wf_wptr_r[WF_AW-1:0]] <= acc_be_r;
+                wf_wptr_r   <= wf_wptr_r + 1'b1;
+                acc_valid_r <= 1'b0;
+                acc_be_r    <= 4'b0000;
+                acc_word_r  <= 32'd0;
+            end else if (acc_valid_r) begin
+                acc_idle_r <= acc_idle_r + 8'd1;
             end
 
-            // SDRAM read requests
+            // ---- 3) Accept a read request: cache hit serves now, else mark pending ----
             if (mem_rd_req && (mem_rd_space == 3'd1)) begin
-                // Flush any pending write first
-                if (sdram_wr_pending_r && mem_if.available) begin
-                    mem_if_addr_r <= sdram_wr_waddr_r;
-                    mem_if_data_r <= sdram_wr_word_r;
-                    mem_if_be_r   <= sdram_wr_be_r;
-                    mem_if_wr_r   <= 1'b1;
-                    sdram_wr_pending_r <= 1'b0;
-                    sdram_wr_be_r      <= 4'b0000;
-                end
-
-                if (sdram_rd_cached_r && (mem_rd_addr[23:2] == sdram_rd_waddr_r)) begin
-                    // Cache hit -- extract byte immediately
+                if (rdc_valid_r && (mem_rd_addr[23:2] == rdc_waddr_r)) begin
                     case (mem_rd_addr[1:0])
-                        2'd0: sdram_rd_resp_data_r <= sdram_rd_word_r[7:0];
-                        2'd1: sdram_rd_resp_data_r <= sdram_rd_word_r[15:8];
-                        2'd2: sdram_rd_resp_data_r <= sdram_rd_word_r[23:16];
-                        2'd3: sdram_rd_resp_data_r <= sdram_rd_word_r[31:24];
+                        2'd0: sdram_rd_resp_data_r <= rdc_word_r[7:0];
+                        2'd1: sdram_rd_resp_data_r <= rdc_word_r[15:8];
+                        2'd2: sdram_rd_resp_data_r <= rdc_word_r[23:16];
+                        2'd3: sdram_rd_resp_data_r <= rdc_word_r[31:24];
                     endcase
                     sdram_rd_resp_valid_r <= 1'b1;
-                end else if (mem_if.available) begin
-                    // Cache miss -- issue SDRAM read
-                    mem_if_addr_r <= mem_rd_addr[23:2];
+                end else begin
+                    rd_pending_r <= 1'b1;
+                    rd_waddr_r   <= mem_rd_addr[23:2];
+                    rd_bsel_r    <= mem_rd_addr[1:0];
+                end
+            end
+
+            // ---- 4) SDRAM arbiter: writes drain before reads (preserves ordering) ----
+            if (mem_if.available && !mem_if_wr_r && !mem_if_rd_r && !rd_inflight_r) begin
+                if (!wf_empty) begin
+                    // Pop one queued word -> SDRAM write
+                    mem_if_addr_r <= wf_addr_m[wf_rptr_r[WF_AW-1:0]];
+                    mem_if_data_r <= wf_data_m[wf_rptr_r[WF_AW-1:0]];
+                    mem_if_be_r   <= wf_be_m  [wf_rptr_r[WF_AW-1:0]];
+                    mem_if_wr_r   <= 1'b1;
+                    wf_rptr_r     <= wf_rptr_r + 1'b1;
+                end else if (rd_pending_r && !acc_valid_r) begin
+                    // All writes drained -> issue the pending SDRAM read
+                    mem_if_addr_r <= rd_waddr_r;
                     mem_if_rd_r   <= 1'b1;
-                    sdram_rd_waddr_r   <= mem_rd_addr[23:2];
-                    sdram_rd_byte_sel_r <= mem_rd_addr[1:0];
-                    sdram_rd_pending_r  <= 1'b1;
-                    sdram_rd_cached_r   <= 1'b0;
+                    rd_inflight_r <= 1'b1;
+                    rd_inflight_bsel_r <= rd_bsel_r;
+                    rd_pending_r  <= 1'b0;
                 end
             end
         end
