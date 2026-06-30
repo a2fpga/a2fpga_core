@@ -91,21 +91,6 @@ module direct_display #(
     // Timing signal generation
     // =========================================================================
 
-    // pixel_clk_en: divide clk_i by PIX_CLK_DIV (ungated — runs always)
-    reg [$clog2(PIX_CLK_DIV)-1:0] pix_div_r;
-    wire pix_tick_w = (pix_div_r == 0);
-
-    always @(posedge clk_i) begin
-        if (!reset_n_i) begin
-            pix_div_r <= '0;
-        end else begin
-            if (pix_div_r == PIX_CLK_DIV - 1)
-                pix_div_r <= '0;
-            else
-                pix_div_r <= pix_div_r + 1;
-        end
-    end
-
     // hsync: pulse on every new display line within the visible window.
     // Fires on both even and odd lines — the generator re-renders the same
     // Apple II scanline for line doubling (scanline number repeats in pairs).
@@ -126,6 +111,40 @@ module direct_display #(
             prev_cy_r <= 10'd0;
         else
             prev_cy_r <= cy_i;
+    end
+
+    // Single-cycle line-start strobe. new_scanline_w can remain asserted for
+    // more than one clk_i cycle (cx_i == H_GEN_START holds steady while the
+    // slower HDMI raster advances, and cy_changed_w spans the wider clk_i),
+    // so edge-detect it to get exactly one pulse per line.
+    reg new_scanline_d_r;
+    always @(posedge clk_i) begin
+        if (!reset_n_i)
+            new_scanline_d_r <= 1'b0;
+        else
+            new_scanline_d_r <= new_scanline_w;
+    end
+    wire line_start_w = new_scanline_w && !new_scanline_d_r;
+
+    // pixel_clk_en: divide clk_i by PIX_CLK_DIV. Re-synced to the line start
+    // every scanline (mirrors framebuffer_writer's hsync re-sync) instead of
+    // free-running from power-on, so the pixel cadence holds a fixed, known
+    // phase relative to the HDMI raster / clk_pixel every line. A free-running
+    // divider leaves the launch-vs-sample phase of the clk_logic -> clk_pixel
+    // pixel hand-off arbitrary, which shows up as faint flicker on
+    // high-spatial-frequency content (80-column text).
+    reg [$clog2(PIX_CLK_DIV)-1:0] pix_div_r;
+    wire pix_tick_w = (pix_div_r == 0);
+
+    always @(posedge clk_i) begin
+        if (!reset_n_i || line_start_w) begin
+            pix_div_r <= '0;
+        end else begin
+            if (pix_div_r == PIX_CLK_DIV - 1)
+                pix_div_r <= '0;
+            else
+                pix_div_r <= pix_div_r + 1;
+        end
     end
 
     // vsync: pulse at frame boundary

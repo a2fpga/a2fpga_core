@@ -489,14 +489,30 @@ module top #(
         wire [7:0] ps_b_w      = use_vgc_r ? dd_vgc_b_w : dd_apple_b_w;
         wire       ps_active_w = use_vgc_r ? vgc_ps.active : apple_ps.active;
 
+        // Register the composited pixel in clk_logic first, so the clk_pixel
+        // sampler below captures a clean single-FF source rather than a deep
+        // combinational chain (palette LUT -> active/border mux in
+        // direct_display -> Apple/SHR mux here). Collapsing the cross-domain
+        // launch path to a flop removes the per-pixel CDC timing hazard that
+        // produced faint flicker on high-spatial-frequency content (80-column
+        // text); lower-frequency content such as SHR masked it.
+        reg [7:0] ps_r_logic_r, ps_g_logic_r, ps_b_logic_r;
+        reg       ps_active_logic_r;
+        always @(posedge clk_logic_w) begin
+            ps_r_logic_r      <= ps_r_w;
+            ps_g_logic_r      <= ps_g_w;
+            ps_b_logic_r      <= ps_b_w;
+            ps_active_logic_r <= ps_active_w;
+        end
+
         // CDC clk_logic -> clk_pixel (synchronous 2:1 clocks)
         reg [7:0] ps_r_pix_r, ps_g_pix_r, ps_b_pix_r;
         reg       ps_active_pix_r;
         always @(posedge clk_pixel_w) begin
-            ps_r_pix_r      <= ps_r_w;
-            ps_g_pix_r      <= ps_g_w;
-            ps_b_pix_r      <= ps_b_w;
-            ps_active_pix_r <= ps_active_w;
+            ps_r_pix_r      <= ps_r_logic_r;
+            ps_g_pix_r      <= ps_g_logic_r;
+            ps_b_pix_r      <= ps_b_logic_r;
+            ps_active_pix_r <= ps_active_logic_r;
         end
 
         assign ssp_apple_r_w      = ps_r_pix_r;

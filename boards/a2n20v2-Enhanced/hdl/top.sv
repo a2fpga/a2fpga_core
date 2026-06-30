@@ -71,7 +71,7 @@ module top #(
     // from the plain a2n20v2 board because the main video read goes through
     // SDRAM (longer priming latency) here. Tune on hardware against a test
     // pattern until each image is centered.
-    parameter [9:0] DD_APPLE_H_START = 66,
+    parameter [9:0] DD_APPLE_H_START = 58,  // was 66; recentered for PIXEL_START_TICK=20 fixed start
     parameter [9:0] DD_VGC_H_START   = 14
 
 ) (
@@ -770,7 +770,15 @@ module top #(
 
         apple_video_gen #(
             .VRAM_READ_LATENCY(16),  // SDRAM via mem_port_if
-            .PIXEL_START_TICK(0)     // horizontal centering via direct_display H_GEN_START
+            // Fixed raster-locked output start. The SDRAM VRAM read has variable
+            // priming latency (refresh/arbitration jitter), so PIXEL_START_TICK=0
+            // let the line's first pixel begin "whenever the fetch finished",
+            // shifting the whole line by 1 px when a refresh collided with the
+            // first-chunk fetch — a 1-px band sweeping vertically as the 15us
+            // refresh beat against the scanline rate. Holding output until a fixed
+            // tick (> worst-case priming) raster-locks the start and removes the
+            // jitter. Plain a2n20v2 keeps 0 (BSRAM = constant latency).
+            .PIXEL_START_TICK(20)
         ) apple_video_gen (
             .clk_i(clk_logic_w),
             .reset_n_i(system_reset_n_w),
@@ -871,14 +879,30 @@ module top #(
         wire [7:0] ps_b_w      = use_vgc_r ? dd_vgc_b_w : dd_apple_b_w;
         wire       ps_active_w = use_vgc_r ? vgc_ps.active : apple_ps.active;
 
+        // Register the composited pixel in clk_logic first, so the clk_pixel
+        // sampler below captures a clean single-FF source rather than a deep
+        // combinational chain (palette LUT -> active/border mux in
+        // direct_display -> Apple/SHR mux here). Collapsing the cross-domain
+        // launch path to a flop removes the per-pixel CDC timing hazard that
+        // produced faint flicker on high-spatial-frequency content (80-column
+        // text); lower-frequency content such as SHR masked it.
+        reg [7:0] ps_r_logic_r, ps_g_logic_r, ps_b_logic_r;
+        reg       ps_active_logic_r;
+        always @(posedge clk_logic_w) begin
+            ps_r_logic_r      <= ps_r_w;
+            ps_g_logic_r      <= ps_g_w;
+            ps_b_logic_r      <= ps_b_w;
+            ps_active_logic_r <= ps_active_w;
+        end
+
         // CDC clk_logic -> clk_pixel (synchronous 2:1 clocks)
         reg [7:0] ps_r_pix_r, ps_g_pix_r, ps_b_pix_r;
         reg       ps_active_pix_r;
         always @(posedge clk_pixel_w) begin
-            ps_r_pix_r      <= ps_r_w;
-            ps_g_pix_r      <= ps_g_w;
-            ps_b_pix_r      <= ps_b_w;
-            ps_active_pix_r <= ps_active_w;
+            ps_r_pix_r      <= ps_r_logic_r;
+            ps_g_pix_r      <= ps_g_logic_r;
+            ps_b_pix_r      <= ps_b_logic_r;
+            ps_active_pix_r <= ps_active_logic_r;
         end
 
         assign ssp_apple_r_w      = ps_r_pix_r;
