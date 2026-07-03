@@ -164,9 +164,9 @@ At startup the firmware mounts, per drive, the **first name that exists**:
 | Hard disk 1 | `hdd1.hdv`, `hdd1.po`, `hdd1.2mg` |
 | Hard disk 2 | `hdd2.hdv`, `hdd2.po`, `hdd2.2mg` |
 
-Images with **any other name** can be selected from the on-screen menu
-(DISK IMAGES → pick a drive → choose from the list); the choice is saved
-and survives power cycles. A USB stick takes priority over the SD card by
+Images with **any other name — including in subdirectories** — can be
+selected from the on-screen menu (DISK IMAGES → pick a drive → browse
+folders and choose); the choice is saved and survives power cycles. A USB stick takes priority over the SD card by
 default (configurable in STORAGE).
 
 A good starter set: a DOS 3.3 disk as `disk1.dsk`, a blank 143,360-byte

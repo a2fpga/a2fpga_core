@@ -836,10 +836,13 @@ static void handle_button(uint16_t btn)
             m->action(m->id);
         break;
     case BTN_BACK:
-        if (s_depth > 0)
+        if (s_stack[s_depth] == &SCR_PICKER && s_pick_path[0]) {
+            picker_choose(-3);         /* in a subdirectory: go up first */
+        } else if (s_depth > 0) {
             screen_pop();
-        else
+        } else {
             enter_view(VIEW_APPLE);
+        }
         break;
     default:
         return;                        /* nothing menu-relevant changed */
