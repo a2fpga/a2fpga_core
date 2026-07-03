@@ -47,11 +47,18 @@ bool disk_backend_is_usb(void);
 bool disk_remount_pending(void);
 
 /* Async directory listing (FatFS is NOT re-entrant — FF_FS_REENTRANT=0 — so
- * all filesystem access must run in the disk thread). Begin posts a request;
- * poll returns -1 while pending, else the number of names filled. exts is a
- * NULL-terminated list of extensions (no dot, case-insensitive). */
+ * all filesystem access must run in the disk thread). Begin posts a request
+ * for one directory (path relative to the volume root, "" = root); poll
+ * returns -1 while pending, else the number of entries filled. Directories
+ * are always included (is_dir set); files are filtered by exts, a
+ * NULL-terminated list of extensions (no dot, case-insensitive).
+ * Directories sort before files. */
 #define DISK_LIST_MAX 24
-void disk_list_begin(const char *const *exts);
-int  disk_list_poll(char names[][32], int max);
+typedef struct {
+    char name[40];   /* entry name within the directory */
+    bool is_dir;
+} disk_list_ent_t;
+void disk_list_begin(const char *path, const char *const *exts);
+int  disk_list_poll(disk_list_ent_t *ents, int max);
 
 #endif

@@ -19,7 +19,7 @@
 #include <stdint.h>
 
 #define SETTINGS_MAGIC    0x41324650u   /* 'A2FP' */
-#define SETTINGS_VERSION  1
+#define SETTINGS_VERSION  2
 
 /* boot_pref */
 enum {
@@ -30,7 +30,7 @@ enum {
 
 #define SETTINGS_NDRV 2
 #define SETTINGS_NHDD 2
-#define SETTINGS_NAME_LEN 32
+#define SETTINGS_NAME_LEN 64   /* room for subdirectory paths */
 
 typedef struct {
     uint32_t magic;
@@ -49,7 +49,8 @@ typedef struct {
     uint8_t  slot_cards[8];
 
     /* Disk image overrides: tried before the built-in candidate lists.
-     * Empty string = no override. FatFS paths without the "0:/" prefix. */
+     * Empty string = no override. FatFS paths without the "0:/" prefix;
+     * may include subdirectories ("games/choplifter.dsk"). */
     char     disk_img[SETTINGS_NDRV][SETTINGS_NAME_LEN];
     char     hdd_img[SETTINGS_NHDD][SETTINGS_NAME_LEN];
 

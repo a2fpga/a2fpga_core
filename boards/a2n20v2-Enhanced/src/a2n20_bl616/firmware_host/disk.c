@@ -91,7 +91,7 @@ static bool        g_writable[NDRV];
 static disk_fmt_t  g_fmt[NDRV];
 static gcr_order_t g_order[NDRV];                /* sector order for FMT_DSK    */
 static uint32_t    g_base[NDRV];                 /* payload offset (.2mg header)*/
-static char        g_imgname[NDRV][32];          /* resolved image path         */
+static char        g_imgname[NDRV][SETTINGS_NAME_LEN + 4]; /* resolved image path */
 static uint8_t     g_trackbuf[MAX_TRACK_BYTES];  /* nibble track (SDRAM window) */
 static uint8_t     g_secbuf[DSK_TRACK_BYTES];    /* one sector track (16*256)   */
 
@@ -106,14 +106,15 @@ static bool     g_hdd_mounted[NHDD];
 static bool     g_hdd_writable[NHDD];
 static uint32_t g_hdd_base[NHDD];       /* payload offset (.2mg header)  */
 static uint32_t g_hdd_blocks[NHDD];     /* size in 512-byte blocks       */
-static char     g_hdd_name[NHDD][32];
+static char     g_hdd_name[NHDD][SETTINGS_NAME_LEN + 4];
 static uint8_t  g_blockbuf[SECTOR_BYTES];
 
 /* Menu directory-listing request (see disk_list_begin/poll in disk.h). */
 static volatile bool          g_list_req;
 static volatile bool          g_list_done;
 static const char *const     *g_list_exts;
-static char                   g_list_names[DISK_LIST_MAX][32];
+static char                   g_list_path[SETTINGS_NAME_LEN + 4];
+static disk_list_ent_t        g_list_ents[DISK_LIST_MAX];
 static int                    g_list_count;
 
 /* Case-insensitive extension test ("dsk", "do", ...). */
@@ -736,26 +737,35 @@ void disk_poll(void)
     }
 
     /* Async directory listing for the menu (FatFS is not re-entrant, so the
-     * scan runs here, in the thread that owns the filesystem). */
+     * scan runs here, in the thread that owns the filesystem). Two passes so
+     * directories sort before files. */
     if (g_list_req) {
         g_list_count = 0;
-        DIR dir;
-        FILINFO fno;
-        if (f_opendir(&dir, "0:/") == FR_OK) {
+        for (int pass = 0; pass < 2; pass++) {
+            DIR dir;
+            FILINFO fno;
+            if (f_opendir(&dir, g_list_path) != FR_OK)
+                break;
             while (g_list_count < DISK_LIST_MAX) {
                 if (f_readdir(&dir, &fno) != FR_OK || fno.fname[0] == '\0')
                     break;
-                if (fno.fattrib & AM_DIR)
-                    continue;
                 if (fno.fname[0] == '.' || fno.fname[0] == '_')
                     continue;
-                bool match = false;
-                for (int e = 0; g_list_exts[e] && !match; e++)
-                    match = has_ext(fno.fname, g_list_exts[e]);
-                if (!match)
+                bool is_dir = (fno.fattrib & AM_DIR) != 0;
+                if ((pass == 0) != is_dir)
                     continue;
-                snprintf(g_list_names[g_list_count], 32, "%s", fno.fname);
-                g_list_count++;
+                if (!is_dir) {
+                    bool match = false;
+                    for (int e = 0; g_list_exts[e] && !match; e++)
+                        match = has_ext(fno.fname, g_list_exts[e]);
+                    if (!match)
+                        continue;
+                }
+                if (strlen(fno.fname) >= sizeof(g_list_ents[0].name))
+                    continue;   /* name too long to select later */
+                disk_list_ent_t *e = &g_list_ents[g_list_count++];
+                snprintf(e->name, sizeof(e->name), "%s", fno.fname);
+                e->is_dir = is_dir;
             }
             f_closedir(&dir);
         }
@@ -811,18 +821,19 @@ bool disk_remount_pending(void)
     return g_remount_req || g_remounting;
 }
 
-void disk_list_begin(const char *const *exts)
+void disk_list_begin(const char *path, const char *const *exts)
 {
     g_list_done = false;
     g_list_exts = exts;
+    snprintf(g_list_path, sizeof(g_list_path), "0:/%s", path ? path : "");
     g_list_req  = true;           /* serviced by the next disk_poll */
 }
 
-int disk_list_poll(char names[][32], int max)
+int disk_list_poll(disk_list_ent_t *ents, int max)
 {
     if (!g_list_done)
         return -1;
     int n = g_list_count < max ? g_list_count : max;
-    memcpy(names, g_list_names, (size_t)n * 32);
+    memcpy(ents, g_list_ents, (size_t)n * sizeof(disk_list_ent_t));
     return n;
 }

@@ -344,21 +344,78 @@ static const menu_screen_t SCR_SLOTS = { "SLOT ASSIGNMENTS", slots_build };
 
 /* ======================= SCREEN: FILE PICKER ============================== */
 /* Generic list-of-files picker: fills a target settings name field. */
-static char  s_pick_names[DISK_LIST_MAX][32];
+static disk_list_ent_t s_pick_ents[DISK_LIST_MAX];
 static int   s_pick_count;
+static char  s_pick_path[SETTINGS_NAME_LEN];   /* current subdir ("" = root) */
 static char *s_pick_target;            /* settings field to write */
 static const char *const *s_pick_exts; /* NULL-terminated extension list */
 static uint8_t s_pick_eject_bit;       /* eject_mask bit for this volume */
 
+/* Load (or reload) the current picker directory via the disk thread. */
+static void picker_load(void)
+{
+    s_pick_count = 0;
+    disk_list_begin(s_pick_path, s_pick_exts);
+    for (int waited = 0; waited < 2000; waited += 20) {
+        int n = disk_list_poll(s_pick_ents, DISK_LIST_MAX);
+        if (n >= 0) {
+            s_pick_count = n;
+            break;
+        }
+        usb_osal_msleep(20);
+    }
+}
+
 static void picker_choose(int id)
 {
+    if (id == -3) {                            /* UP: parent directory */
+        char *slash = strrchr(s_pick_path, '/');
+        if (slash)
+            *slash = '\0';
+        else
+            s_pick_path[0] = '\0';
+        picker_load();
+        s_cursor[s_depth] = 0;
+        s_scroll[s_depth] = 0;
+        screen_refresh();
+        return;
+    }
+    if (id >= 0 && s_pick_ents[id].is_dir) {   /* descend into subdirectory */
+        size_t plen = strlen(s_pick_path);
+        size_t nlen = strlen(s_pick_ents[id].name);
+        if (plen + (plen ? 1 : 0) + nlen >= sizeof(s_pick_path)) {
+            set_status(" PATH TOO LONG");
+            return;
+        }
+        if (plen)
+            s_pick_path[plen++] = '/';
+        memcpy(s_pick_path + plen, s_pick_ents[id].name, nlen + 1);
+        picker_load();
+        s_cursor[s_depth] = 0;
+        s_scroll[s_depth] = 0;
+        screen_refresh();
+        return;
+    }
+
     if (id == -2) {                            /* EJECT: leave unmounted */
         settings()->eject_mask |= s_pick_eject_bit;
     } else if (id == -1) {                     /* AUTO: built-in names */
         s_pick_target[0] = '\0';
         settings()->eject_mask &= (uint8_t)~s_pick_eject_bit;
     } else {
-        snprintf(s_pick_target, SETTINGS_NAME_LEN, "%s", s_pick_names[id]);
+        /* full path: subdir/name (must fit the settings field) */
+        int n;
+        if (s_pick_path[0])
+            n = snprintf(s_pick_target, SETTINGS_NAME_LEN, "%s/%s",
+                         s_pick_path, s_pick_ents[id].name);
+        else
+            n = snprintf(s_pick_target, SETTINGS_NAME_LEN, "%s",
+                         s_pick_ents[id].name);
+        if (n >= SETTINGS_NAME_LEN) {
+            s_pick_target[0] = '\0';
+            set_status(" PATH TOO LONG");
+            return;
+        }
         settings()->eject_mask &= (uint8_t)~s_pick_eject_bit;
     }
     save_settings_status();
@@ -369,19 +426,35 @@ static void picker_choose(int id)
 
 static void picker_build(void)
 {
-    menu_item_t *m = mi_add(MI_ACTION, "(AUTO - BUILT-IN NAMES)", "");
-    m->action = picker_choose;
-    m->id = -1;
-    m = mi_add(MI_ACTION, "(EJECT - NO IMAGE)", "");
-    m->action = picker_choose;
-    m->id = -2;
+    menu_item_t *m;
+    if (s_pick_path[0]) {
+        char cur[MENU_LABEL_LEN + 1];
+        snprintf(cur, sizeof(cur), "DIR: /%s", s_pick_path);
+        mi_add(MI_INFO, cur, "");
+        m = mi_add(MI_ACTION, "(UP ONE DIRECTORY)", "");
+        m->action = picker_choose;
+        m->id = -3;
+    } else {
+        m = mi_add(MI_ACTION, "(AUTO - BUILT-IN NAMES)", "");
+        m->action = picker_choose;
+        m->id = -1;
+        m = mi_add(MI_ACTION, "(EJECT - NO IMAGE)", "");
+        m->action = picker_choose;
+        m->id = -2;
+    }
     for (int i = 0; i < s_pick_count; i++) {
-        m = mi_add(MI_ACTION, s_pick_names[i], "");
+        if (s_pick_ents[i].is_dir) {
+            char label[MENU_LABEL_LEN + 1];
+            snprintf(label, sizeof(label), "%s/", s_pick_ents[i].name);
+            m = mi_add(MI_SUBMENU, label, "");
+        } else {
+            m = mi_add(MI_ACTION, s_pick_ents[i].name, "");
+        }
         m->action = picker_choose;
         m->id = i;
     }
     if (!s_pick_count)
-        mi_add(MI_INFO, "NO MATCHING IMAGES FOUND", "");
+        mi_add(MI_INFO, "NO MATCHING IMAGES OR FOLDERS", "");
 }
 
 static const menu_screen_t SCR_PICKER = { "CHOOSE IMAGE", picker_build };
@@ -392,20 +465,10 @@ static void picker_open(char *target, const char *const *exts,
     s_pick_target    = target;
     s_pick_exts      = exts;
     s_pick_eject_bit = eject_bit;
-    s_pick_count     = 0;
-
-    /* FatFS is not re-entrant: the scan runs in the disk thread. Post the
-     * request and wait briefly (a root-directory scan takes milliseconds;
-     * the pad is idle while we block here). */
-    disk_list_begin(exts);
-    for (int waited = 0; waited < 2000; waited += 20) {
-        int n = disk_list_poll(s_pick_names, DISK_LIST_MAX);
-        if (n >= 0) {
-            s_pick_count = n;
-            break;
-        }
-        usb_osal_msleep(20);
-    }
+    s_pick_path[0]   = '\0';   /* start at the volume root */
+    /* FatFS is not re-entrant: the scan runs in the disk thread (the pad is
+     * idle for the few ms we block here). */
+    picker_load();
     screen_push(&SCR_PICKER);
 }
 
