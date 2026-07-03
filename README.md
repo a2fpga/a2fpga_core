@@ -1,5 +1,7 @@
 # A2FPGA Multicard Core
 
+[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/a2fpga/a2fpga_core)
+
 Multicard core for A2FPGA Apple II FPGA co-processor cards.
 
 The A2FPGA consists of an Apple II peripheral card PCB that can be installed in any Apple II 
