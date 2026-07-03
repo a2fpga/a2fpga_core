@@ -61,14 +61,13 @@ stick / SD card and are not size-limited by FPGA memory.
   BL616 boards Sipeed currently ships)
 - **USB-C cable** to the Tang Nano 20K's **Debug** port (the USB-C port on
   the BL616 side) for flashing
-- A small **USB hub** (the BL616 has one USB host port; you'll want at
+- A small **[USB-C to USB-A hub](https://www.amazon.com/dp/B07PY87TBD)** (the BL616 has one USB host port; you'll want at
   least a gamepad + storage on it)
 - **XInput game controller** — 8BitDo SN30 Pro or similar (the menu's only
   input device; no Apple II keyboard needed)
 - **USB flash drive**, FAT32-formatted (MBR partition scheme) — or a FAT32
   SD card in the Tang Nano 20K's SD slot
-- Optional: **USB-Ethernet adapter** (Realtek RTL8152/RTL8153 or ASIX
-  AX88772) for the Uthernet II bridge
+- Optional: **[USB 2.0 10/100 Mbps Ethernet adapter](https://www.amazon.com/dp/B00ET4KHJ2)** (Realtek RTL8152) for the Uthernet II bridge
 - A Mac or PC with:
   - [openFPGALoader](https://github.com/trabucayre/openFPGALoader) — on a
     Mac: `brew install openfpgaloader`
