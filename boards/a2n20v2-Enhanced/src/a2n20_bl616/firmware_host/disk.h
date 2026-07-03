@@ -55,7 +55,7 @@ bool disk_remount_pending(void);
  * Directories sort before files. */
 #define DISK_LIST_MAX 24
 typedef struct {
-    char name[40];   /* entry name within the directory */
+    char name[64];   /* entry name within the directory (LFN; longer skipped) */
     bool is_dir;
 } disk_list_ent_t;
 void disk_list_begin(const char *path, const char *const *exts);

@@ -20,7 +20,7 @@
 #include <stdint.h>
 
 #define SETTINGS_MAGIC    0x41324650u   /* 'A2FP' */
-#define SETTINGS_VERSION  2
+#define SETTINGS_VERSION  3
 
 /* boot_pref */
 enum {
@@ -31,7 +31,7 @@ enum {
 
 #define SETTINGS_NDRV 2
 #define SETTINGS_NHDD 2
-#define SETTINGS_NAME_LEN 64   /* room for subdirectory paths */
+#define SETTINGS_NAME_LEN 128  /* full LFN paths incl. subdirectories */
 
 typedef struct {
     uint32_t magic;

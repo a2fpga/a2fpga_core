@@ -787,8 +787,11 @@ void disk_get_floppy_info(int v, disk_info_t *out)
         return;
     out->mounted  = g_mounted[v];
     out->writable = g_writable[v];
-    snprintf(out->name, sizeof(out->name), "%s",
-             g_imgname[v][0] ? g_imgname[v] + 3 : "");
+    {   /* display the basename (paths can exceed the label width) */
+        const char *n = g_imgname[v][0] ? g_imgname[v] + 3 : "";
+        const char *slash = strrchr(n, '/');
+        snprintf(out->name, sizeof(out->name), "%s", slash ? slash + 1 : n);
+    }
     if (g_mounted[v])
         snprintf(out->detail, sizeof(out->detail), "%s %s",
                  g_fmt[v] == FMT_NIB ? "NIB" :
@@ -803,8 +806,11 @@ void disk_get_hdd_info(int u, disk_info_t *out)
         return;
     out->mounted  = g_hdd_mounted[u];
     out->writable = g_hdd_writable[u];
-    snprintf(out->name, sizeof(out->name), "%s",
-             g_hdd_name[u][0] ? g_hdd_name[u] + 3 : "");
+    {
+        const char *n = g_hdd_name[u][0] ? g_hdd_name[u] + 3 : "";
+        const char *slash = strrchr(n, '/');
+        snprintf(out->name, sizeof(out->name), "%s", slash ? slash + 1 : n);
+    }
     if (g_hdd_mounted[u])
         snprintf(out->detail, sizeof(out->detail), "%luBLK %s",
                  (unsigned long)g_hdd_blocks[u],
