@@ -8,9 +8,10 @@
  * live for the session. Settings are read via settings(), mutated in place,
  * and persisted with settings_save() (the menu saves on change).
  *
- * Growth policy: append new fields to the END of a2_settings_t (shrinking the
- * reserved[] pad), bump SETTINGS_VERSION, and extend the loader's older-
- * version upgrade path. Never reorder existing fields.
+ * Growth policy: change the struct freely and bump SETTINGS_VERSION — the
+ * loader treats any blob whose magic/version/size/CRC do not match exactly
+ * as invalid and falls back to defaults (no migration; settings are cheap
+ * to re-enter from the menu).
  */
 #ifndef _SETTINGS_H
 #define _SETTINGS_H
