@@ -30,6 +30,23 @@
 
 static int cursor_h = 0;
 static int cursor_v = 0;
+static bool inverse_mode = false;
+
+/* ASCII -> Apple II screen code. Normal text = ASCII+128; inverse = codes
+ * $00-$3F (uppercase + symbols only, so lowercase is folded to uppercase). */
+static uint8_t screen_code(uint8_t c)
+{
+    if (c >= 'a' && c <= 'z')
+        c -= 32;
+    if (inverse_mode) {
+        if (c >= 0x40 && c < 0x60)
+            return (uint8_t)(c - 0x40);   /* @A-Z... -> $00-$1F */
+        if (c >= 0x20 && c < 0x40)
+            return c;                     /* space/digits/symbols -> $20-$3F */
+        return 0x20;                      /* out of range: inverse space */
+    }
+    return (uint8_t)(c + 128);
+}
 
 static uint32_t screen_addr(int x, int y)
 {
@@ -75,7 +92,7 @@ void fpga_screen_putchar(uint8_t c)
 
     /* Single char: write 2 bytes (char + padding) so the SDRAM accumulator
      * sees a complete even/odd pair, reducing flush race likelihood. */
-    uint8_t pair[2] = { (uint8_t)(c + 128), 0xA0 };
+    uint8_t pair[2] = { screen_code(c), 0xA0 };
     fpga_spi_xfer_write(FPGA_SPACE_SDRAM, screen_addr(cursor_h, cursor_v), pair, 2);
 
     cursor_h++;
@@ -105,7 +122,7 @@ void fpga_screen_puts(const char *str)
             continue;
         }
 
-        buf[count++] = c + 128;   /* Apple II screen code */
+        buf[count++] = screen_code(c);
         buf[count++] = 0xA0;      /* odd-byte padding */
 
         cursor_h++;
@@ -125,4 +142,19 @@ void fpga_screen_home(void)
 {
     cursor_h = 0;
     cursor_v = 0;
+}
+
+void fpga_screen_goto(int x, int y)
+{
+    if (x < 0) x = 0;
+    if (x >= SCREEN_W) x = SCREEN_W - 1;
+    if (y < 0) y = 0;
+    if (y >= SCREEN_H) y = SCREEN_H - 1;
+    cursor_h = x;
+    cursor_v = y;
+}
+
+void fpga_screen_set_inverse(bool inverse)
+{
+    inverse_mode = inverse;
 }

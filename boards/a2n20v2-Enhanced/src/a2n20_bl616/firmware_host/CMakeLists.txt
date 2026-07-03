@@ -22,11 +22,28 @@ sdk_add_compile_definitions(-DFPGA_SPI_THREADSAFE)
 # UART we can't see) so __wrap_exception_entry can paint mcause/mepc on the overlay.
 sdk_add_link_options(-Wl,--wrap=exception_entry)
 
+# The host build routes FatFS disk_* between SD and USB in diskio_host.c, so
+# sdmm.c must export its SD logic as mmc_disk_* instead of owning disk_*.
+sdk_add_compile_definitions(-DFATFS_EXTERNAL_DISKIO)
+
 target_sources(app PRIVATE
     usbh_xinput.c
     w5100.c
+    disk.c
+    diskio_host.c
+    osd_console.c
+    settings.c
+    menu.c
+    ../firmware/gcr_dsk.c
     ../firmware/fpga_spi.c
     ../firmware/fpga_screen.c
+    # Disk II image serving: FatFS + SD-over-FPGA-SPI-tunnel (same set the FT2232
+    # build compiles; diskio.c is intentionally excluded -- diskio_host.c provides
+    # the FatFS disk_* router that dispatches to SD (sdmm.c) or USB (usbh_msc)).
+    ../firmware/sdmm.c
+    ../firmware/ff.c
+    ../firmware/ffunicode.c
+    ../firmware/fpga_sd.c
 )
 sdk_set_main_file(main.c)
 

@@ -1,0 +1,252 @@
+;
+; hdd_rom.a65 — ProDOS block-device (hard disk) controller firmware for the
+; A2FPGA HDD card (hdl/disk/hdd.sv). Assemble with ACME:
+;
+;   acme hdd_rom.a65            (produces hdd_rom.bin, 256 bytes)
+;
+; Adapted from AppleWin's HDD controller firmware (firmware/HDD/hddrvr.a65,
+; GPL v2, Copyright (c) 2005 Robert Hoem, mods Tom Charlesworth), consistent
+; with this repo's other MiSTer/AppleWin-derived disk modules. Changes for
+; real-bus operation (the A2FPGA card cannot DMA into Apple II RAM and cannot
+; halt the 6502):
+;   . block data moves through the card's 512-byte sector buffer via the
+;     NEXTBYTE port ($C0s8): the driver streams it to/from (memblock)
+;   . after EXECUTE the driver polls STATUS.b7 (busy) while the BL616 MCU
+;     services the block; STATUS.b0 = error, error code readable at $C0sB
+;   . ProDOS STATUS call returns the real volume size from $C0s9/$C0sA
+;   . SmartPort and legacy (Cs46/Cs61) entry points dropped for space
+;
+; Card registers (s = slot):
+;   $C0s0 (r)   EXECUTE: latch+run command in $C0s2; resets buffer pointer
+;   $C0s1 (r)   STATUS: b7 = busy, b0 = error
+;   $C0s2 (r/w) COMMAND (0=status 1=read 2=write); write resets buffer ptr
+;   $C0s3 (r/w) UNIT NUMBER (b7 selects drive 1/2)
+;   $C0s4 (r/w) LOW BYTE OF MEMORY BUFFER (stored only; used by this driver)
+;   $C0s5 (r/w) HIGH BYTE OF MEMORY BUFFER
+;   $C0s6 (r/w) LOW BYTE OF BLOCK NUMBER
+;   $C0s7 (r/w) HIGH BYTE OF BLOCK NUMBER
+;   $C0s8 (r/w) NEXTBYTE: sector buffer, auto-incrementing pointer
+;   $C0s9 (r)   unit size in blocks, low byte
+;   $C0sA (r)   unit size in blocks, high byte
+;   $C0sB (r)   ProDOS result code of last EXECUTE (0 = ok)
+;
+!cpu 6502
+!to "hdd_rom.bin", plain
+
+; card registers, indexed by X = slot<<4
+hd_execute   = $c080
+hd_status    = $c081      ; b7=busy, b0=error
+hd_command   = $c082
+hd_unitnum   = $c083
+hd_memblock  = $c084
+hd_diskblock = $c086
+hd_nextbyte  = $c088
+hd_sizelo    = $c089
+hd_sizehi    = $c08a
+hd_result    = $c08b
+
+; ProDOS block-device parameter area
+command   = $42
+unitnum   = $43
+memblock  = $44
+diskblock = $46
+
+floppy_slot = $C500   ; Disk II boot ROM (slot 5 on a2n20v2-Enhanced;
+                      ; slot 6 is THIS card - jumping there would loop)
+OS      = $0801
+BUTTON0 = $C061
+
+;======================================
+
+!zone code
+
+*= $0000    ; position-independent (assembled at $Cn00)
+
+; Autoboot / ProDOS device signature: $Cn01=$20 $Cn03=$00 $Cn05=$03.
+; $Cn07=$3C (not $00) so ][/][+/unenhanced IIe autoboot still works.
+start
+ lda #$20
+ lda #$00
+ lda #$03
+ lda #$3C
+ bne Bootstrap
+
+Entrypoint_ProDOS     ; $Cn0A - ProDOS MLI block driver entrypoint ($CnFF -> $0A)
+ sec
+ bcs GetSlotInX       ; C=1 -> cmdproc after slot found
+
+;======================================
+
+Bootstrap
+; boot scan: is an image mounted? (STATUS cmd on disk 1)
+ clc
+ bcc GetSlotInX       ; Post: X = Slot# << 4, returns to Bootstrap2
+Bootstrap2
+ lda #$00
+ sta hd_unitnum,x     ; b7=0 => disk 1
+ sta hd_command,x
+ lda hd_execute,x     ; STATUS is immediate (no busy)
+ ror hd_status,x      ; C = error (no device)
+ bcc hdboot
+
+; no image ready, boot the floppy instead
+BootFloppy
+ jmp floppy_slot
+
+;======================================
+
+; image ready: read block 0 from disk 1 to $0800 and jump to it
+; Pre: X = Slot# << 4, C = 0
+hdboot
+ lda #$0
+ sta unitnum          ; b7=0 => disk 1
+ sta memblock
+ sta diskblock
+ sta diskblock+1
+ lda #$8
+ sta memblock+1
+ lda #$1
+ sta command          ; READ
+ bne cmdproc          ; boot continues at the C=0 path in xferdone
+
+;======================================
+
+; Pre:
+;   C=0 => via Bootstrap
+;   C=1 => via Entrypoint_ProDOS
+; Post:
+;   X = Slot# << 4
+GetSlotInX
+ php
+ sei                  ; ints off: we play stack/ZP games
+ ; find $Cn from the JSR return address. ZP $00 is read/writeable regardless
+ ; of ALTZP/RAMRD/RAMWRT/LC state, so build an RTS there and call it.
+ lda $00              ; save $00
+ ldx #$60             ; opcode RTS
+ stx $00
+ jsr $0000            ; RTS immediately
+ sta $00              ; restore $00
+ tsx
+ lda $0100,x          ; $Cn
+ asl
+ asl
+ asl
+ asl
+ tax                  ; X = $n0
+
+ plp                  ; restore entry C (and int status)
+ bcc Bootstrap2
+ ; C=1: fall through to cmdproc for Entrypoint_ProDOS
+
+;--------------------------------------
+
+; ProDOS block driver: copy the command from $42..$47 to the card, EXECUTE,
+; poll busy while the MCU services the block, then stream the data through
+; the sector buffer port.
+;
+; Pre:
+;   C=0 => via Bootstrap (hdboot)
+;   C=1 => via GetSlotInX (Entrypoint_ProDOS)
+;   X = Slot# << 4
+; Post:
+;   C = error, A = result code ($00 = ok)
+;   STATUS cmd: X/Y = unit size in blocks (lo/hi)
+cmdproc
+ php
+
+ lda command
+ sta hd_command,x     ; resets the sector buffer pointer
+ lda unitnum
+ sta hd_unitnum,x
+ lda memblock
+ sta hd_memblock,x
+ lda memblock+1
+ sta hd_memblock+1,x
+ lda diskblock
+ sta hd_diskblock,x
+ lda diskblock+1
+ sta hd_diskblock+1,x
+
+ lda command
+ cmp #2
+ bne notwrite
+; WRITE: fill the card's sector buffer from (memblock) before executing
+ ldy #0
+- lda (memblock),y
+ sta hd_nextbyte,x
+ iny
+ bne -
+ inc memblock+1
+- lda (memblock),y
+ sta hd_nextbyte,x
+ iny
+ bne -
+ dec memblock+1
+notwrite
+
+ lda hd_execute,x     ; run the command (result comes via STATUS/RESULT)
+
+- rol hd_status,x     ; C = b7 = busy (MCU still serving the block)
+ bcs -
+
+ ror hd_status,x      ; C = b0 = error
+ bcs xferdone
+ lda command
+ cmp #1
+ bne xferdone
+; READ ok: stream the sector buffer to (memblock)
+ ldy #0
+- lda hd_nextbyte,x
+ sta (memblock),y
+ iny
+ bne -
+ inc memblock+1
+- lda hd_nextbyte,x
+ sta (memblock),y
+ iny
+ bne -
+ dec memblock+1
+xferdone
+
+ plp                  ; restore C from cmdproc entry
+ bcs done
+; boot path (C=0): block 0 is at $0800; run it unless error / button 0
+ ror hd_status,x      ; C = error
+ bcs BootFloppyB
+ bit BUTTON0          ; button 0 pressed? boot the floppy instead
+ bmi BootFloppyB
+ jmp OS               ; Pre: X = Slot# << 4
+BootFloppyB
+ jmp floppy_slot
+
+done
+ ror hd_status,x      ; C = error
+ lda command
+ bne notstatus
+ bcs notstatus
+; STATUS ok: return X/Y = unit size in blocks
+ lda hd_sizehi,x
+ tay
+ lda hd_sizelo,x
+ tax
+ lda #0
+ rts
+notstatus
+ lda hd_result,x      ; A = ProDOS result code, C already = error
+ rts
+
+;======================================
+
+!zone data
+
+; $CsFE = status bits (BAP p7-14)
+;  7 = medium is removable, 6 = interruptable, 5-4 = #volumes-1,
+;  3 = supports Format, 2 = writable, 1 = readable (must), 0 = status (must)
+
+@checkCsFC
+*= $00FC    ; org $00FC
+!warn "CsFC padding = ", * - @checkCsFC
+
+ !word $0000 ; block count 0 => ProDOS issues a STATUS call for the real size
+ !byte $D7   ; removable, interruptable, 2 volumes, write/read/status
+ !byte $0A   ; $CnFF: low byte of the ProDOS driver entrypoint

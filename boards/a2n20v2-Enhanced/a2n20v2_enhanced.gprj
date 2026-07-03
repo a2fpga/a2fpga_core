@@ -14,6 +14,8 @@
         <File path="../../hdl/disk/apple_disk.sv" type="file.verilog" enable="1"/>
         <File path="../../hdl/disk/drive_ii.sv" type="file.verilog" enable="1"/>
         <File path="../../hdl/disk/drive_volume_if.sv" type="file.verilog" enable="1"/>
+        <File path="../../hdl/disk/hdd.sv" type="file.verilog" enable="1"/>
+        <File path="../../hdl/disk/hdd_rom.hex" type="file.other" enable="1"/>
         <File path="../../hdl/f18a/f18a_color.vhd" type="file.vhdl" enable="1"/>
         <File path="../../hdl/f18a/f18a_core.vhd" type="file.vhdl" enable="1"/>
         <File path="../../hdl/f18a/f18a_counters.vhd" type="file.vhdl" enable="1"/>

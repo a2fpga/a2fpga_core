@@ -126,6 +126,10 @@ module apple_bus #(
         end else begin
             control_out_r[1] <=  inh_n_i || !INH_OUT_ENABLE;
             control_out_r[2] <=  irq_n_i || !IRQ_OUT_ENABLE;
+            // Hold the Apple II in RESET (open-collector, active low) while
+            // the connector asks for it (power-on storage bring-up); see
+            // a2bus_control_if.reset_hold. Pushed to the bridge on change.
+            control_out_r[6] <= !a2bus_control_if.reset_hold;
         end
     end
 

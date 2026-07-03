@@ -83,7 +83,7 @@ table.detail_table th.label {  min-width: 8%; width: 8%; }
 </tr>
 <tr>
 <td class="label">Created Time</td>
-<td>Mon Jun 29 12:19:06 2026
+<td>Thu Jul  2 13:26:03 2026
 </td>
 </tr>
 <tr>
@@ -97,24 +97,24 @@ table.detail_table th.label {  min-width: 8%; width: 8%; }
 <tr>
 <td class="label">Place & Route Process</td>
 <td>Running placement:
-   Placement Phase 0: CPU time = 0h 0m 6s, Elapsed time = 0h 0m 7s
+   Placement Phase 0: CPU time = 0h 0m 4s, Elapsed time = 0h 0m 5s
    Placement Phase 1: CPU time = 0h 0m 1s, Elapsed time = 0h 0m 1s
-   Placement Phase 2: CPU time = 0h 0m 19s, Elapsed time = 0h 0m 23s
-   Placement Phase 3: CPU time = 0h 0m 13s, Elapsed time = 0h 0m 16s
-   Total Placement: CPU time = 0h 0m 39s, Elapsed time = 0h 0m 47s
+   Placement Phase 2: CPU time = 0h 0m 18s, Elapsed time = 0h 0m 20s
+   Placement Phase 3: CPU time = 0h 0m 14s, Elapsed time = 0h 0m 16s
+   Total Placement: CPU time = 0h 0m 37s, Elapsed time = 0h 0m 42s
 Running routing:
-   Routing Phase 0: CPU time = 0h 0m 0.025s, Elapsed time = 0h 0m 0.033s
-   Routing Phase 1: CPU time = 0h 0m 1s, Elapsed time = 0h 0m 2s
-   Routing Phase 2: CPU time = 0h 0m 49s, Elapsed time = 0h 0m 58s
+   Routing Phase 0: CPU time = 0h 0m 0.013s, Elapsed time = 0h 0m 0.015s
+   Routing Phase 1: CPU time = 0h 0m 1s, Elapsed time = 0h 0m 1s
+   Routing Phase 2: CPU time = 0h 0m 40s, Elapsed time = 0h 0m 43s
    Routing Phase 3: CPU time = 0h 0m 0s, Elapsed time = 0h 0m 0s
-   Total Routing: CPU time = 0h 0m 51s, Elapsed time = 0h 1m 0s
+   Total Routing: CPU time = 0h 0m 41s, Elapsed time = 0h 0m 45s
 Generate output files:
-   CPU time = 0h 0m 5s, Elapsed time = 0h 0m 5s
+   CPU time = 0h 0m 4s, Elapsed time = 0h 0m 5s
 </td>
 </tr>
 <tr>
 <td class="label">Total Time and Memory Usage</td>
-<td>CPU time = 0h 1m 35s, Elapsed time = 0h 1m 52s, Peak memory usage = 565MB</td>
+<td>CPU time = 0h 1m 21s, Elapsed time = 0h 1m 31s, Peak memory usage = 582MB</td>
 </tr>
 </table>
 <br/>
@@ -129,12 +129,12 @@ Generate output files:
 </tr>
 <tr>
 <td class="label">Logic</td>
-<td>11277/20736</td>
-<td>55%</td>
+<td>12205/20736</td>
+<td>59%</td>
 </tr>
 <tr>
 <td class="label">&nbsp &nbsp --LUT,ALU,ROM16</td>
-<td>10143(8709 LUT, 1410 ALU, 24 ROM16)</td>
+<td>11071(9551 LUT, 1496 ALU, 24 ROM16)</td>
 <td>-</td>
 </tr>
 <tr>
@@ -144,8 +144,8 @@ Generate output files:
 </tr>
 <tr>
 <td class="label">Register</td>
-<td>5856/15915</td>
-<td>37%</td>
+<td>6366/15915</td>
+<td>40%</td>
 </tr>
 <tr>
 <td class="label">&nbsp &nbsp --Logic Register as Latch</td>
@@ -154,8 +154,8 @@ Generate output files:
 </tr>
 <tr>
 <td class="label">&nbsp &nbsp --Logic Register as FF</td>
-<td>5783/15552</td>
-<td>38%</td>
+<td>6293/15552</td>
+<td>41%</td>
 </tr>
 <tr>
 <td class="label">&nbsp &nbsp --I/O Register as Latch</td>
@@ -169,8 +169,8 @@ Generate output files:
 </tr>
 <tr>
 <td class="label">CLS</td>
-<td>7924/10368</td>
-<td>77%</td>
+<td>8436/10368</td>
+<td>82%</td>
 </tr>
 <tr>
 <td class="label">I/O Port</td>
@@ -204,12 +204,12 @@ Generate output files:
 </tr>
 <tr>
 <td class="label">BSRAM</td>
-<td>20 SDPB<br/>17 DPB<br/>2 DPX9B<br/>3 pROM<br/></td>
-<td>92%</td>
+<td>20 SDPB<br/>18 DPB<br/>2 DPX9B<br/>4 pROM<br/>1 pROMX9<br/></td>
+<td>98%</td>
 </tr>
 <tr>
 <td class="label">DSP</td>
-<td>5 MULT9X9<br/>4 MULT18X18<br/>11 MULTADDALU18X18<br/></td><td>60%</td>
+<td>7 MULT9X9<br/>4 MULT18X18<br/>11 MULTADDALU18X18<br/></td><td>62%</td>
 </tr>
 </table>
 <h2><a name="I/O_Bank_Usage_Summary">I/O Bank Usage Summary:</a></h2>
@@ -296,7 +296,7 @@ Generate output files:
 <tr>
 <td class="label">spi_sclk_d</td>
 <td>PRIMARY</td>
-<td> TR BL</td>
+<td> TR TL</td>
 </tr>
 <tr>
 <td class="label">a2bus_if.clk_logic</td>
@@ -314,6 +314,11 @@ Generate output files:
 <td> TR TL BR BL</td>
 </tr>
 <tr>
+<td class="label">a2bus_if.system_reset_n</td>
+<td>LW</td>
+<td> -</td>
+</tr>
+<tr>
 <td class="label">n29_11</td>
 <td>LW</td>
 <td> -</td>
@@ -324,12 +329,7 @@ Generate output files:
 <td> -</td>
 </tr>
 <tr>
-<td class="label">sdram_ports/sdram_inst/n3373_5</td>
-<td>LW</td>
-<td> -</td>
-</tr>
-<tr>
-<td class="label">bl616_spi/mem_ports[4].byte_en_0_14</td>
+<td class="label">sdram_ports/sdram_inst/n3856_5</td>
 <td>LW</td>
 <td> -</td>
 </tr>

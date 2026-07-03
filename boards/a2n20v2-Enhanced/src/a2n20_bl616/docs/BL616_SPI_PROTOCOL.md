@@ -117,15 +117,15 @@ Adapted from the ESP32 3-wire SPI protocol with key improvements: CS# framing,
 | 0x23 | MONO_MODE         | R/W | Monochrome mode                    |
 | 0x24 | MONO_DHIRES       | R/W | Monochrome double hi-res mode      |
 | 0x25 | KEYCODE           | R/W | Keyboard input byte                |
-| 0x26 | reserved          |     |                                    |
-| 0x27 | reserved          |     |                                    |
-| 0x28 | reserved          |     |                                    |
-| 0x29 | reserved          |     |                                    |
-| 0x2A | reserved          |     |                                    |
-| 0x2B | reserved          |     |                                    |
-| 0x2C | reserved          |     |                                    |
-| 0x2D | reserved          |     |                                    |
-| 0x2E | reserved          |     |                                    |
+| 0x26 | HDD0_REQ/CTL      | R/W | R: {wr,rd} pending. W: CTL {readonly,mounted,ready} |
+| 0x27 | HDD0_LBA_L/SIZE_L | R/W | R: LBA low (ProDOS block). W: size in blocks, low |
+| 0x28 | HDD0_LBA_H/SIZE_H | R/W | R: LBA high. W: size in blocks, high |
+| 0x29 | HDD0_ACK          | W   | Ack strobe (block served)          |
+| 0x2A | HDD1_REQ/CTL      | R/W | as HDD0                            |
+| 0x2B | HDD1_LBA_L/SIZE_L | R/W | as HDD0                            |
+| 0x2C | HDD1_LBA_H/SIZE_H | R/W | as HDD0                            |
+| 0x2D | HDD1_ACK          | W   | Ack strobe (block served)          |
+| 0x2E | A2_RST_RELEASE    | R/W | 1 = release the Apple II from the power-on RESET hold |
 | 0x2F | reserved          |     |                                    |
 
 ### Page 3: A2 Bus Control (0x30-0x3F)

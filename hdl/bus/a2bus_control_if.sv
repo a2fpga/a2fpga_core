@@ -25,12 +25,20 @@ interface a2bus_control_if;
 
     logic ready;
 
+    // Hold the Apple II in RESET (drive the bus RESET line low). Used at
+    // power-on so the MCU can finish bringing up storage before the Apple II
+    // runs its autoboot slot scan; the controller releases it explicitly (or
+    // by timeout). Boards that cannot drive RESET simply ignore this.
+    logic reset_hold;
+
     modport a2bus (
-        input ready
+        input ready,
+        input reset_hold
     );
 
     modport control (
-        output ready
+        output ready,
+        output reset_hold
     );
 
 endinterface: a2bus_control_if

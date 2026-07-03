@@ -27,8 +27,11 @@ module bl616_spi_connector #(
     video_control_if.control video_control_if,
     slotmaker_config_if.controller slotmaker_config_if,
 
-    // Drive volumes
+    // Drive volumes (Disk II floppies)
     drive_volume_if.volume  volumes[2],
+
+    // ProDOS HDD block-device volumes (compact regs 0x26-0x2D)
+    drive_volume_if.volume  hdd_volumes[2],
 
     // SDRAM port
     mem_port_if.client      mem_if,
@@ -166,6 +169,32 @@ module bl616_spi_connector #(
     assign standalone_o = standalone_r;
 
     // -------------------------------------------------------
+    // Apple II reset hold/release policy
+    // -------------------------------------------------------
+    // Hold the Apple II in RESET from power-on so the MCU can bring up USB
+    // storage before the autoboot slot scan runs (otherwise the HDD/floppy
+    // volumes are not mounted yet and the scan races past them). Release when:
+    //   - the MCU writes A2_RST_RELEASE (0x2E) after its mounts complete, or
+    //   - no MCU shows up on SPI within MCU_ALIVE_WAIT (standalone Apple), or
+    //   - the absolute backstop expires (MCU alive but never released).
+    localparam RST_MCU_ALIVE_WAIT = CLOCK_SPEED_HZ * 3;   // MCU first SPI contact
+    localparam RST_HOLD_BACKSTOP  = CLOCK_SPEED_HZ * 15;  // never hold forever
+    localparam RST_CW = $clog2(RST_HOLD_BACKSTOP + 1);
+    reg               a2_rst_release_r;   // set by reg 0x2E write
+    reg [RST_CW-1:0]  rst_hold_cnt_r;
+    always @(posedge clk or negedge rst_n) begin
+        if (!rst_n)
+            rst_hold_cnt_r <= '0;
+        else if (rst_hold_cnt_r < RST_HOLD_BACKSTOP[RST_CW-1:0])
+            rst_hold_cnt_r <= rst_hold_cnt_r + 1'b1;
+    end
+    wire rst_mcu_absent_w = !mcu_ready_r &&
+                            (rst_hold_cnt_r >= RST_MCU_ALIVE_WAIT[RST_CW-1:0]);
+    assign a2bus_control_if.reset_hold =
+        !(a2_rst_release_r || rst_mcu_absent_w ||
+          rst_hold_cnt_r >= RST_HOLD_BACKSTOP[RST_CW-1:0]);
+
+    // -------------------------------------------------------
     // Constants
     // -------------------------------------------------------
     localparam [7:0] DEVICE_ID0 = "A";
@@ -227,6 +256,15 @@ module bl616_spi_connector #(
     reg [31:0] volume_size_r [0:1];
     reg volume_ack_r      [0:1];
 
+    // ProDOS HDD volumes: compact register bank (7-bit reg space is full, so
+    // read and write meanings overlap per address — see decode below).
+    // ProDOS blocks are 16-bit, so LBA and SIZE are exposed as 2 bytes each.
+    reg        hdd_ready_r    [0:1];
+    reg        hdd_mounted_r  [0:1];
+    reg        hdd_readonly_r [0:1];
+    reg [15:0] hdd_size_r     [0:1];
+    reg        hdd_ack_r      [0:1];
+
     // Slot config
     reg [7:0] slot_card_r [0:7];
     reg slot_reconfig_r;
@@ -270,6 +308,18 @@ module bl616_spi_connector #(
     assign volumes[1].readonly = volume_readonly_r[1];
     assign volumes[1].size     = volume_size_r[1];
     assign volumes[1].ack      = volume_ack_r[1];
+
+    assign hdd_volumes[0].ready    = hdd_ready_r[0];
+    assign hdd_volumes[0].mounted  = hdd_mounted_r[0];
+    assign hdd_volumes[0].readonly = hdd_readonly_r[0];
+    assign hdd_volumes[0].size     = {16'b0, hdd_size_r[0]};
+    assign hdd_volumes[0].ack      = hdd_ack_r[0];
+
+    assign hdd_volumes[1].ready    = hdd_ready_r[1];
+    assign hdd_volumes[1].mounted  = hdd_mounted_r[1];
+    assign hdd_volumes[1].readonly = hdd_readonly_r[1];
+    assign hdd_volumes[1].size     = {16'b0, hdd_size_r[1]};
+    assign hdd_volumes[1].ack      = hdd_ack_r[1];
 
     // -------------------------------------------------------
     // Interface assignments -- Slotmaker
@@ -710,6 +760,16 @@ module bl616_spi_connector #(
             7'h24: reg_rdata = {7'b0, mono_dhires_r};
             7'h25: reg_rdata = keycode_r;
 
+            // ProDOS HDD volumes (compact bank; reads = request state from the
+            // HDD card, writes = control/size/ack — see the write decode)
+            7'h26: reg_rdata = {6'b0, hdd_volumes[0].wr, hdd_volumes[0].rd};
+            7'h27: reg_rdata = hdd_volumes[0].lba[7:0];
+            7'h28: reg_rdata = hdd_volumes[0].lba[15:8];
+            7'h2A: reg_rdata = {6'b0, hdd_volumes[1].wr, hdd_volumes[1].rd};
+            7'h2B: reg_rdata = hdd_volumes[1].lba[7:0];
+            7'h2C: reg_rdata = hdd_volumes[1].lba[15:8];
+            7'h2E: reg_rdata = {7'b0, a2_rst_release_r};
+
             // Page 3: A2 bus control
             7'h30: reg_rdata = {7'b0, a2bus_ready_r};
             7'h31: reg_rdata = 8'h00; // CARDROM_RELEASE (write-only)
@@ -826,6 +886,7 @@ module bl616_spi_connector #(
             mono_dhires_r     <= 1'b0;
             keycode_r         <= 8'd0;
             a2bus_ready_r     <= 1'b0;
+            a2_rst_release_r  <= 1'b0;
             cardrom_release_r <= 1'b0;
             a2_reset_r        <= 1'b0;
             a2_cmd_r          <= 8'd0;
@@ -836,6 +897,11 @@ module bl616_spi_connector #(
                 volume_readonly_r[i] <= 1'b0;
                 volume_size_r[i]     <= 32'd0;
                 volume_ack_r[i]      <= 1'b0;
+                hdd_ready_r[i]       <= 1'b0;
+                hdd_mounted_r[i]     <= 1'b0;
+                hdd_readonly_r[i]    <= 1'b0;
+                hdd_size_r[i]        <= 16'd0;
+                hdd_ack_r[i]         <= 1'b0;
             end
             for (i = 0; i < 8; i = i + 1)
                 slot_card_r[i] <= 8'd0;
@@ -860,6 +926,8 @@ module bl616_spi_connector #(
             cardrom_release_r <= 1'b0;
             volume_ack_r[0]   <= 1'b0;
             volume_ack_r[1]   <= 1'b0;
+            hdd_ack_r[0]      <= 1'b0;
+            hdd_ack_r[1]      <= 1'b0;
             slot_wr_r         <= 1'b0;
             slot_reconfig_r   <= 1'b0;
             fifo_reg_pop_r    <= 1'b0;
@@ -936,6 +1004,25 @@ module bl616_spi_connector #(
                     7'h56: volume_size_r[1][23:16] <= reg_wdata;
                     7'h57: volume_size_r[1][31:24] <= reg_wdata;
                     7'h5F: volume_ack_r[1]        <= 1'b1;
+
+                    // ProDOS HDD volumes (compact bank, write side)
+                    7'h26: begin   // CTL: {readonly, mounted, ready}
+                        hdd_readonly_r[0] <= reg_wdata[2];
+                        hdd_mounted_r[0]  <= reg_wdata[1];
+                        hdd_ready_r[0]    <= reg_wdata[0];
+                    end
+                    7'h27: hdd_size_r[0][7:0]  <= reg_wdata;
+                    7'h28: hdd_size_r[0][15:8] <= reg_wdata;
+                    7'h29: hdd_ack_r[0]        <= 1'b1;
+                    7'h2A: begin
+                        hdd_readonly_r[1] <= reg_wdata[2];
+                        hdd_mounted_r[1]  <= reg_wdata[1];
+                        hdd_ready_r[1]    <= reg_wdata[0];
+                    end
+                    7'h2B: hdd_size_r[1][7:0]  <= reg_wdata;
+                    7'h2C: hdd_size_r[1][15:8] <= reg_wdata;
+                    7'h2D: hdd_ack_r[1]        <= 1'b1;
+                    7'h2E: a2_rst_release_r    <= reg_wdata[0];
 
                     // Page 6: Slot config & GPIO
                     7'h60, 7'h61, 7'h62, 7'h63,

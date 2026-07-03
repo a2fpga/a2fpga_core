@@ -310,7 +310,7 @@ BYTE send_cmd (		/* Returns command response (bit7==1:Send failed)*/
 /* Get Disk Status                                                       */
 /*-----------------------------------------------------------------------*/
 
-DSTATUS disk_status (
+DSTATUS mmc_disk_status (
 	BYTE drv			/* Drive number (always 0) */
 )
 {
@@ -325,7 +325,7 @@ DSTATUS disk_status (
 /* Initialize Disk Drive                                                 */
 /*-----------------------------------------------------------------------*/
 
-DSTATUS disk_initialize (
+DSTATUS mmc_disk_initialize (
 	BYTE drv		/* Physical drive nmuber (0) */
 )
 {
@@ -393,7 +393,7 @@ DSTATUS disk_initialize (
 /* Read Sector(s)                                                        */
 /*-----------------------------------------------------------------------*/
 
-DRESULT disk_read (
+DRESULT mmc_disk_read (
 	BYTE drv,			/* Physical drive nmuber (0) */
 	BYTE *buff,			/* Pointer to the data buffer to store read data */
 	LBA_t sector,		/* Start sector number (LBA) */
@@ -404,7 +404,7 @@ DRESULT disk_read (
 	DWORD sect = (DWORD)sector;
 
 
-	if (disk_status(drv) & STA_NOINIT) return RES_NOTRDY;
+	if (mmc_disk_status(drv) & STA_NOINIT) return RES_NOTRDY;
 	if (!(CardType & CT_BLOCK)) sect *= 512;	/* Convert LBA to byte address if needed */
 
 	cmd = count > 1 ? CMD18 : CMD17;			/*  READ_MULTIPLE_BLOCK : READ_SINGLE_BLOCK */
@@ -426,7 +426,7 @@ DRESULT disk_read (
 /* Write Sector(s)                                                       */
 /*-----------------------------------------------------------------------*/
 
-DRESULT disk_write (
+DRESULT mmc_disk_write (
 	BYTE drv,			/* Physical drive nmuber (0) */
 	const BYTE *buff,	/* Pointer to the data to be written */
 	LBA_t sector,		/* Start sector number (LBA) */
@@ -436,7 +436,7 @@ DRESULT disk_write (
 	DWORD sect = (DWORD)sector;
 
 
-	if (disk_status(drv) & STA_NOINIT) return RES_NOTRDY;
+	if (mmc_disk_status(drv) & STA_NOINIT) return RES_NOTRDY;
 	if (!(CardType & CT_BLOCK)) sect *= 512;	/* Convert LBA to byte address if needed */
 
 	if (count == 1) {	/* Single block write */
@@ -465,7 +465,7 @@ DRESULT disk_write (
 /* Miscellaneous Functions                                               */
 /*-----------------------------------------------------------------------*/
 
-DRESULT disk_ioctl (
+DRESULT mmc_disk_ioctl (
 	BYTE drv,		/* Physical drive nmuber (0) */
 	BYTE ctrl,		/* Control code */
 	void *buff		/* Buffer to send/receive control data */
@@ -476,7 +476,7 @@ DRESULT disk_ioctl (
 	DWORD cs;
 
 
-	if (disk_status(drv) & STA_NOINIT) return RES_NOTRDY;	/* Check if card is in the socket */
+	if (mmc_disk_status(drv) & STA_NOINIT) return RES_NOTRDY;	/* Check if card is in the socket */
 
 	res = RES_ERROR;
 	switch (ctrl) {
@@ -511,3 +511,26 @@ DRESULT disk_ioctl (
 
 	return res;
 }
+
+
+/*-----------------------------------------------------------------------*/
+/* FatFs disk_* entry points                                             */
+/*-----------------------------------------------------------------------*/
+/* The SD logic above is exported as mmc_disk_* so a multi-backend build  */
+/* (firmware_host) can route between SD and USB. The single-drive (device */
+/* / FT2232) build defines the standard FatFs disk_* names here. The host */
+/* build compiles with -DFATFS_EXTERNAL_DISKIO and supplies disk_* in its */
+/* own router (diskio_host.c), so these wrappers are omitted there.       */
+#ifndef FATFS_EXTERNAL_DISKIO
+DSTATUS disk_status(BYTE drv) { return mmc_disk_status(drv); }
+DSTATUS disk_initialize(BYTE drv) { return mmc_disk_initialize(drv); }
+DRESULT disk_read(BYTE drv, BYTE *buff, LBA_t sector, UINT count) {
+	return mmc_disk_read(drv, buff, sector, count);
+}
+DRESULT disk_write(BYTE drv, const BYTE *buff, LBA_t sector, UINT count) {
+	return mmc_disk_write(drv, buff, sector, count);
+}
+DRESULT disk_ioctl(BYTE drv, BYTE ctrl, void *buff) {
+	return mmc_disk_ioctl(drv, ctrl, buff);
+}
+#endif

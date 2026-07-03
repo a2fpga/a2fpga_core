@@ -28,12 +28,22 @@
 
 #include "lwip/tcpip.h"   /* lwIP for the USB-Ethernet (CDC-ECM) net path */
 #include "lwip/netif.h"
+#include "lwip/netifapi.h"
 #include "lwip/dhcp.h"
 #include "lwip/etharp.h"
 #include "usbh_cdc_ecm.h"
 #include "usbh_rtl8152.h"   /* stock vendor driver for the RTL8152 adapter */
 #include "usbh_asix.h"      /* stock vendor driver for ASIX AX88772x adapters */
 #include "w5100.h"          /* emulated W5100 (Uthernet II) MACRAW bridge */
+#include "disk.h"           /* Disk II image serving (track-on-demand) */
+#include "diskio_host.h"    /* SD/USB FatFS backend (g_msc_class) */
+#include "usbh_msc.h"       /* USB Mass Storage host class */
+#include "osd_console.h"    /* shared boot/status console */
+#include "settings.h"       /* persisted preferences (flash) */
+#include "menu.h"           /* gamepad menu system */
+
+struct netif;
+static void net_apply_static(struct netif *nif);   /* defined below */
 #include <string.h>
 
 /* lwIP's LWIP_RAND() calls bl_rand() (normally from the SDK wifi/RF component,
@@ -221,33 +231,6 @@ static int xinput_send_init(struct usbh_xinput *xc)
     return ret;
 }
 
-static volatile bool g_menu_active = false;
-
-/* Draw the placeholder menu into the Apple II text screen. */
-static void menu_show(void)
-{
-    fpga_screen_clear();
-    fpga_screen_home();
-    fpga_screen_puts("  A2FPGA MENU  ");
-    fpga_spi_reg_write(REG_TEXT_MODE, 1);
-    fpga_spi_reg_write(REG_VIDEO_ENABLE, 1); /* override: force our text screen */
-}
-
-/* Hand the display back to the live Apple II soft-switches. */
-static void menu_hide(void)
-{
-    fpga_spi_reg_write(REG_VIDEO_ENABLE, 0); /* enable=0 -> Apple II drives video */
-}
-
-static void menu_toggle(void)
-{
-    g_menu_active = !g_menu_active;
-    if (g_menu_active) {
-        menu_show();
-    } else {
-        menu_hide();
-    }
-}
 
 /* Called by usbh_xinput.c when a controller enumerates. */
 void usbh_xinput_run(struct usbh_xinput *xinput_class)
@@ -256,9 +239,7 @@ void usbh_xinput_run(struct usbh_xinput *xinput_class)
     dbg_stage(STG_CONNECTED);
     dbg_set(F_CONNECTED);
     g_need_init = true;   /* tell the poll thread to (re)init this controller */
-    fpga_screen_clear();
-    fpga_screen_home();
-    fpga_screen_puts("XInput controller connected");
+    osd_log("USB HOST: XINPUT CONTROLLER CONNECTED");
 }
 
 void usbh_xinput_stop(struct usbh_xinput *xinput_class)
@@ -366,16 +347,14 @@ static void xinput_thread(void *arg)
         }
         if (g_btn_fresh) {
             g_btn_fresh = false;
-            uint16_t b = g_btn_latest;
             dbg_stage(STG_REPORT);
-            fpga_spi_reg_write(DBG_BTN_LO, (uint8_t)(b & 0xFF));
-            fpga_spi_reg_write(DBG_BTN_HI, (uint8_t)(b >> 8));
-            uint16_t pressed = b & ~g_prev_buttons;   /* rising edges */
-            if (pressed & XINPUT_BACK) {              /* Select pressed */
-                menu_toggle();
-            }
-            g_prev_buttons = b;
+            fpga_spi_reg_write(DBG_BTN_LO, (uint8_t)(g_btn_latest & 0xFF));
+            fpga_spi_reg_write(DBG_BTN_HI, (uint8_t)(g_btn_latest >> 8));
+            g_prev_buttons = g_btn_latest;
         }
+        /* Menu system: edge detection + hold-repeat live inside; feed the
+         * current state every tick (repeat needs a time base, not events). */
+        menu_input(g_btn_latest);
         dbg_tick();                  /* heartbeat (thread context) */
         usb_osal_msleep(20);
     }
@@ -457,11 +436,7 @@ static struct usbh_urb g_eth_intin_urb;
  * xinput search loop, which only touches the overlay). */
 static void eth_status(const char *msg)
 {
-    fpga_screen_clear();
-    fpga_screen_home();
-    fpga_screen_puts(msg);
-    fpga_spi_reg_write(REG_TEXT_MODE, 1);
-    fpga_spi_reg_write(REG_VIDEO_ENABLE, 1);
+    osd_log("%s", msg);
 }
 
 /* netif->linkoutput: stock TX (works). */
@@ -609,7 +584,10 @@ static void ecm_netif_setup_cb(void *ctx)
     netif_set_up(&g_ecm_netif);
     netif_set_link_up(&g_ecm_netif);
     g_netif_ready = true;
-    dhcp_start(&g_ecm_netif);
+    if (settings()->dhcp_enable)
+        dhcp_start(&g_ecm_netif);
+    else
+        net_apply_static(&g_ecm_netif);
 }
 
 /* Surface the DHCP IP once bound; until then show the live traffic counters so we
@@ -788,7 +766,10 @@ static void rtl_netif_setup_cb(void *ctx)
     netif_set_up(&g_rtl_netif);
     netif_set_link_up(&g_rtl_netif);
     g_netif_ready = true;
-    dhcp_start(&g_rtl_netif);
+    if (settings()->dhcp_enable)
+        dhcp_start(&g_rtl_netif);
+    else
+        net_apply_static(&g_rtl_netif);
 }
 
 /* Shared USB-Ethernet status overlay (used by every adapter's glue). Spawned by
@@ -801,41 +782,34 @@ static void eth_report_thread(struct netif *netif, const char *chip,
                               const volatile uint32_t *txp,
                               eth_link_fn link_up)
 {
-    uint32_t iter = 0;
-    /* static: keep these buffers OFF the small thread stack. */
-    static char s[1024];
-    static char line[48];
-    /* Clear ONCE, then overwrite in place with fixed-width lines (per-frame
-     * clear caused visible flicker). */
-    fpga_screen_clear();
-    fpga_spi_reg_write(REG_TEXT_MODE, 1);
-    fpga_spi_reg_write(REG_VIDEO_ENABLE, 1);
-#define EMIT(...) do { \
-        if (n >= 0 && (size_t)n + 42 < sizeof(s)) { \
-            snprintf(line, sizeof(line), __VA_ARGS__); \
-            int _w = snprintf(s + n, sizeof(s) - n, "%-39.39s\n", line); \
-            if (_w > 0) n += _w; \
-        } \
-    } while (0)
+    /* Log only on STATE CHANGES (device found, link up/down, DHCP IP) — no
+     * continuous repaint, no permanent screen ownership. rx/tx counters are
+     * dropped from the log (they are continuous, not state changes). */
+    bool prev_link = false, link_announced = false;
+    uint32_t prev_ip = 0, iter = 0;
+
+    osd_log("USB ETHERNET: DEVICE FOUND (%s)", chip);
+
     while (g_net_active) {
-        uint32_t ip = netif_ip4_addr(netif)->addr;
-        const uint8_t *o = (const uint8_t *)&ip;
-        int n = 0;
-        EMIT("A2N20 USB-Ethernet (%s)  #%lu", chip, (unsigned long)(++iter));
-        EMIT("link:%s", link_up() ? "up" : "down");
-        EMIT("rx:%lu  tx:%lu", (unsigned long)*rxp, (unsigned long)*txp);
-        if (ip != 0) {
-            EMIT("IP: %u.%u.%u.%u", o[0], o[1], o[2], o[3]);
-        } else {
-            EMIT("IP: (requesting via DHCP...)");
+        bool lk = link_up();
+        if (!link_announced || lk != prev_link) {
+            osd_log("USB ETHERNET: LINK %s", lk ? "UP" : "DOWN");
+            prev_link = lk;
+            link_announced = true;
         }
-        (void)n;
-        fpga_screen_home();
-        fpga_screen_puts(s);
-        fpga_spi_reg_write(DBG_COUNTER, (uint8_t)iter); /* heartbeat */
-        usb_osal_msleep(500);
+        uint32_t ip = netif_ip4_addr(netif)->addr;
+        if (ip != prev_ip) {
+            const uint8_t *o = (const uint8_t *)&ip;
+            if (ip != 0)
+                osd_log("USB ETHERNET: IP %u.%u.%u.%u", o[0], o[1], o[2], o[3]);
+            else
+                osd_log("USB ETHERNET: REQUESTING IP (DHCP)...");
+            prev_ip = ip;
+        }
+        fpga_spi_reg_write(DBG_COUNTER, (uint8_t)(++iter)); /* heartbeat */
+        usb_osal_msleep(250);
     }
-#undef EMIT
+    (void)rxp; (void)txp;
     usb_osal_thread_delete(NULL);
 }
 
@@ -981,6 +955,37 @@ static void w5100_thread(void *arg)
     }
 }
 
+/* USB Mass Storage connect/disconnect hooks (override CherryUSB's weak stubs,
+ * same pattern as XInput). On attach, run SCSI init and point the FatFS USB
+ * backend at this device; on removal, clear it. Either way ask the disk task to
+ * re-mount so it prefers the stick when present, else falls back to SD. */
+void usbh_msc_run(struct usbh_msc *msc_class)
+{
+    usbh_msc_scsi_init(msc_class);
+    g_msc_class = msc_class;
+    osd_log("DISK II: USB STORAGE CONNECTED");
+    disk_request_remount();
+}
+
+void usbh_msc_stop(struct usbh_msc *msc_class)
+{
+    (void)msc_class;
+    g_msc_class = NULL;
+    disk_request_remount();
+}
+
+/* Disk II service task: mount storage (USB stick or SD) and serve
+ * track-on-demand requests from the FPGA Disk II controller. */
+static void disk_thread(void *arg)
+{
+    (void)arg;
+    disk_init();
+    for (;;) {
+        disk_poll();
+        vTaskDelay(pdMS_TO_TICKS(2));
+    }
+}
+
 /* ===================== USB-Ethernet (ASIX AX88772x) glue ====================
  * Same pattern as the RTL8152 glue above, against the stock CherryUSB usbh_asix
  * vendor driver (AX88772 / 772A / 772B). Both drivers are enabled and coexist —
@@ -1046,7 +1051,10 @@ static void asix_netif_setup_cb(void *ctx)
     netif_set_up(&g_asix_netif);
     netif_set_link_up(&g_asix_netif);
     g_netif_ready = true;
-    dhcp_start(&g_asix_netif);
+    if (settings()->dhcp_enable)
+        dhcp_start(&g_asix_netif);
+    else
+        net_apply_static(&g_asix_netif);
 }
 
 static void asix_netif_teardown_cb(void *ctx)
@@ -1083,6 +1091,75 @@ void usbh_asix_stop(struct usbh_asix *class)
     tcpip_callback(asix_netif_teardown_cb, NULL);
 }
 
+/* Apply the static address from settings to a netif (DHCP off). A zero IP
+ * means "not configured" and leaves the interface unaddressed. */
+static void net_apply_static(struct netif *nif)
+{
+    const a2_settings_t *st = settings();
+    if (!nif)
+        return;
+    if (!(st->static_ip[0] | st->static_ip[1] |
+          st->static_ip[2] | st->static_ip[3]))
+        return;
+    ip4_addr_t ip, mask, gw;
+    IP4_ADDR(&ip,   st->static_ip[0],   st->static_ip[1],
+                    st->static_ip[2],   st->static_ip[3]);
+    IP4_ADDR(&mask, st->static_mask[0], st->static_mask[1],
+                    st->static_mask[2], st->static_mask[3]);
+    IP4_ADDR(&gw,   st->static_gw[0],   st->static_gw[1],
+                    st->static_gw[2],   st->static_gw[3]);
+    netifapi_netif_set_addr(nif, &ip, &mask, &gw);
+}
+
+/* Menu hook: apply DHCP/static settings to the live default interface. */
+void menu_hook_net_apply(void)
+{
+    struct netif *nif = netif_default;
+    if (!nif)
+        return;
+    if (settings()->dhcp_enable) {
+        netifapi_dhcp_start(nif);
+    } else {
+        netifapi_dhcp_stop(nif);
+        net_apply_static(nif);
+    }
+}
+
+/* Network status lines for the menu (see menu.h). Uses the default netif. */
+int menu_hook_net_lines(char lines[][41], int max)
+{
+    int n = 0;
+    struct netif *nif = netif_default;
+    if (n < max) {
+        if (!nif) {
+            snprintf(lines[n++], 41, "NO NETWORK INTERFACE");
+            return n;
+        }
+        snprintf(lines[n++], 41, "LINK %s  (%c%c%d)",
+                 netif_is_link_up(nif) ? "UP" : "DOWN",
+                 nif->name[0], nif->name[1], nif->num);
+    }
+    char a[16];
+    if (n < max) {
+        ip4addr_ntoa_r(netif_ip4_addr(nif), a, sizeof(a));
+        snprintf(lines[n++], 41, "IP   %s", a);
+    }
+    if (n < max) {
+        ip4addr_ntoa_r(netif_ip4_netmask(nif), a, sizeof(a));
+        snprintf(lines[n++], 41, "MASK %s", a);
+    }
+    if (n < max) {
+        ip4addr_ntoa_r(netif_ip4_gw(nif), a, sizeof(a));
+        snprintf(lines[n++], 41, "GW   %s", a);
+    }
+    if (n < max) {
+        snprintf(lines[n++], 41, "MAC  %02X:%02X:%02X:%02X:%02X:%02X",
+                 nif->hwaddr[0], nif->hwaddr[1], nif->hwaddr[2],
+                 nif->hwaddr[3], nif->hwaddr[4], nif->hwaddr[5]);
+    }
+    return n;
+}
+
 int main(void)
 {
     board_init();
@@ -1096,14 +1173,17 @@ int main(void)
     dbg_stage(STG_FPGA_READY);
     if (ready) dbg_set(F_FPGA_READY);
 
-    fpga_screen_clear();
-    fpga_screen_home();
-    fpga_screen_puts("USB host mode: waiting for joystick...");
-    /* MCU build marker on the text screen (parallels the FPGA version string on
-     * the overlay) so we can confirm which MCU image is actually running. */
-    fpga_screen_puts("\nMCU BUILD " MCU_BUILD_STR "  " __DATE__ " " __TIME__ "\n");
-    fpga_spi_reg_write(REG_TEXT_MODE, 1);
-    fpga_spi_reg_write(REG_VIDEO_ENABLE, 1);
+    /* Persisted preferences, then the gamepad menu that edits them. */
+    settings_init();
+    menu_init();
+
+    {
+        char dbg[41];
+        settings_debug_line(dbg, sizeof(dbg));
+        osd_log("SETTINGS: %s  %s",
+                settings_loaded_from_flash() ? "FLASH" : "DEFAULTS", dbg);
+    }
+    osd_log("USB HOST: WAITING FOR DEVICE...");
     dbg_stage(STG_PRE_USB);
 
     printf("A2N20 BL616 USB-host (XInput) build started\r\n");
@@ -1119,6 +1199,9 @@ int main(void)
     /* Uthernet II (W5100) MACRAW engine: polls the FPGA command doorbell and
      * bridges socket 0 to the USB-Ethernet adapter. */
     usb_osal_thread_create("w5100", 3072, CONFIG_USBHOST_PSC_PRIO + 1, w5100_thread, NULL);
+
+    /* Disk II image serving: mount SD, serve track-on-demand requests. */
+    usb_osal_thread_create("disk", 3072, CONFIG_USBHOST_PSC_PRIO + 1, disk_thread, NULL);
 
     dbg_stage(STG_SCHED);
     dbg_set(F_THREAD_UP);
