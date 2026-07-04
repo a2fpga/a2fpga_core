@@ -143,6 +143,23 @@ power it **in the Apple II with no PC attached**. The MCU firmware only
 starts when no computer is enumerating the BL616 (that's what lets step 1
 of the FPGA flash work).
 
+### Updating the MCU from the USB stick (no PC)
+
+Once your board runs a firmware with the on-screen menu, later MCU updates
+don't need a PC at all:
+
+1. Copy the new `a2n20_bl616_host_bl616.bin` anywhere on the USB stick
+2. Menu → **FIRMWARE UPDATE** → **CHOOSE FIRMWARE FILE (.BIN)** and pick it
+3. The update is staged and verified in the background (disks keep
+   working); when it shows READY, choose **INSTALL NOW AND REBOOT**
+4. **Do not power off during the ~10-second install** — the board reboots
+   itself when done
+
+The staging step is fully verified before anything is overwritten, so a
+bad file or interrupted copy cannot hurt the installed firmware. Only the
+short install window is critical; if power is lost there, recover with the
+PC flashing procedure above (the UPDATE-button boot mode always works).
+
 ### Recovery
 
 Nothing here can permanently brick the board: the UPDATE-button boot mode

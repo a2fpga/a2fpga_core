@@ -34,6 +34,7 @@ target_sources(app PRIVATE
     osd_console.c
     settings.c
     menu.c
+    fwupdate.c
     ../firmware/gcr_dsk.c
     ../firmware/fpga_spi.c
     ../firmware/fpga_screen.c

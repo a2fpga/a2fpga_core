@@ -22,6 +22,7 @@
 #include "bflb_mtimer.h"   /* bflb_mtimer_get_time_us — load-latency timing */
 #include "gcr_dsk.h"       /* on-the-fly .dsk/.do <-> 6-and-2 GCR nibble codec */
 #include "settings.h"      /* persisted image overrides + boot preference */
+#include "fwupdate.h"      /* firmware self-update (staged from this thread) */
 
 /* ---- Volume register map (must match bl616_spi_connector.sv 0x40-0x5F) ---- */
 #define VOL_BASE(v)       (0x40u + (v) * 0x10u)
@@ -777,6 +778,10 @@ void disk_poll(void)
         serve_drive(v);
     for (int u = 0; u < NHDD; u++)
         serve_hdd(u);
+
+    /* Firmware self-update: staged one chunk per poll (FatFS + flash both
+     * belong to this thread); the commit phase never returns. */
+    fwupdate_poll();
 }
 
 /* ---- menu accessors (see disk.h) ----------------------------------------- */

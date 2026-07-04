@@ -16,6 +16,7 @@
 #include "osd_console.h"
 #include "settings.h"
 #include "disk.h"
+#include "fwupdate.h"
 #include "menu.h"
 
 /* Button mapping by PAD LABEL: the 8BitDo SN30-style pads (our reference
@@ -346,6 +347,7 @@ static const menu_screen_t SCR_SLOTS = { "SLOT ASSIGNMENTS", slots_build };
 /* Generic list-of-files picker: fills a target settings name field. */
 static disk_list_ent_t s_pick_ents[DISK_LIST_MAX];
 static int   s_pick_count;
+static bool  s_pick_fw;                        /* firmware picker mode */
 static char  s_pick_path[SETTINGS_NAME_LEN];   /* current subdir ("" = root) */
 static char *s_pick_target;            /* settings field to write */
 static const char *const *s_pick_exts; /* NULL-terminated extension list */
@@ -397,6 +399,23 @@ static void picker_choose(int id)
         return;
     }
 
+    if (s_pick_fw) {                           /* firmware file selected */
+        char full[SETTINGS_NAME_LEN];
+        int n;
+        if (s_pick_path[0])
+            n = snprintf(full, sizeof(full), "%s/%s",
+                         s_pick_path, s_pick_ents[id].name);
+        else
+            n = snprintf(full, sizeof(full), "%s", s_pick_ents[id].name);
+        if (n >= (int)sizeof(full)) {
+            set_status(" PATH TOO LONG");
+            return;
+        }
+        fwupdate_request(full);
+        screen_pop();                          /* back to the update screen */
+        return;
+    }
+
     if (id == -2) {                            /* EJECT: leave unmounted */
         settings()->eject_mask |= s_pick_eject_bit;
     } else if (id == -1) {                     /* AUTO: built-in names */
@@ -434,7 +453,7 @@ static void picker_build(void)
         m = mi_add(MI_ACTION, "(UP ONE DIRECTORY)", "");
         m->action = picker_choose;
         m->id = -3;
-    } else {
+    } else if (!s_pick_fw) {
         m = mi_add(MI_ACTION, "(AUTO - BUILT-IN NAMES)", "");
         m->action = picker_choose;
         m->id = -1;
@@ -462,6 +481,7 @@ static const menu_screen_t SCR_PICKER = { "CHOOSE IMAGE", picker_build };
 static void picker_open(char *target, const char *const *exts,
                         uint8_t eject_bit)
 {
+    s_pick_fw        = false;
     s_pick_target    = target;
     s_pick_exts      = exts;
     s_pick_eject_bit = eject_bit;
@@ -712,15 +732,86 @@ static void usb_build(void)
 
 static const menu_screen_t SCR_USB = { "USB DEVICES", usb_build };
 
+/* ======================= SCREEN: FIRMWARE UPDATE ========================== */
+static const char *const k_fw_exts[] = { "bin", NULL };
+
+static void fw_pick(int id)
+{
+    (void)id;
+    s_pick_fw        = true;
+    s_pick_target    = NULL;
+    s_pick_exts      = k_fw_exts;
+    s_pick_eject_bit = 0;
+    s_pick_path[0]   = '\0';
+    picker_load();
+    screen_push(&SCR_PICKER);
+}
+
+static void fw_install(int id)
+{
+    (void)id;
+    set_status(" INSTALLING - DO NOT POWER OFF!");
+    fwupdate_commit();   /* the disk thread takes it from here */
+}
+
+static void fw_cancel(int id)
+{
+    (void)id;
+    fwupdate_cancel();
+    screen_refresh();
+}
+
+static void fw_build(void)
+{
+    menu_item_t *m;
+    mi_add(MI_INFO, "INSTALLED BUILD", __DATE__);
+    mi_add(MI_INFO, "", "");
+
+    switch (fwupdate_state()) {
+    case FWU_IDLE:
+        m = mi_add(MI_ACTION, "CHOOSE FIRMWARE FILE (.BIN)", "");
+        m->action = fw_pick;
+        break;
+    case FWU_STAGING:
+    case FWU_VERIFYING:
+        mi_add(MI_INFO, fwupdate_message(), "");
+        mi_add(MI_INFO, "(DISKS KEEP SERVING MEANWHILE)", "");
+        break;
+    case FWU_STAGED:
+        mi_add(MI_INFO, fwupdate_message(), "");
+        mi_add(MI_INFO, "", "");
+        m = mi_add(MI_ACTION, "INSTALL NOW AND REBOOT", "");
+        m->action = fw_install;
+        m = mi_add(MI_ACTION, "CANCEL", "");
+        m->action = fw_cancel;
+        break;
+    case FWU_ERROR:
+        mi_add(MI_INFO, fwupdate_message(), "");
+        m = mi_add(MI_ACTION, "CHOOSE FIRMWARE FILE (.BIN)", "");
+        m->action = fw_pick;
+        break;
+    default:
+        mi_add(MI_INFO, "INSTALLING...", "");
+        break;
+    }
+    mi_add(MI_INFO, "", "");
+    mi_add(MI_INFO, "INSTALL TAKES ~10S. DO NOT POWER", "");
+    mi_add(MI_INFO, "OFF - RECOVERY NEEDS A PC IF", "");
+    mi_add(MI_INFO, "INTERRUPTED (UPDATE BUTTON MODE).", "");
+}
+
+static const menu_screen_t SCR_FWUPDATE = { "FIRMWARE UPDATE", fw_build };
+
 /* ======================= SCREEN: ROOT ===================================== */
 static void root_enter(int id)
 {
     switch (id) {
-    case 0: screen_push(&SCR_SLOTS);   break;
-    case 1: screen_push(&SCR_DISKS);   break;
-    case 2: screen_push(&SCR_STORAGE); break;
-    case 3: screen_push(&SCR_NETWORK); break;
-    case 4: screen_push(&SCR_USB);     break;
+    case 0: screen_push(&SCR_SLOTS);    break;
+    case 1: screen_push(&SCR_DISKS);    break;
+    case 2: screen_push(&SCR_STORAGE);  break;
+    case 3: screen_push(&SCR_NETWORK);  break;
+    case 4: screen_push(&SCR_USB);      break;
+    case 5: screen_push(&SCR_FWUPDATE); break;
     }
 }
 
@@ -735,9 +826,10 @@ static void root_reset_defaults(int id)
 static void root_build(void)
 {
     static const char *const entries[] = {
-        "SLOT ASSIGNMENTS", "DISK IMAGES", "STORAGE", "NETWORK", "USB DEVICES"
+        "SLOT ASSIGNMENTS", "DISK IMAGES", "STORAGE", "NETWORK",
+        "USB DEVICES", "FIRMWARE UPDATE"
     };
-    for (int i = 0; i < 5; i++) {
+    for (int i = 0; i < 6; i++) {
         menu_item_t *m = mi_add(MI_SUBMENU, entries[i], "");
         m->action = root_enter;
         m->id = i;
@@ -870,6 +962,13 @@ void menu_input(uint16_t buttons)
                     (uint32_t)bflb_mtimer_get_time_us() + REPEAT_DELAY_US;
             }
         }
+    }
+
+    /* firmware update progress: keep the update screen live */
+    if (s_view == VIEW_MENU && s_stack[s_depth] == &SCR_FWUPDATE &&
+        fwupdate_dirty()) {
+        screen_refresh();
+        paint();
     }
 
     /* a requested rescan finished: refresh the visible screen */
