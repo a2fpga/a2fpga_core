@@ -750,7 +750,7 @@ static void fw_pick(int id)
 static void fw_install(int id)
 {
     (void)id;
-    set_status(" INSTALLING - DO NOT POWER OFF!");
+    set_status(" INSTALLING - SEE INSTRUCTIONS ABOVE");
     fwupdate_commit();   /* the disk thread takes it from here */
 }
 
@@ -784,7 +784,7 @@ static void fw_build(void)
     case FWU_STAGED:
         mi_add(MI_INFO, fwupdate_message(), "");
         mi_add(MI_INFO, "", "");
-        m = mi_add(MI_ACTION, "INSTALL NOW AND REBOOT", "");
+        m = mi_add(MI_ACTION, "INSTALL NOW", "");
         m->action = fw_install;
         m = mi_add(MI_ACTION, "CANCEL", "");
         m->action = fw_cancel;
@@ -799,9 +799,11 @@ static void fw_build(void)
         break;
     }
     mi_add(MI_INFO, "", "");
-    mi_add(MI_INFO, "INSTALL TAKES ~10S. DO NOT POWER", "");
-    mi_add(MI_INFO, "OFF - RECOVERY NEEDS A PC IF", "");
-    mi_add(MI_INFO, "INTERRUPTED (UPDATE BUTTON MODE).", "");
+    mi_add(MI_INFO, "INSTALL FREEZES THIS SCREEN FOR ABOUT", "");
+    mi_add(MI_INFO, "A MINUTE. DO NOT POWER OFF DURING IT.", "");
+    mi_add(MI_INFO, "THEN POWER-CYCLE TO START THE NEW", "");
+    mi_add(MI_INFO, "FIRMWARE. IF INTERRUPTED, RECOVER VIA", "");
+    mi_add(MI_INFO, "PC FLASHING (UPDATE-BUTTON BOOT MODE).", "");
 }
 
 static const menu_screen_t SCR_FWUPDATE = { "FIRMWARE UPDATE", fw_build };

@@ -151,9 +151,11 @@ don't need a PC at all:
 1. Copy the new `a2n20_bl616_host_bl616.bin` anywhere on the USB stick
 2. Menu → **FIRMWARE UPDATE** → **CHOOSE FIRMWARE FILE (.BIN)** and pick it
 3. The update is staged and verified in the background (disks keep
-   working); when it shows READY, choose **INSTALL NOW AND REBOOT**
-4. **Do not power off during the ~10-second install** — the board reboots
-   itself when done
+   working); when it shows READY, choose **INSTALL NOW**
+4. The screen freezes for about a minute while the update is written —
+   **do not power off during this**
+5. **Power-cycle the system** to start the new firmware (verify the build
+   stamp on the FIRMWARE UPDATE screen)
 
 The staging step is fully verified before anything is overwritten, so a
 bad file or interrupted copy cannot hurt the installed firmware. Only the
