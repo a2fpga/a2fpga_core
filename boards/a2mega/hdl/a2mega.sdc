@@ -49,3 +49,15 @@ set_clock_groups -asynchronous -group [get_clocks {clk_pixel_x5}] -group [get_cl
 // clk_logic and clk_pixel are from the same PLL but at different frequencies.
 // CDC between them uses double-flop synchronizers; mark async for STA.
 set_clock_groups -asynchronous -group [get_clocks {clk_pixel}] -group [get_clocks {clk_logic}]
+
+// USB host clock -- 60 MHz from dedicated pll_usb (50 MHz * 24 / 20)
+create_generated_clock -name clk_usb -source [get_ports {clk}] -master_clock clk -divide_by 5 -multiply_by 6 [get_pins {pll_usb_inst/PLLA_inst/CLKOUT0}]
+
+// clk_usb -- own PLL, self-contained USB domain; async to everything.
+// HID outputs must cross into consumer domains via double-flop synchronizers.
+set_clock_groups -asynchronous -group [get_clocks {clk_usb}] -group [get_clocks {clk}]
+set_clock_groups -asynchronous -group [get_clocks {clk_usb}] -group [get_clocks {clk_logic}]
+set_clock_groups -asynchronous -group [get_clocks {clk_usb}] -group [get_clocks {clk_pixel}]
+set_clock_groups -asynchronous -group [get_clocks {clk_usb}] -group [get_clocks {clk_pixel_x5}]
+set_clock_groups -asynchronous -group [get_clocks {clk_usb}] -group [get_clocks {clk4x}]
+set_clock_groups -asynchronous -group [get_clocks {clk_usb}] -group [get_clocks {clk1x}]

@@ -14,10 +14,13 @@
         <File path="hdl/gowin/gowin_pll/pll_ddr3_mod.v" type="file.verilog" enable="1"/>
         <File path="hdl/gowin/gowin_pll/pll_hdmi.v" type="file.verilog" enable="1"/>
         <File path="hdl/gowin/gowin_pll/pll_mDRP_intf.v" type="file.verilog" enable="0"/>
+        <File path="hdl/gowin/gowin_pll/pll_usb.v" type="file.verilog" enable="1"/>
         <File path="hdl/hdmi/serializer.sv" type="file.verilog" enable="1"/>
         <File path="hdl/memory/apple_memory.sv" type="file.verilog" enable="1"/>
         <File path="hdl/sound/iir_filter.v" type="file.verilog" enable="1"/>
         <File path="hdl/top.sv" type="file.verilog" enable="1"/>
+        <File path="hdl/usb_hid_host/usb_hid_host.v" type="file.verilog" enable="1"/>
+        <File path="hdl/usb_hid_host/usb_hid_host_rom.v" type="file.verilog" enable="1"/>
         <File path="src/pll_init.v" type="file.verilog" enable="1"/>
         <File path="/Users/edanuff/GitHub/a2fpga_core/hdl/bus/a2bus_if.sv" type="file.verilog" enable="1"/>
         <File path="/Users/edanuff/GitHub/a2fpga_core/hdl/bus/a2bus_timing.sv" type="file.verilog" enable="1"/>
@@ -85,6 +88,7 @@
         <File path="/Users/edanuff/GitHub/a2fpga_core/hdl/support/via6522.vhd" type="file.vhdl" enable="1"/>
         <File path="hdl/a2mega.cst" type="file.cst" enable="1"/>
         <File path="hdl/a2mega.sdc" type="file.sdc" enable="1"/>
+        <File path="hdl/usb_hid_host/usb_hid_host_rom.mem" type="file.other" enable="1"/>
         <File path="/Users/edanuff/GitHub/a2fpga_core/hdl/slots/slots.hex" type="file.other" enable="1"/>
         <File path="/Users/edanuff/GitHub/a2fpga_core/hdl/video/video.hex" type="file.other" enable="1"/>
     </FileList>
