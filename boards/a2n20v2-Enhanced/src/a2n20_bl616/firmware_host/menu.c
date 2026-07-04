@@ -10,9 +10,6 @@
 #include "fpga_spi.h"
 #include "fpga_screen.h"
 #include "bflb_mtimer.h"
-#include "bflb_wdg.h"
-#include "bflb_gpio.h"
-#include "bl616_hbn.h"
 #include "usbh_core.h"
 
 #include "usbh_xinput.h"
@@ -843,47 +840,6 @@ static void root_enter(int id)
     }
 }
 
-static void root_restart_mcu(int id)
-{
-    (void)id;
-    /* Watchdog reset: the GLB software-reset register writes (SDK POR reset
-     * and bare SWRST_CFG2 stores) never fire on these boards — the caller
-     * just spins in the wait loop. The WDT is an independent hardware reset
-     * path. */
-    fpga_screen_clear();
-    put_row(0,  "              RESTART MCU               ", true);
-    put_row(8,  "            RESTARTING...               ", false);
-    fpga_spi_reg_write(REG_TEXT_MODE, 1);
-    fpga_spi_reg_write(REG_VIDEO_ENABLE, 1);
-
-    /* Warm-reset recipe per FPGA-Companion's mcu_hw_reset (same board,
-     * proven): arm the watchdog, tear down the USB host stack, clear the
-     * HBN user-boot override (the HBN domain SURVIVES warm resets — a
-     * boot-config left there redirects the BootROM away from flash boot,
-     * which is why every reset attempt came back dark until power-cycled),
-     * release the GPIO2 strap, then reset with the flash in standard mode. */
-    struct bflb_device_s *wdg = bflb_device_get_by_name("watchdog0");
-    if (wdg) {
-        struct bflb_wdg_config_s cfg = {
-            .clock_source = WDG_CLKSRC_32K,
-            .clock_div    = 31,          /* ~1 kHz                    */
-            .comp_val     = 3000,        /* backstop in ~3 s          */
-            .mode         = WDG_MODE_RESET,
-        };
-        bflb_wdg_init(wdg, &cfg);
-        bflb_wdg_start(wdg);
-    }
-    usbh_deinitialize(0);
-    bflb_mtimer_delay_ms(20);
-    HBN_Set_User_Boot_Config(0);         /* reboot per the boot pin   */
-    {
-        struct bflb_device_s *gp = bflb_device_get_by_name("gpio");
-        if (gp)
-            bflb_gpio_deinit(gp, GPIO_PIN_2);
-    }
-    fwupdate_reset_mcu();                /* clean flash mode + reset  */
-}
-
 static void root_reset_defaults(int id)
 {
     (void)id;
@@ -904,9 +860,7 @@ static void root_build(void)
         m->id = i;
     }
     mi_add(MI_INFO, "", "");
-    menu_item_t *m = mi_add(MI_ACTION, "RESTART MCU", "");
-    m->action = root_restart_mcu;
-    m = mi_add(MI_ACTION, "RESET SETTINGS TO DEFAULTS", "");
+    menu_item_t *m = mi_add(MI_ACTION, "RESET SETTINGS TO DEFAULTS", "");
     m->action = root_reset_defaults;
     mi_add(MI_INFO, "", "");
     mi_add(MI_INFO, "SETTINGS",

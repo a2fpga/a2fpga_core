@@ -189,6 +189,25 @@ Sipeed's current stock firmware uses a two-stage boot with specific flash addres
 
 See `docs/bl616_ecosystem.md` for detailed field update procedures and board variant handling.
 
+### Warm reset does not work on fused boards (field finding)
+
+No software reset source revives the BL616 on the fused boards Sipeed
+ships: the SDK's `GLB_SW_POR_Reset`, a direct `GLB_SWRST_CFG2` toggle, and
+a `WDG_MODE_RESET` watchdog all leave the chip dark until a POWER CYCLE —
+even with the UPDATE button held (which would force ROM download mode if
+any reset actually fired, with no flash or Stage-1 involved). The full
+warm-boot hygiene recipe FPGA-Companion uses successfully on UNFUSED
+boards (USB host deinit, `HBN_Set_User_Boot_Config(0)`, GPIO2 strap
+release, flash continuous-read exit before reset) does not change the
+outcome. Conclusion: the encrypted Sipeed Stage-1 / fused boot
+configuration appears to mask chip reset sources. Consequences:
+
+- The firmware self-update (menu FIRMWARE UPDATE) finishes with a manual
+  power cycle; the install page instructs the user accordingly.
+- Do not add features that depend on rebooting the MCU from software.
+- `fwupdate_reset_mcu()` keeps the full clean-reset recipe should a future
+  Stage-1 or unfused variant honor it.
+
 ### Recovery Is Always Possible
 
 Regardless of board variant, entering boot mode (UPDATE button) lets you reflash. No board variant is permanently brickable — the ROM bootloader is in mask ROM and cannot be overwritten.
