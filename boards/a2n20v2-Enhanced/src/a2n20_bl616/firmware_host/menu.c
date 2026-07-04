@@ -840,6 +840,14 @@ static void root_enter(int id)
     }
 }
 
+static void root_restart_mcu(int id)
+{
+    (void)id;
+    extern int GLB_SW_POR_Reset(void);
+    osd_log("MCU: RESTARTING...");
+    GLB_SW_POR_Reset();
+}
+
 static void root_reset_defaults(int id)
 {
     (void)id;
@@ -860,7 +868,9 @@ static void root_build(void)
         m->id = i;
     }
     mi_add(MI_INFO, "", "");
-    menu_item_t *m = mi_add(MI_ACTION, "RESET SETTINGS TO DEFAULTS", "");
+    menu_item_t *m = mi_add(MI_ACTION, "RESTART MCU", "");
+    m->action = root_restart_mcu;
+    m = mi_add(MI_ACTION, "RESET SETTINGS TO DEFAULTS", "");
     m->action = root_reset_defaults;
     mi_add(MI_INFO, "", "");
     mi_add(MI_INFO, "SETTINGS",
