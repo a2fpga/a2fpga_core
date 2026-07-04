@@ -11,6 +11,8 @@
 #include "fpga_screen.h"
 #include "bflb_mtimer.h"
 #include "bflb_wdg.h"
+#include "bflb_gpio.h"
+#include "bl616_hbn.h"
 #include "usbh_core.h"
 
 #include "usbh_xinput.h"
@@ -854,17 +856,30 @@ static void root_restart_mcu(int id)
     fpga_spi_reg_write(REG_TEXT_MODE, 1);
     fpga_spi_reg_write(REG_VIDEO_ENABLE, 1);
 
-    /* Watchdog as backstop in case the software reset is inert */
+    /* Warm-reset recipe per FPGA-Companion's mcu_hw_reset (same board,
+     * proven): arm the watchdog, tear down the USB host stack, clear the
+     * HBN user-boot override (the HBN domain SURVIVES warm resets — a
+     * boot-config left there redirects the BootROM away from flash boot,
+     * which is why every reset attempt came back dark until power-cycled),
+     * release the GPIO2 strap, then reset with the flash in standard mode. */
     struct bflb_device_s *wdg = bflb_device_get_by_name("watchdog0");
     if (wdg) {
         struct bflb_wdg_config_s cfg = {
             .clock_source = WDG_CLKSRC_32K,
             .clock_div    = 31,          /* ~1 kHz                    */
-            .comp_val     = 2000,        /* backstop in ~2 s          */
+            .comp_val     = 3000,        /* backstop in ~3 s          */
             .mode         = WDG_MODE_RESET,
         };
         bflb_wdg_init(wdg, &cfg);
         bflb_wdg_start(wdg);
+    }
+    usbh_deinitialize(0);
+    bflb_mtimer_delay_ms(20);
+    HBN_Set_User_Boot_Config(0);         /* reboot per the boot pin   */
+    {
+        struct bflb_device_s *gp = bflb_device_get_by_name("gpio");
+        if (gp)
+            bflb_gpio_deinit(gp, GPIO_PIN_2);
     }
     fwupdate_reset_mcu();                /* clean flash mode + reset  */
 }

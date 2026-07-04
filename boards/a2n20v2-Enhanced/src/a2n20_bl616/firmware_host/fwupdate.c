@@ -12,6 +12,9 @@
 #include "bflb_sflash.h"
 
 #include "usb_osal.h"
+#include "usbh_core.h"
+#include "bl616_hbn.h"
+
 #include "osd_console.h"
 #include "fwupdate.h"
 
@@ -272,12 +275,14 @@ void fwupdate_poll(void)
 
     case FWU_COMMIT_REQ:
         osd_log("FWUPDATE: INSTALLING - DO NOT POWER OFF");
-        /* Give the menu thread time to finish painting its final
-         * instructions — the screen freezes for the whole commit (IRQs off)
-         * and, on current boards, stays frozen after it: the BL616 does not
-         * reliably come back from a warm software reset (Stage-1 appears to
-         * need a cold boot), so the user power-cycles to finish. */
+        /* Let the menu finish painting its final instructions, then prepare
+         * the warm-boot environment (per FPGA-Companion's proven recipe):
+         * tear down the USB host stack and clear the HBN user-boot override
+         * — the HBN domain survives warm resets and a stale boot-config
+         * there redirects the BootROM away from flash boot. */
         usb_osal_msleep(500);
+        usbh_deinitialize(0);
+        HBN_Set_User_Boot_Config(0);
         s_state = FWU_IDLE;   /* moot — commit_tcm never returns */
         commit_tcm(s_size, s_file_crc);
         break;
