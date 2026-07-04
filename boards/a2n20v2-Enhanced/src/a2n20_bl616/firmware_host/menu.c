@@ -764,7 +764,11 @@ static void fw_cancel(int id)
 static void fw_build(void)
 {
     menu_item_t *m;
-    mi_add(MI_INFO, "INSTALLED BUILD", __DATE__);
+    {
+        char b[MENU_LABEL_LEN + 1];
+        snprintf(b, sizeof(b), "INSTALLED: %s %s", __DATE__, __TIME__);
+        mi_add(MI_INFO, b, "");
+    }
     mi_add(MI_INFO, "", "");
 
     switch (fwupdate_state()) {
@@ -845,7 +849,11 @@ static void root_build(void)
         settings_debug_line(dbg, sizeof(dbg));
         mi_add(MI_INFO, dbg, "");
     }
-    mi_add(MI_INFO, "BUILD", __DATE__);
+    {
+        char b[MENU_LABEL_LEN + 1];
+        snprintf(b, sizeof(b), "BUILD %s %s", __DATE__, __TIME__);
+        mi_add(MI_INFO, b, "");
+    }
 }
 
 static const menu_screen_t SCR_ROOT = { "MAIN MENU", root_build };

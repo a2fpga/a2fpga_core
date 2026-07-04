@@ -8,7 +8,6 @@
 #include "ff.h"
 #include "bflb_flash.h"
 #include "bflb_irq.h"
-#include "bl616_glb.h"
 
 #include "osd_console.h"
 #include "fwupdate.h"
@@ -109,7 +108,21 @@ static void ATTR_TCM_SECTION commit_tcm(uint32_t len, uint32_t want_crc)
     }
 
     (void)flags;
-    GLB_SW_POR_Reset();
+
+    /* Bare-register reset (GLB_SWRST_CFG2 @ 0x20000548): the SDK's
+     * GLB_SW_POR_Reset does clock switching first via ROM-API trampolines,
+     * and the first field test froze at this point — keep the danger zone
+     * down to three volatile stores with no callees. PWRON_RST (bit 0)
+     * triggers on the 0->1 edge; fall back to CHIP/SYS reset bits if we are
+     * somehow still executing. */
+    {
+        volatile uint32_t *swrst = (volatile uint32_t *)(0x20000000u + 0x548u);
+        uint32_t v = *swrst;
+        *swrst = v & ~0x01u;          /* clear pwron_rst  */
+        *swrst = v | 0x01u;           /* rising edge: POR */
+        for (volatile int i = 0; i < 1000000; i++) { }
+        *swrst = v | 0x24u;           /* chip+sys reset fallback */
+    }
     while (1) { }
 }
 
