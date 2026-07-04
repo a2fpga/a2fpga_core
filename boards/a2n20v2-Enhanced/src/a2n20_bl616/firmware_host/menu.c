@@ -747,10 +747,29 @@ static void fw_pick(int id)
     screen_push(&SCR_PICKER);
 }
 
+static bool s_fw_installing;   /* freeze the UI: the install page owns it */
+
 static void fw_install(int id)
 {
     (void)id;
-    set_status(" INSTALLING - SEE INSTRUCTIONS ABOVE");
+    /* Paint a dedicated page and freeze the UI on it: the commit stops the
+     * MCU (interrupts off) and the board needs a power-cycle afterwards, so
+     * this exact frame stays on screen through the whole procedure — it IS
+     * the user's instruction sheet for the dark period. */
+    s_fw_installing = true;
+    fpga_screen_clear();
+    put_row(0,  "          INSTALLING FIRMWARE           ", true);
+    put_row(4,  "  THE SCREEN IS ABOUT TO FREEZE WHILE   ", false);
+    put_row(5,  "  THE UPDATE IS WRITTEN TO FLASH.       ", false);
+    put_row(6,  "  THIS IS NORMAL.                       ", false);
+    put_row(9,  "  1. DO NOT POWER OFF YET               ", false);
+    put_row(10, "  2. WAIT TWO MINUTES                   ", false);
+    put_row(11, "  3. POWER THE SYSTEM OFF AND ON        ", false);
+    put_row(14, "  AFTER REBOOT, THE FIRMWARE UPDATE     ", false);
+    put_row(15, "  SCREEN SHOWS THE NEW BUILD TIME.      ", false);
+    put_row(23, "            DO NOT POWER OFF            ", true);
+    fpga_spi_reg_write(REG_TEXT_MODE, 1);
+    fpga_spi_reg_write(REG_VIDEO_ENABLE, 1);
     fwupdate_commit();   /* the disk thread takes it from here */
 }
 
@@ -954,6 +973,9 @@ static void handle_button(uint16_t btn)
 
 void menu_input(uint16_t buttons)
 {
+    if (s_fw_installing)
+        return;   /* install page owns the screen until the MCU stops */
+
     uint16_t pressed = buttons & (uint16_t)~s_prev_buttons;
     s_prev_buttons = buttons;
 
