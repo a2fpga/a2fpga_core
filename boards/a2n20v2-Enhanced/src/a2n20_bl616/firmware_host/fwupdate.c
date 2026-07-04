@@ -8,12 +8,13 @@
 #include "ff.h"
 #include "bflb_flash.h"
 #include "bflb_irq.h"
-#include "bflb_sf_ctrl.h"
-#include "bflb_sflash.h"
+#include "bflb_l1c.h"
 
 #include "usb_osal.h"
 #include "usbh_core.h"
 #include "bl616_hbn.h"
+#include "bl616_glb.h"
+#include "bl616_pds.h"
 
 #include "osd_console.h"
 #include "fwupdate.h"
@@ -40,6 +41,7 @@ static uint32_t s_off;                /* staging/verify position */
 static uint32_t s_crc;                /* running CRC             */
 static uint32_t s_file_crc;           /* CRC of the file         */
 static bool     s_dirty = true;
+static volatile bool s_restart_req;
 static uint8_t  s_buf[FWU_CHUNK];
 
 /* CRC-32 (IEEE), running form. Also compiled into TCM for the commit-time
@@ -76,31 +78,25 @@ static void fail(const char *why)
     osd_log("FWUPDATE: %s", why);
 }
 
-/* Flash-clean reset: exit continuous-read (BootROM can't parse the boot
- * header while the flash die is latched in that mode — it survives MCU-only
- * resets) and then pull the software reset. noinline is LOAD-BEARING (see
- * commit_tcm). */
+/* Software restart by jumping to the app entry at the XIP base. No chip
+ * reset is involved (none fires on fused boards): with interrupts hard-off
+ * and both caches cleaned/invalidated (the icache still holds lines of the
+ * OLD image after an update!), transferring control to the entry point
+ * re-runs the app's startup exactly as Stage-1's chain-load does. noinline
+ * is LOAD-BEARING (see commit_tcm). */
+#define FWU_APP_ENTRY  0xA0000000u
+
 __attribute__((noinline))
-void ATTR_TCM_SECTION fwupdate_reset_mcu(void)
+void ATTR_TCM_SECTION fwupdate_restart_app(void)
 {
-    bflb_irq_save();
+    __asm volatile ("csrci mstatus, 8");   /* MIE off, no going back */
 
-    uint8_t *cfg;
-    uint32_t len;
-    bflb_flash_get_cfg(&cfg, &len);
-    bflb_sf_ctrl_set_owner(SF_CTRL_OWNER_SAHB);
-    bflb_sflash_reset_continue_read((spi_flash_cfg_type *)cfg);
+    bflb_l1c_dcache_clean_all();
+    bflb_l1c_dcache_invalidate_all();
+    bflb_l1c_icache_invalid_all();
 
-    /* Full clear-set-CLEAR toggle, exactly as the SDK's GLB_SW_POR_Reset
-     * does. Leaving the bit SET (an earlier version of this code did) holds
-     * the chip in reset permanently — a black hole that even preempts an
-     * armed watchdog, and looks identical to a crash from the outside. */
-    volatile uint32_t *swrst = (volatile uint32_t *)(0x20000000u + 0x548u);
-    uint32_t v = *swrst;
-    *swrst = v & ~0x01u;
-    *swrst = v | 0x01u;
-    *swrst = v & ~0x01u;
-    while (1) { }                 /* reset (or the WDT backstop) lands here */
+    ((void (*)(void))FWU_APP_ENTRY)();
+    while (1) { }
 }
 
 /* ---- the point of no return --------------------------------------------
@@ -141,7 +137,7 @@ static void ATTR_TCM_SECTION commit_tcm(uint32_t len, uint32_t want_crc)
     }
 
     (void)flags;
-    fwupdate_reset_mcu();
+    fwupdate_restart_app();
 }
 
 /* ---- public API ---------------------------------------------------------- */
@@ -157,6 +153,11 @@ bool fwupdate_request(const char *path)
     s_crc = 0xFFFFFFFFu;
     set_msg("STAGING...");
     return true;
+}
+
+void fwupdate_request_restart(void)
+{
+    s_restart_req = true;
 }
 
 void fwupdate_commit(void)
@@ -202,6 +203,37 @@ bool fwupdate_dirty(void)
 void fwupdate_poll(void)
 {
     UINT br;
+
+    if (s_restart_req && s_state != FWU_COMMIT_REQ) {
+        osd_log("FWUPDATE: RESTARTING");
+        usb_osal_msleep(200);
+        usbh_deinitialize(0);
+        /* Drop VBUS and hold it low so the (bus-powered) hub and devices
+         * get a REAL power cycle, not the ~10 ms brownout of the driver's
+         * init dance — a brownout zombies the hub's port controller (EP0
+         * answers, ports report unpowered, SET PORT_POWER is a no-op).
+         * The relaunched app's usb_hc_low_level_init restores VBUS. */
+        {
+            volatile uint32_t *otg = (volatile uint32_t *)(0x20072080u);
+            uint32_t v = *otg;
+            v |= (1u << 5);            /* USB_A_BUS_DROP_HOV */
+            v &= ~(1u << 4);           /* USB_A_BUS_REQ_HOV  */
+            *otg = v;
+            usb_osal_msleep(1000);
+        }
+        /* Hardware-reset the USB block (peripheral-level GLB reset — works
+         * regardless of the fused chip-reset situation). The relaunched
+         * app's usb_hc_low_level_init assumes power-on PHY/OTG state; a
+         * soft usbh_deinitialize alone leaves the port unable to detect
+         * devices. Also chops any in-flight EHCI DMA before RAM is reused. */
+        GLB_AHB_MCU_Software_Reset(GLB_AHB_MCU_SW_EXT_USB);
+        /* Power the PHY off (PDS domain — untouched by the GLB reset).
+         * bflb_usb_phy_init only ORs the power bits in, so unless they
+         * start at 0 the "power-up" is a no-op and the port never detects
+         * devices after a restart. */
+        PDS_Turn_Off_USB();
+        fwupdate_restart_app();
+    }
 
     switch (s_state) {
 
@@ -287,6 +319,8 @@ void fwupdate_poll(void)
          * there redirects the BootROM away from flash boot. */
         usb_osal_msleep(500);
         usbh_deinitialize(0);
+        GLB_AHB_MCU_Software_Reset(GLB_AHB_MCU_SW_EXT_USB);
+        PDS_Turn_Off_USB();
         HBN_Set_User_Boot_Config(0);
         s_state = FWU_IDLE;   /* moot — commit_tcm never returns */
         commit_tcm(s_size, s_file_crc);

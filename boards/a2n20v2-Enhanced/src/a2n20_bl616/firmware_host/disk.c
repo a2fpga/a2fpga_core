@@ -23,6 +23,10 @@
 #include "gcr_dsk.h"       /* on-the-fly .dsk/.do <-> 6-and-2 GCR nibble codec */
 #include "settings.h"      /* persisted image overrides + boot preference */
 #include "fwupdate.h"      /* firmware self-update (staged from this thread) */
+#include "usbh_core.h"     /* USB supervisor: tree walk + stack recycle */
+#include "usbh_hub.h"      /* port power-cycle kick for stalled hubs */
+#include "bl616_glb.h"
+#include "bl616_pds.h"
 
 /* ---- Volume register map (must match bl616_spi_connector.sv 0x40-0x5F) ---- */
 #define VOL_BASE(v)       (0x40u + (v) * 0x10u)
@@ -682,6 +686,139 @@ static void serve_hdd(int u)
     fpga_spi_reg_write(HDD_ACK(u), 1);   /* request serviced */
 }
 
+
+/* Exported from CherryUSB core, no public prototypes. */
+extern int  usbh_enumerate(struct usbh_hubport *hport);
+extern void usbh_hubport_release(struct usbh_hubport *hport);
+
+/* DMA target: MUST be in the no-cache section like the driver's g_hub_buf,
+ * or the CPU reads back a stale cached line (all zeros) after the transfer. */
+static USB_NOCACHE_RAM_SECTION USB_MEM_ALIGNX uint8_t sup_status_buf[32];
+
+/* GET_PORT_STATUS clone of the hub driver's static helper. */
+static int sup_get_portstatus(struct usbh_hub *hub, uint8_t port,
+                              struct hub_port_status *ps)
+{
+    struct usb_setup_packet *setup = hub->parent->setup;
+    setup->bmRequestType = USB_REQUEST_DIR_IN | USB_REQUEST_CLASS |
+                           USB_REQUEST_RECIPIENT_OTHER;
+    setup->bRequest = HUB_REQUEST_GET_STATUS;
+    setup->wValue = 0;
+    setup->wIndex = port;
+    setup->wLength = 4;
+    int ret = usbh_control_transfer(hub->parent, setup, sup_status_buf);
+    if (ret < 0)
+        return ret;
+    memcpy(ps, sup_status_buf, 4);
+    return 0;
+}
+
+/* Enumerate devices sitting on already-powered hub ports. CherryUSB's hub
+ * driver only reacts to CHANGE events from the hub's interrupt endpoint;
+ * after a firmware jump-restart the hub's ports are long powered and the
+ * settled devices never generate one (and this hub has no real per-port
+ * power switching, so a power-cycle kick does nothing). Do what the driver
+ * would do on a connect change: reset the port, then build and enumerate
+ * the child hubport (mirrors usbh_hub_events' connect tail). */
+static int usb_hub_adopt_ports(struct usbh_hub *hub)
+{
+    int adopted = 0;
+    struct hub_port_status ps;
+
+    for (uint8_t port = 0; port < hub->nports; port++) {
+        struct usbh_hubport *child = &hub->child[port];
+        if (child->connected)
+            continue;
+        if (sup_get_portstatus(hub, port + 1, &ps) < 0)
+            continue;
+        if (!(ps.wPortStatus & HUB_PORT_STATUS_CONNECTION))
+            continue;
+
+        osd_log("USB: ADOPTING HUB PORT %d", port + 1);
+        if (usbh_hub_set_feature(hub, port + 1, HUB_PORT_FEATURE_RESET) < 0)
+            continue;
+        usb_osal_msleep(150);
+        if (sup_get_portstatus(hub, port + 1, &ps) < 0)
+            continue;
+        if ((ps.wPortStatus & HUB_PORT_STATUS_RESET) ||
+            !(ps.wPortStatus & HUB_PORT_STATUS_ENABLE)) {
+            osd_log("USB: PORT %d NOT ENABLED (%04X)",
+                    port + 1, ps.wPortStatus);
+            continue;
+        }
+        if (ps.wPortChange & HUB_PORT_STATUS_C_RESET)
+            usbh_hub_clear_feature(hub, port + 1, HUB_PORT_FEATURE_C_RESET);
+        if (ps.wPortChange & HUB_PORT_STATUS_C_CONNECTION)
+            usbh_hub_clear_feature(hub, port + 1,
+                                   HUB_PORT_FEATURE_C_CONNECTION);
+
+        uint8_t speed = (ps.wPortStatus & HUB_PORT_STATUS_HIGH_SPEED)
+                            ? USB_SPEED_HIGH
+                            : (ps.wPortStatus & HUB_PORT_STATUS_LOW_SPEED)
+                                  ? USB_SPEED_LOW
+                                  : USB_SPEED_FULL;
+
+        usbh_hubport_release(child);
+        memset(child, 0, sizeof(*child));
+        child->parent = hub;
+        child->depth = (hub->parent ? hub->parent->depth : 0) + 1;
+        child->connected = true;
+        child->port = port + 1;
+        child->speed = speed;
+        child->bus = hub->bus;
+        child->mutex = usb_osal_mutex_create();
+
+        if (usbh_enumerate(child) < 0) {
+            usbh_hubport_release(child);
+            osd_log("USB: PORT %d ENUM FAILED", port + 1);
+        } else {
+            adopted++;
+        }
+    }
+    return adopted;
+}
+
+/* Find a registered hub whose ports have zero connected children — the
+ * signature of the silent post-restart stall: CherryUSB's hub driver only
+ * reacts to CHANGE events on the hub's interrupt endpoint, and a hub whose
+ * ports stayed powered with settled devices never generates any. */
+static struct usbh_hub *find_stalled_hub(struct usbh_hub *hub)
+{
+    if (!hub)
+        return NULL;
+    int kids = 0;
+    for (int i = 0; i < CONFIG_USBHOST_MAX_EHPORTS; i++) {
+        struct usbh_hubport *p = &hub->child[i];
+        if (!p->connected)
+            continue;
+        kids++;
+        if (p->self) {
+            struct usbh_hub *deeper = find_stalled_hub(p->self);
+            if (deeper)
+                return deeper;
+        }
+    }
+    return (!hub->is_roothub && hub->connected && kids == 0) ? hub : NULL;
+}
+
+/* Count connected non-hub devices under a (root)hub — 0 while enumeration
+ * of everything useful has failed, whatever the topology. */
+static int usb_leaf_count(struct usbh_hub *hub)
+{
+    int n = 0;
+    if (!hub)
+        return 0;
+    for (int i = 0; i < CONFIG_USBHOST_MAX_EHPORTS; i++) {
+        struct usbh_hubport *p = &hub->child[i];
+        if (!p->connected)
+            continue;
+        if (p->self)
+            n += usb_leaf_count(p->self);
+        else
+            n++;
+    }
+    return n;
+}
 void disk_poll(void)
 {
     if (g_remount_req) {
@@ -782,6 +919,69 @@ void disk_poll(void)
     /* Firmware self-update: staged one chunk per poll (FatFS + flash both
      * belong to this thread); the commit phase never returns. */
     fwupdate_poll();
+
+    /* USB enumeration supervisor. The jump-restart path (fwupdate) re-inits
+     * a USB stack whose devices are already up and settled, and CherryUSB's
+     * bring-up intermittently loses the race: the port connects (and even
+     * the hub can enumerate) but downstream devices never appear, silently.
+     * Detect "something on the port but zero usable devices" sustained for
+     * 8 s and recycle the whole stack (deinit -> USB block reset -> PHY off
+     * -> init). Harmless on cold boots: devices enumerate long before the
+     * trigger. Capped so a genuinely empty hub doesn't recycle forever. */
+    {
+        static uint32_t sup_cnt;
+        static int      stall_s, attempts;
+        if (++sup_cnt >= 500) {          /* ~1 s of 2 ms polls */
+            sup_cnt = 0;
+            uint32_t portsc = *(volatile uint32_t *)(0x20072030u);
+            int leaves = usb_leaf_count(&g_usbhost_bus[0].hcd.roothub);
+            if ((portsc & 1u) && leaves == 0)
+                stall_s++;
+            else {
+                stall_s = 0;
+                if (leaves > 0)
+                    attempts = 0;
+            }
+            if (stall_s >= 8 && attempts < 5) {
+                attempts++;
+                stall_s = 0;
+                struct usbh_hub *stalled =
+                    find_stalled_hub(&g_usbhost_bus[0].hcd.roothub);
+                if (stalled && attempts <= 2) {
+                    osd_log("USB: ENUM STALLED - ADOPT %d/5", attempts);
+                    int n = usb_hub_adopt_ports(stalled);
+                    osd_log("USB: ADOPTED %d DEVICE(S)", n);
+                } else if (attempts <= 4) {
+                    /* Real power cycle for the downstream tree: >1 s VBUS
+                     * drop fully discharges the hub (a short brownout
+                     * zombies its port controller: EP0 alive, all ports
+                     * report unpowered, SET PORT_POWER ignored). Reconnect
+                     * then arrives as a genuine root-port connect change
+                     * and the whole tree enumerates as on a cold boot. */
+                    osd_log("USB: ENUM STALLED - VBUS CYCLE %d/5", attempts);
+                    volatile uint32_t *otg =
+                        (volatile uint32_t *)(0x20072080u);
+                    uint32_t v = *otg;
+                    v |= (1u << 5);            /* USB_A_BUS_DROP_HOV */
+                    v &= ~(1u << 4);           /* USB_A_BUS_REQ_HOV  */
+                    *otg = v;
+                    usb_osal_msleep(1200);
+                    v = *otg;
+                    v &= ~(1u << 5);
+                    v |= (1u << 4);
+                    *otg = v;
+                } else {
+                    osd_log("USB: ENUM STALLED - RECYCLE %d/5", attempts);
+                    usbh_deinitialize(0);
+                    GLB_AHB_MCU_Software_Reset(GLB_AHB_MCU_SW_EXT_USB);
+                    PDS_Turn_Off_USB();
+                    usb_osal_msleep(100);
+                    usbh_initialize(0, 0x20072000u);
+                }
+            }
+        }
+    }
+
 }
 
 /* ---- menu accessors (see disk.h) ----------------------------------------- */

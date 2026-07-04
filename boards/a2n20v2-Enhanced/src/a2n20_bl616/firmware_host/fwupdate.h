@@ -59,11 +59,18 @@ bool fwupdate_dirty(void);
 /* Service the state machine. Call from the disk thread only. */
 void fwupdate_poll(void);
 
-/* Restore the SPI flash to standard mode and reset the MCU. Never returns.
- * The flash die keeps its continuous-read state across an MCU-only reset
- * (only a power cycle clears it), and the BootROM hangs trying to read the
- * boot header from a flash still in that mode — which is why every plain
- * software/watchdog reset appeared to kill the board. TCM-resident. */
-void fwupdate_reset_mcu(void);
+/* Request a firmware restart (jump to app entry). Executed by the disk
+ * thread on its next poll — menu actions run in the USB poll context and
+ * must not tear down the USB stack from a thread it owns. */
+void fwupdate_request_restart(void);
+
+/* Restart the firmware WITHOUT a chip reset (no reset source fires on the
+ * fused boards — see the README): invalidate the caches and jump to the app
+ * entry point at the XIP base. Stage-1's XIP mapping (and the fused-board
+ * decrypt configuration) is already set up and remains valid, so the app in
+ * flash — including one just written by the updater — boots as if freshly
+ * chain-loaded and re-initializes all peripherals. Callers should quiesce
+ * DMA masters first (usbh_deinitialize). Never returns. TCM-resident. */
+void fwupdate_restart_app(void);
 
 #endif

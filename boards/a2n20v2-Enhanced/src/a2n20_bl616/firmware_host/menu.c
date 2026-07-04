@@ -753,20 +753,20 @@ static void fw_install(int id)
 {
     (void)id;
     /* Paint a dedicated page and freeze the UI on it: the commit stops the
-     * MCU (interrupts off) and the board needs a power-cycle afterwards, so
-     * this exact frame stays on screen through the whole procedure — it IS
-     * the user's instruction sheet for the dark period. */
+     * MCU (interrupts off) for the ~minute of flash writing, then the new
+     * firmware restarts itself, so this frame is the instruction sheet for
+     * the frozen period. */
     s_fw_installing = true;
     fpga_screen_clear();
     put_row(0,  "          INSTALLING FIRMWARE           ", true);
-    put_row(4,  "  THE SCREEN IS ABOUT TO FREEZE WHILE   ", false);
-    put_row(5,  "  THE UPDATE IS WRITTEN TO FLASH.       ", false);
-    put_row(6,  "  THIS IS NORMAL.                       ", false);
-    put_row(9,  "  1. DO NOT POWER OFF YET               ", false);
-    put_row(10, "  2. WAIT TWO MINUTES                   ", false);
-    put_row(11, "  3. POWER THE SYSTEM OFF AND ON        ", false);
-    put_row(14, "  AFTER REBOOT, THE FIRMWARE UPDATE     ", false);
-    put_row(15, "  SCREEN SHOWS THE NEW BUILD TIME.      ", false);
+    put_row(4,  "  THE SCREEN WILL FREEZE FOR ABOUT A    ", false);
+    put_row(5,  "  MINUTE WHILE THE UPDATE IS WRITTEN    ", false);
+    put_row(6,  "  TO FLASH. THIS IS NORMAL.             ", false);
+    put_row(9,  "  THE BOARD THEN RESTARTS BY ITSELF.    ", false);
+    put_row(12, "  IF IT HAS NOT COME BACK AFTER TWO     ", false);
+    put_row(13, "  MINUTES, POWER THE SYSTEM OFF AND ON. ", false);
+    put_row(16, "  THE FIRMWARE UPDATE SCREEN WILL SHOW  ", false);
+    put_row(17, "  THE NEW BUILD TIME AFTERWARDS.        ", false);
     put_row(23, "            DO NOT POWER OFF            ", true);
     fpga_spi_reg_write(REG_TEXT_MODE, 1);
     fpga_spi_reg_write(REG_VIDEO_ENABLE, 1);
@@ -820,9 +820,10 @@ static void fw_build(void)
     mi_add(MI_INFO, "", "");
     mi_add(MI_INFO, "INSTALL FREEZES THIS SCREEN FOR ABOUT", "");
     mi_add(MI_INFO, "A MINUTE. DO NOT POWER OFF DURING IT.", "");
-    mi_add(MI_INFO, "THEN POWER-CYCLE TO START THE NEW", "");
-    mi_add(MI_INFO, "FIRMWARE. IF INTERRUPTED, RECOVER VIA", "");
-    mi_add(MI_INFO, "PC FLASHING (UPDATE-BUTTON BOOT MODE).", "");
+    mi_add(MI_INFO, "THE BOARD RESTARTS BY ITSELF WHEN THE", "");
+    mi_add(MI_INFO, "INSTALL FINISHES. IF INTERRUPTED,", "");
+    mi_add(MI_INFO, "RECOVER VIA PC FLASHING (UPDATE-BUTTON", "");
+    mi_add(MI_INFO, "BOOT MODE).", "");
 }
 
 static const menu_screen_t SCR_FWUPDATE = { "FIRMWARE UPDATE", fw_build };
@@ -838,6 +839,17 @@ static void root_enter(int id)
     case 4: screen_push(&SCR_USB);      break;
     case 5: screen_push(&SCR_FWUPDATE); break;
     }
+}
+
+static void root_restart_mcu(int id)
+{
+    (void)id;
+    fpga_screen_clear();
+    put_row(0,  "              RESTART MCU               ", true);
+    put_row(8,  "            RESTARTING...               ", false);
+    fpga_spi_reg_write(REG_TEXT_MODE, 1);
+    fpga_spi_reg_write(REG_VIDEO_ENABLE, 1);
+    fwupdate_request_restart();   /* disk thread quiesces USB and jumps */
 }
 
 static void root_reset_defaults(int id)
@@ -860,7 +872,9 @@ static void root_build(void)
         m->id = i;
     }
     mi_add(MI_INFO, "", "");
-    menu_item_t *m = mi_add(MI_ACTION, "RESET SETTINGS TO DEFAULTS", "");
+    menu_item_t *m = mi_add(MI_ACTION, "RESTART MCU", "");
+    m->action = root_restart_mcu;
+    m = mi_add(MI_ACTION, "RESET SETTINGS TO DEFAULTS", "");
     m->action = root_reset_defaults;
     mi_add(MI_INFO, "", "");
     mi_add(MI_INFO, "SETTINGS",

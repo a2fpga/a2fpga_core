@@ -154,8 +154,9 @@ don't need a PC at all:
    working); when it shows READY, choose **INSTALL NOW**
 4. The screen freezes for about a minute while the update is written —
    **do not power off during this**
-5. **Power-cycle the system** to start the new firmware (verify the build
-   stamp on the FIRMWARE UPDATE screen)
+5. The board **restarts itself** when the install finishes and the new
+   firmware boots (verify the build stamp on the FIRMWARE UPDATE screen).
+   If it hasn't come back after two minutes, power-cycle the system.
 
 The staging step is fully verified before anything is overwritten, so a
 bad file or interrupted copy cannot hurt the installed firmware. Only the

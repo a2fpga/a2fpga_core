@@ -189,24 +189,43 @@ Sipeed's current stock firmware uses a two-stage boot with specific flash addres
 
 See `docs/bl616_ecosystem.md` for detailed field update procedures and board variant handling.
 
-### Warm reset does not work on fused boards (field finding)
+### Warm restart: no chip reset works on fused boards — jump to the app entry instead
 
-No software reset source revives the BL616 on the fused boards Sipeed
-ships: the SDK's `GLB_SW_POR_Reset`, a direct `GLB_SWRST_CFG2` toggle, and
-a `WDG_MODE_RESET` watchdog all leave the chip dark until a POWER CYCLE —
+No CHIP reset source revives the BL616 on the fused boards Sipeed ships:
+the SDK's `GLB_SW_POR_Reset`, a direct `GLB_SWRST_CFG2` toggle, and a
+`WDG_MODE_RESET` watchdog all leave the chip dark until a power cycle —
 even with the UPDATE button held (which would force ROM download mode if
-any reset actually fired, with no flash or Stage-1 involved). The full
-warm-boot hygiene recipe FPGA-Companion uses successfully on UNFUSED
-boards (USB host deinit, `HBN_Set_User_Boot_Config(0)`, GPIO2 strap
-release, flash continuous-read exit before reset) does not change the
-outcome. Conclusion: the encrypted Sipeed Stage-1 / fused boot
-configuration appears to mask chip reset sources. Consequences:
+any reset actually fired). The encrypted Sipeed Stage-1 / fused boot
+configuration evidently masks chip reset sources; FPGA-Companion's
+identical watchdog recipe works only on unfused boards.
 
-- The firmware self-update (menu FIRMWARE UPDATE) finishes with a manual
-  power cycle; the install page instructs the user accordingly.
-- Do not add features that depend on rebooting the MCU from software.
-- `fwupdate_reset_mcu()` keeps the full clean-reset recipe should a future
-  Stage-1 or unfused variant honor it.
+The working alternative (menu RESTART MCU and the tail of a firmware
+self-update install) restarts the FIRMWARE without any chip reset —
+`fwupdate_restart_app()` in `firmware_host/fwupdate.c`:
+
+1. `usbh_deinitialize()`, then drop OTG VBUS (`USB_A_BUS_DROP_HOV`) and
+   hold it low ≥1 s. This gives the bus-powered hub and devices a REAL
+   power cycle. (The driver's own init only drops VBUS ~10 ms — a
+   brownout that can zombie a hub's port controller: EP0 answers, all
+   ports report unpowered, SET PORT_POWER is ignored.)
+2. Reset the USB peripheral (`GLB_AHB_MCU_Software_Reset(
+   GLB_AHB_MCU_SW_EXT_USB)`) and power the PHY off (`PDS_Turn_Off_USB()`)
+   — `bflb_usb_phy_init` only ORs its power bits in, so it is a no-op
+   unless the PHY starts from OFF.
+3. From TCM with interrupts off: clean+invalidate D-cache, invalidate
+   I-cache (stale lines of the OLD image!), jump to the app entry at
+   0xA0000000. Stage-1's XIP mapping (including fused-board decrypt)
+   remains programmed, so the app in flash boots as if chain-loaded.
+
+Even then, CherryUSB's hub driver only enumerates devices that produce a
+connect CHANGE event on the hub's interrupt endpoint — devices already
+settled on powered ports are structurally invisible to it. The disk
+thread runs a supervisor (`disk.c`): if the root port is connected but
+zero non-hub devices exist for 8 s, it directly "adopts" occupied hub
+ports (port reset + build child hubport + `usbh_enumerate`, mirroring the
+driver's connect tail), then falls back to a VBUS cycle and a full stack
+recycle. Any DMA buffer for such control transfers MUST be
+`USB_NOCACHE_RAM_SECTION` (a cached buffer reads back stale zeros).
 
 ### Recovery Is Always Possible
 
