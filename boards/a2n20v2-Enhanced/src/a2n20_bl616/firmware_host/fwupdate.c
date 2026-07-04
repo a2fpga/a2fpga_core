@@ -91,11 +91,16 @@ void ATTR_TCM_SECTION fwupdate_reset_mcu(void)
     bflb_sf_ctrl_set_owner(SF_CTRL_OWNER_SAHB);
     bflb_sflash_reset_continue_read((spi_flash_cfg_type *)cfg);
 
+    /* Full clear-set-CLEAR toggle, exactly as the SDK's GLB_SW_POR_Reset
+     * does. Leaving the bit SET (an earlier version of this code did) holds
+     * the chip in reset permanently — a black hole that even preempts an
+     * armed watchdog, and looks identical to a crash from the outside. */
     volatile uint32_t *swrst = (volatile uint32_t *)(0x20000000u + 0x548u);
     uint32_t v = *swrst;
-    *swrst = v & ~0x01u;          /* clear pwron_rst  */
-    *swrst = v | 0x01u;           /* rising edge: POR */
-    while (1) { }
+    *swrst = v & ~0x01u;
+    *swrst = v | 0x01u;
+    *swrst = v & ~0x01u;
+    while (1) { }                 /* reset (or the WDT backstop) lands here */
 }
 
 /* ---- the point of no return --------------------------------------------
