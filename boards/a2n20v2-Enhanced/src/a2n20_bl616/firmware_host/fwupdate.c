@@ -8,6 +8,8 @@
 #include "ff.h"
 #include "bflb_flash.h"
 #include "bflb_irq.h"
+#include "bflb_sf_ctrl.h"
+#include "bflb_sflash.h"
 
 #include "usb_osal.h"
 #include "osd_console.h"
@@ -71,6 +73,28 @@ static void fail(const char *why)
     osd_log("FWUPDATE: %s", why);
 }
 
+/* Flash-clean reset: exit continuous-read (BootROM can't parse the boot
+ * header while the flash die is latched in that mode — it survives MCU-only
+ * resets) and then pull the software reset. noinline is LOAD-BEARING (see
+ * commit_tcm). */
+__attribute__((noinline))
+void ATTR_TCM_SECTION fwupdate_reset_mcu(void)
+{
+    bflb_irq_save();
+
+    uint8_t *cfg;
+    uint32_t len;
+    bflb_flash_get_cfg(&cfg, &len);
+    bflb_sf_ctrl_set_owner(SF_CTRL_OWNER_SAHB);
+    bflb_sflash_reset_continue_read((spi_flash_cfg_type *)cfg);
+
+    volatile uint32_t *swrst = (volatile uint32_t *)(0x20000000u + 0x548u);
+    uint32_t v = *swrst;
+    *swrst = v & ~0x01u;          /* clear pwron_rst  */
+    *swrst = v | 0x01u;           /* rising edge: POR */
+    while (1) { }
+}
+
 /* ---- the point of no return --------------------------------------------
  * Runs entirely from TCM with interrupts disabled: the XIP app region is
  * erased and rewritten underneath us. Only TCM-resident SDK calls are used
@@ -109,22 +133,7 @@ static void ATTR_TCM_SECTION commit_tcm(uint32_t len, uint32_t want_crc)
     }
 
     (void)flags;
-
-    /* Bare-register reset (GLB_SWRST_CFG2 @ 0x20000548): the SDK's
-     * GLB_SW_POR_Reset does clock switching first via ROM-API trampolines,
-     * and the first field test froze at this point — keep the danger zone
-     * down to three volatile stores with no callees. PWRON_RST (bit 0)
-     * triggers on the 0->1 edge; fall back to CHIP/SYS reset bits if we are
-     * somehow still executing. */
-    {
-        volatile uint32_t *swrst = (volatile uint32_t *)(0x20000000u + 0x548u);
-        uint32_t v = *swrst;
-        *swrst = v & ~0x01u;          /* clear pwron_rst  */
-        *swrst = v | 0x01u;           /* rising edge: POR */
-        for (volatile int i = 0; i < 1000000; i++) { }
-        *swrst = v | 0x24u;           /* chip+sys reset fallback */
-    }
-    while (1) { }
+    fwupdate_reset_mcu();
 }
 
 /* ---- public API ---------------------------------------------------------- */

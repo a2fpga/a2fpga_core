@@ -59,4 +59,11 @@ bool fwupdate_dirty(void);
 /* Service the state machine. Call from the disk thread only. */
 void fwupdate_poll(void);
 
+/* Restore the SPI flash to standard mode and reset the MCU. Never returns.
+ * The flash die keeps its continuous-read state across an MCU-only reset
+ * (only a power cycle clears it), and the BootROM hangs trying to read the
+ * boot header from a flash still in that mode — which is why every plain
+ * software/watchdog reset appeared to kill the board. TCM-resident. */
+void fwupdate_reset_mcu(void);
+
 #endif

@@ -10,6 +10,7 @@
 #include "fpga_spi.h"
 #include "fpga_screen.h"
 #include "bflb_mtimer.h"
+#include "bflb_wdg.h"
 #include "usbh_core.h"
 
 #include "usbh_xinput.h"
@@ -843,9 +844,29 @@ static void root_enter(int id)
 static void root_restart_mcu(int id)
 {
     (void)id;
-    extern int GLB_SW_POR_Reset(void);
-    osd_log("MCU: RESTARTING...");
-    GLB_SW_POR_Reset();
+    /* Watchdog reset: the GLB software-reset register writes (SDK POR reset
+     * and bare SWRST_CFG2 stores) never fire on these boards — the caller
+     * just spins in the wait loop. The WDT is an independent hardware reset
+     * path. */
+    fpga_screen_clear();
+    put_row(0,  "              RESTART MCU               ", true);
+    put_row(8,  "            RESTARTING...               ", false);
+    fpga_spi_reg_write(REG_TEXT_MODE, 1);
+    fpga_spi_reg_write(REG_VIDEO_ENABLE, 1);
+
+    /* Watchdog as backstop in case the software reset is inert */
+    struct bflb_device_s *wdg = bflb_device_get_by_name("watchdog0");
+    if (wdg) {
+        struct bflb_wdg_config_s cfg = {
+            .clock_source = WDG_CLKSRC_32K,
+            .clock_div    = 31,          /* ~1 kHz                    */
+            .comp_val     = 2000,        /* backstop in ~2 s          */
+            .mode         = WDG_MODE_RESET,
+        };
+        bflb_wdg_init(wdg, &cfg);
+        bflb_wdg_start(wdg);
+    }
+    fwupdate_reset_mcu();                /* clean flash mode + reset  */
 }
 
 static void root_reset_defaults(int id)
