@@ -62,7 +62,19 @@ fi
     exit 3
 }
 
-( cd "$bdir" && printf 'open_project %s\n%s\nexit\n' "$gprj" "$run" | "$GW_SH" )
+start_epoch="$(date +%s)"
+buildlog="$(mktemp "${TMPDIR:-/tmp}/a2fpga_build.XXXXXX")"
+( cd "$bdir" && printf 'open_project %s\n%s\nexit\n' "$gprj" "$run" | "$GW_SH" ) | tee "$buildlog"
+
+# gw_sh exits 0 even when synthesis/PnR fail — detect ERROR lines ourselves.
+if grep -qE '^ERROR' "$buildlog"; then
+    echo
+    echo "!! gw_sh reported errors — build FAILED (stale artifacts in impl/ do not count):"
+    grep -E '^ERROR' "$buildlog" | head -5
+    rm -f "$buildlog"
+    exit 4
+fi
+rm -f "$buildlog"
 
 # ---- Post-build timing check (required after place & route) ----
 if [[ "$stage" == "all" ]]; then
@@ -71,6 +83,12 @@ if [[ "$stage" == "all" ]]; then
     echo
     if [[ ! -f "$fs" ]]; then
         echo "!! No bitstream produced ($fs). Check the synthesis/PnR log for errors."
+        exit 4
+    fi
+    # A pre-existing bitstream from an earlier build must not pass as success.
+    fs_mtime="$(stat -f %m "$fs" 2>/dev/null || stat -c %Y "$fs" 2>/dev/null)"
+    if [[ -n "$fs_mtime" && "$fs_mtime" -lt "$start_epoch" ]]; then
+        echo "!! Bitstream is STALE (predates this build) — the run did not produce a new one."
         exit 4
     fi
     echo ">> Bitstream: boards/$board/impl/pnr/${proj}.fs"
