@@ -113,12 +113,30 @@ module ddr3_port_cdc #(
     localparam REQ_PTR_WIDTH = 2;
 
     // =========================================================================
+    // Client-domain reset: synchronized deassertion
+    // =========================================================================
+    // `rst` (ddr_rst from the DDR3 IP) is native to clk_ddr; its assertion is
+    // async-safe for the clk_client FFs below, but its REMOVAL is asynchronous
+    // to clk_client, which could release pointer/sync FFs into metastability.
+    // Re-synchronize the deassertion so every client-domain FF leaves reset
+    // cleanly. (Traffic gating via init_complete masked this window before,
+    // but only incidentally.)
+    (* syn_preserve=1 *) reg [1:0] rst_client_sync_r;
+    always @(posedge clk_client or posedge rst) begin
+        if (rst)
+            rst_client_sync_r <= 2'b11;
+        else
+            rst_client_sync_r <= {rst_client_sync_r[0], 1'b0};
+    end
+    wire rst_client = rst_client_sync_r[1];
+
+    // =========================================================================
     // Client-domain status sync: init_complete from clk_ddr
     // =========================================================================
     (* syn_preserve=1 *) reg init_sync1, init_sync2;
 
-    always @(posedge clk_client or posedge rst) begin
-        if (rst) begin
+    always @(posedge clk_client or posedge rst_client) begin
+        if (rst_client) begin
             init_sync1 <= 1'b0;
             init_sync2 <= 1'b0;
         end else begin
@@ -139,7 +157,8 @@ module ddr3_port_cdc #(
     // Pack order (LSB first): addr, data, byte_en, wr, burst, wide_hi
     localparam REQ_PACK_WIDTH = PORT_ADDR_WIDTH + DATA_WIDTH + DQM_WIDTH + 1 + 1 + 96;
 
-    (* syn_ramstyle="block_ram" *) reg [REQ_PACK_WIDTH-1:0] req_fifo_packed [0:3];
+    // 2 slots (only bit 0 of the pointers indexes the array)
+    (* syn_ramstyle="block_ram" *) reg [REQ_PACK_WIDTH-1:0] req_fifo_packed [0:1];
 
     // Write pointer (client domain)
     reg [REQ_PTR_WIDTH-1:0] req_wr_ptr;
@@ -149,8 +168,8 @@ module ddr3_port_cdc #(
     wire [REQ_PTR_WIDTH-1:0] req_rd_ptr_gray_ddr;  // forward decl
     (* syn_preserve=1 *) reg [REQ_PTR_WIDTH-1:0] rd_gray_sync1, rd_gray_sync2;
 
-    always @(posedge clk_client or posedge rst) begin
-        if (rst) begin
+    always @(posedge clk_client or posedge rst_client) begin
+        if (rst_client) begin
             rd_gray_sync1 <= '0;
             rd_gray_sync2 <= '0;
         end else begin
@@ -174,13 +193,25 @@ module ddr3_port_cdc #(
     wire client_available_w = init_sync2 && !req_fifo_full;
     wire fire_w = client_available_w && (client_wr || client_rd);
 
-    // Pointer update (with async reset)
-    always @(posedge clk_client or posedge rst) begin
-        if (rst)
+    // Pointer update (async assert, synchronized deassert)
+    always @(posedge clk_client or posedge rst_client) begin
+        if (rst_client)
             req_wr_ptr <= '0;
         else if (fire_w)
             req_wr_ptr <= req_wr_ptr + 1'd1;
     end
+
+    // Burst requests must be 4-word aligned (the arbiter returns beats 0-3 of
+    // the 128-bit word regardless of addr[1:0], and the burst8 port further
+    // assumes 8-word alignment). Holds today because line strides are
+    // multiples of 8 from base 0 — catch violations in simulation.
+    // synthesis translate_off
+    always @(posedge clk_client) begin
+        if (fire_w && client_burst && client_addr[1:0] != 2'b00)
+            $error("ddr3_port_cdc: burst request with unaligned address %h",
+                   client_addr);
+    end
+    // synthesis translate_on
 
     // BSRAM write (separate block, no async reset — required for BSRAM inference)
     always @(posedge clk_client) begin
@@ -316,17 +347,53 @@ module ddr3_port_cdc #(
     reg [PTR_WIDTH-1:0] fifo_wr_ptr;
     wire [PTR_WIDTH-1:0] wr_ptr_gray = fifo_wr_ptr ^ (fifo_wr_ptr >> 1);
 
+    // Overflow guard: pushing into a full FIFO would silently wrap the
+    // pointer over 16 unread beats. Capacity is guaranteed by client
+    // discipline today (framebuffer occupancy guard, apple_memory
+    // serialization), but that is an undocumented invariant — enforce it:
+    // drop the beat instead of corrupting the ring (a dropped beat is
+    // caught by the framebuffer's beat-accounting detectors) and latch a
+    // sticky flag for the debugger.
+    reg [PTR_WIDTH-1:0] rd_gray_sync1_ddr_resp, rd_gray_sync2_ddr_resp;
+    always @(posedge clk_ddr or posedge rst) begin
+        if (rst) begin
+            rd_gray_sync1_ddr_resp <= '0;
+            rd_gray_sync2_ddr_resp <= '0;
+        end else begin
+            rd_gray_sync1_ddr_resp <= rd_ptr_gray;
+            rd_gray_sync2_ddr_resp <= rd_gray_sync1_ddr_resp;
+        end
+    end
+    wire resp_fifo_full_ddr =
+        (wr_ptr_gray == {~rd_gray_sync2_ddr_resp[PTR_WIDTH-1:PTR_WIDTH-2],
+                          rd_gray_sync2_ddr_resp[PTR_WIDTH-3:0]});
+    wire resp_push_w = resp_valid && !resp_fifo_full_ddr;
+
+    (* syn_preserve=1 *) reg resp_overflow_sticky_r;
+    always @(posedge clk_ddr or posedge rst) begin
+        if (rst)
+            resp_overflow_sticky_r <= 1'b0;
+        else if (resp_valid && resp_fifo_full_ddr)
+            resp_overflow_sticky_r <= 1'b1;
+    end
+    // synthesis translate_off
+    always @(posedge clk_ddr) begin
+        if (resp_valid && resp_fifo_full_ddr)
+            $error("ddr3_port_cdc: response FIFO overflow — client discipline violated");
+    end
+    // synthesis translate_on
+
     // Pointer with async reset
     always @(posedge clk_ddr or posedge rst) begin
         if (rst)
             fifo_wr_ptr <= '0;
-        else if (resp_valid)
+        else if (resp_push_w)
             fifo_wr_ptr <= fifo_wr_ptr + 1'd1;
     end
 
     // BSRAM write (separate block, no async reset)
     always @(posedge clk_ddr) begin
-        if (resp_valid)
+        if (resp_push_w)
             fifo_mem[fifo_wr_ptr[RESP_FIFO_ADDR_BITS-1:0]] <= resp_data;
     end
 
@@ -340,8 +407,8 @@ module ddr3_port_cdc #(
 
     // Sync write pointer gray code to client domain
     (* syn_preserve=1 *) reg [PTR_WIDTH-1:0] wr_gray_sync1, wr_gray_sync2;
-    always @(posedge clk_client or posedge rst) begin
-        if (rst) begin
+    always @(posedge clk_client or posedge rst_client) begin
+        if (rst_client) begin
             wr_gray_sync1 <= '0;
             wr_gray_sync2 <= '0;
         end else begin
@@ -361,8 +428,8 @@ module ddr3_port_cdc #(
     reg                   client_ready_r;
     reg [DATA_WIDTH-1:0]  client_q_r;
 
-    always @(posedge clk_client or posedge rst) begin
-        if (rst) begin
+    always @(posedge clk_client or posedge rst_client) begin
+        if (rst_client) begin
             fifo_rd_ptr    <= '0;
             rd_issued_r    <= 1'b0;
             client_ready_r <= 1'b0;

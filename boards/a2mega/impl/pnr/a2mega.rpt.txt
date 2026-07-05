@@ -12,27 +12,27 @@
   <Part Number>: GW5AT-LV60PG484AC1/I0
   <Device>: GW5AT-60
   <Device Version>: B
-  <Created Time>:Sun Jul  5 00:14:37 2026
+  <Created Time>:Sun Jul  5 00:27:20 2026
 
 
 2. PnR Details
 
   Running placement:
-    Placement Phase 0: CPU time = 0h 0m 34s, Elapsed time = 0h 0m 39s
+    Placement Phase 0: CPU time = 0h 0m 33s, Elapsed time = 0h 0m 39s
     Placement Phase 1: CPU time = 0h 0m 4s, Elapsed time = 0h 0m 4s
-    Placement Phase 2: CPU time = 0h 2m 22s, Elapsed time = 0h 2m 48s
-    Placement Phase 3: CPU time = 0h 1m 12s, Elapsed time = 0h 1m 27s
-    Total Placement: CPU time = 0h 4m 11s, Elapsed time = 0h 4m 57s
+    Placement Phase 2: CPU time = 0h 2m 27s, Elapsed time = 0h 2m 57s
+    Placement Phase 3: CPU time = 0h 1m 48s, Elapsed time = 0h 2m 5s
+    Total Placement: CPU time = 0h 4m 52s, Elapsed time = 0h 5m 45s
  Running routing:
-    Routing Phase 0: CPU time = 0h 0m 0.031s, Elapsed time = 0h 0m 0.036s
-    Routing Phase 1: CPU time = 0h 3m 6s, Elapsed time = 0h 3m 40s
+    Routing Phase 0: CPU time = 0h 0m 0.034s, Elapsed time = 0h 0m 0.043s
+    Routing Phase 1: CPU time = 0h 2m 47s, Elapsed time = 0h 3m 18s
     Routing Phase 2: CPU time = 0h 0m 1s, Elapsed time = 0h 0m 1s
     Routing Phase 3: CPU time = 0h 0m 0s, Elapsed time = 0h 0m 0s
-    Total Routing: CPU time = 0h 3m 7s, Elapsed time = 0h 3m 41s
+    Total Routing: CPU time = 0h 2m 48s, Elapsed time = 0h 3m 19s
  Generate output files:
-    CPU time = 0h 0m 12s, Elapsed time = 0h 0m 14s
+    CPU time = 0h 0m 14s, Elapsed time = 0h 0m 16s
 
- Total Time and Memory Usage: CPU time = 0h 7m 30s, Elapsed time = 0h 8m 53s, Peak memory usage = 2606MB
+ Total Time and Memory Usage: CPU time = 0h 7m 53s, Elapsed time = 0h 9m 19s, Peak memory usage = 2606MB
 
 
 3. Resource Usage Summary
@@ -40,15 +40,15 @@
   --------------------------------------------------------------------------------
   Resources                   | Usage                               | Utilization
   --------------------------------------------------------------------------------
-  Logic                       | 23908/59904                         |  40%
-    --LUT,ALU,ROM16           | 23908(22232 LUT, 1652 ALU, 24 ROM16)| -
+  Logic                       | 24021/59904                         |  41%
+    --LUT,ALU,ROM16           | 24021(22291 LUT, 1706 ALU, 24 ROM16)| -
     --SSRAM(RAM16)            | 0                                   | -
-  Register                    | 26887/60780                         |  45%
+  Register                    | 26984/60780                         |  45%
     --Logic Register as Latch | 0/59904                             |  0%
-    --Logic Register as FF    | 26844/59904                         |  45%
+    --Logic Register as FF    | 26941/59904                         |  45%
     --I/O Register as Latch   | 0/876                               |  0%
     --I/O Register as FF      | 43/876                              |  5%
-  CLS                         | 25879/29952                         |  87%
+  CLS                         | 25865/29952                         |  87%
   I/O Port                    | 130/297                             |  44%
   I/O Buf                     | 111                                 | -
     --Input Buf               | 29                                  | -
@@ -115,19 +115,19 @@
   clk_d          | PRIMARY        |  PTR0 PTR1 PTR2 PTR3 PBR1 PBR3
   clk_pixel_w    | PRIMARY        |  PTR0 PTR1 PTR2 PTR3 PBR1 PBR2
   a2bus_if.clk_pixel| PRIMARY        |  PTR0 PTR1 PTR2 PTR3 PBR0 PBR1 PBR2 PBR3
-  clk_usb_w      | PRIMARY        |  PTR2 PTR3 PBR2
-  clk_x1_w       | PRIMARY        |  PTR0 PTR1 PTR2 PBR0 PBR1
-  u_ddr3/gw3_top/u_gwmc_top/gw_wr_data0/wr_fifo/mem_2479| PRIMARY        |  PTR0 PBR0
+  clk_usb_w      | PRIMARY        |  PTR2 PTR3
+  clk_x1_w       | PRIMARY        |  PTR0 PTR1 PBR0 PBR1
+  u_ddr3/gw3_top/u_gwmc_top/gw_wr_data0/wr_fifo/mem_2483| PRIMARY        |  PTR0 PBR0
+  u_ddr3/gw3_top/u_gwmc_top/gw_wr_data0/wr_fifo/mem_2485| PRIMARY        |  PTR0 PBR0
   u_ddr3/gw3_top/u_gwmc_top/gw_wr_data0/wr_fifo/mem_2487| PRIMARY        |  PTR0 PBR0
-  usb_hid_host/n659_3| PRIMARY        |  PTR2
   a2bus_if.device_reset_n| LW             |  -
   n1038_7        | LW             |  -
   ddr_rst_w      | LW             |  -
   supersprite/vdp/f18a_core/reset_n_r| LW             |  -
   supersprite/vdp/f18a_core/inst_cpu/n931_6| LW             |  -
   u_ddr3/gw3_top/u_gwmc_top/gw_wr_data0/wr_fifo/n28_3| LW             |  -
-  u_ddr3/gw3_top/u_gwmc_top/gw_wr_data0/wr_fifo/mem_2475| LW             |  -
-  u_ddr3/gw3_top/u_gwmc_top/gw_wr_data0/wr_fifo/mem_2477| LW             |  -
+  u_ddr3/gw3_top/u_gwmc_top/gw_wr_data0/wr_fifo/mem_2481| LW             |  -
+  u_framebuffer/rstn_clk_sync_r[1]| LW             |  -
   clk_hdmi_w     | HCLK           | BANK3_BANK4_BANK5_HCLK1
   memory_clk_w   | HCLK           | BANK10_BANK11_HCLK2 BANK9_HCLK2
   ===========================================

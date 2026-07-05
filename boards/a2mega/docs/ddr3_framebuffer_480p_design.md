@@ -1,5 +1,13 @@
 # DDR3 Framebuffer 480p — Design Document
 
+> ⚠️ **Historical document.** This describes the retired monolithic
+> `ddr3_framebuffer_480p.v` (297 MHz / 74.25 MHz, one read in flight,
+> write-priority inside the module). The shipped architecture is
+> 324 MHz / 81 MHz decomposed into `hdl/ddr3/ddr3_ports.sv` (arbiter) +
+> `hdl/ddr3/ddr3_port_cdc.sv` (per-port BSRAM CDC) +
+> `hdl/video/framebuffer_480p.sv`. Kept for the design rationale and the
+> debugging history; do not review the current pipeline against this file.
+
 ## Overview
 
 `ddr3_framebuffer_480p.v` is a DDR3-backed framebuffer for the Tang Mega 60K

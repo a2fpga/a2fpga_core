@@ -189,8 +189,25 @@ module framebuffer_480p #(
     reg [COLOR_BITS-1:0] fb_data_r;
     reg fb_we_r;
     reg fb_vsync_r;
+    // -------------------------------------------------------------------------
+    // Reset deassertion synchronizer (clk domain)
+    // -------------------------------------------------------------------------
+    // rst_n originates in the DDR3 domain (~ddr_rst): assertion is async-safe,
+    // but removal is asynchronous to clk, so FFs could leave reset metastable.
+    // Re-synchronize the deassertion; every clk-domain block below resets on
+    // rst_n_clk. (init-complete gating masked this window before, but only
+    // incidentally.)
+    reg [1:0] rstn_clk_sync_r;
     always @(posedge clk or negedge rst_n) begin
-        if (!rst_n) begin
+        if (!rst_n)
+            rstn_clk_sync_r <= 2'b00;
+        else
+            rstn_clk_sync_r <= {rstn_clk_sync_r[0], 1'b1};
+    end
+    wire rst_n_clk = rstn_clk_sync_r[1];
+
+    always @(posedge clk or negedge rst_n_clk) begin
+        if (!rst_n_clk) begin
             fb_data_r <= '0;
             fb_we_r <= 1'b0;
             fb_vsync_r <= 1'b0;
@@ -256,8 +273,8 @@ module framebuffer_480p #(
     reg [19:0] frame_gap_r;
     wire frame_start_w = fb_vsync_r && (frame_gap_r >= FRAME_MIN_CYCLES);
 
-    always @(posedge clk or negedge rst_n) begin
-        if (!rst_n) begin
+    always @(posedge clk or negedge rst_n_clk) begin
+        if (!rst_n_clk) begin
             frame_gap_r <= FRAME_MIN_CYCLES;
         end else begin
             if (frame_gap_r != 20'hFFFFF)
@@ -274,8 +291,8 @@ module framebuffer_480p #(
                                              (TEST_PATTERN == 4) ? test_pixel_mixed(wr_x_r[9:0]) :
                                              (TEST_PATTERN == 3) ? test_pixel(wr_x_r[9:0]) : fb_data_r;
 
-    always @(posedge clk or negedge rst_n) begin
-        if (!rst_n) begin
+    always @(posedge clk or negedge rst_n_clk) begin
+        if (!rst_n_clk) begin
             wr_x_r <= 11'd0;
             wr_y_r <= 10'd0;
             wr_width_r <= 11'd560;
@@ -371,8 +388,8 @@ module framebuffer_480p #(
     wire [127:0] fifo_data_w = fifo_head_w[127:0];
     wire fifo_pop_w = !fifo_empty_w && fb_write_port.available;
 
-    always @(posedge clk or negedge rst_n) begin
-        if (!rst_n)
+    always @(posedge clk or negedge rst_n_clk) begin
+        if (!rst_n_clk)
             fifo_rd_ptr_r <= '0;
         else if (fifo_pop_w)
             fifo_rd_ptr_r <= fifo_rd_ptr_r + 1;
@@ -388,38 +405,51 @@ module framebuffer_480p #(
     assign fb_wr_wide_data_hi_o  = fifo_data_w[127:32];
 
     // =========================================================================
-    // CDC: HDMI cy → clk domain (gray-code)
+    // CDC: HDMI cy → clk domain (toggle handshake)
     // =========================================================================
+    // NOT gray-coded: gray code only guarantees single-bit transitions for
+    // increments, and the 480p raster wraps 524→0, which flips 4 gray bits
+    // in one clk_pixel edge. A clk edge sampling mid-transition would decode
+    // an arbitrary line number for one cycle — enough to falsely trigger the
+    // catch-up or line-0 fetch paths (rare single-line glitch, once per
+    // frame wrap at worst).
+    //
+    // Instead: at each line start capture hdmi_cy into a holding register,
+    // flip a toggle ONE clk_pixel later (so the held value is rock-stable
+    // before the toggle moves), and sample the held value in the clk domain
+    // on the synchronized toggle edge. The full 10-bit value transfers
+    // atomically; the hold register is stable for the rest of the line
+    // (~63 us) around each sample point.
 
-    function automatic [9:0] bin2gray(input [9:0] b);
-        return b ^ (b >> 1);
-    endfunction
+    reg [9:0] cy_hold_px_r;
+    reg [9:0] cy_prev_px_r;
+    reg       cy_changed_px_r;
+    reg       cy_toggle_px_r;
 
-    function automatic [9:0] gray2bin(input [9:0] g);
-        reg [9:0] b;
-        b[9] = g[9];
-        for (int i = 8; i >= 0; i--)
-            b[i] = b[i+1] ^ g[i];
-        return b;
-    endfunction
-
-    reg [9:0] cy_gray_px_r;
     always @(posedge clk_pixel) begin
-        cy_gray_px_r <= bin2gray(hdmi_cy);
+        cy_prev_px_r    <= hdmi_cy;
+        cy_changed_px_r <= (hdmi_cy != cy_prev_px_r);
+        if (hdmi_cy != cy_prev_px_r)
+            cy_hold_px_r <= hdmi_cy;
+        if (cy_changed_px_r)
+            cy_toggle_px_r <= ~cy_toggle_px_r;
     end
 
-    reg [9:0] cy_gray_sync1_r, cy_gray_sync2_r;
+    reg cy_tgl_sync1_r, cy_tgl_sync2_r, cy_tgl_sync3_r;
     reg [9:0] cy_sync_r;
 
-    always @(posedge clk or negedge rst_n) begin
-        if (!rst_n) begin
-            cy_gray_sync1_r <= 10'd0;
-            cy_gray_sync2_r <= 10'd0;
+    always @(posedge clk or negedge rst_n_clk) begin
+        if (!rst_n_clk) begin
+            cy_tgl_sync1_r <= 1'b0;
+            cy_tgl_sync2_r <= 1'b0;
+            cy_tgl_sync3_r <= 1'b0;
             cy_sync_r <= 10'd0;
         end else begin
-            cy_gray_sync1_r <= cy_gray_px_r;
-            cy_gray_sync2_r <= cy_gray_sync1_r;
-            cy_sync_r <= gray2bin(cy_gray_sync2_r);
+            cy_tgl_sync1_r <= cy_toggle_px_r;
+            cy_tgl_sync2_r <= cy_tgl_sync1_r;
+            cy_tgl_sync3_r <= cy_tgl_sync2_r;
+            if (cy_tgl_sync3_r != cy_tgl_sync2_r)
+                cy_sync_r <= cy_hold_px_r;
         end
     end
 
@@ -616,8 +646,8 @@ module framebuffer_480p #(
                               (fetch_word_r == packed_width_r - 11'd1);
 
     // Per-frame debug counters and live high-water tracking
-    always @(posedge clk or negedge rst_n) begin
-        if (!rst_n) begin
+    always @(posedge clk or negedge rst_n_clk) begin
+        if (!rst_n_clk) begin
             dbg_fifo_highwater_r <= 8'd0;
             dbg_fifo_overflow_r <= 8'd0;
             dbg_fetch_start_r <= 8'd0;
@@ -748,8 +778,8 @@ module framebuffer_480p #(
         end
     end
 
-    always @(posedge clk or negedge rst_n) begin
-        if (!rst_n) begin
+    always @(posedge clk or negedge rst_n_clk) begin
+        if (!rst_n_clk) begin
             fetch_state_r <= FETCH_IDLE;
             last_fetched_line_r <= 9'h1FF;
             fetch_word_r <= 11'd0;
@@ -825,10 +855,14 @@ module framebuffer_480p #(
                     issue_spacing_r <= issue_spacing_r - 4'd1;
                 end
 
-                // In-flight beat tracking (issue and receive can coincide)
+                // In-flight beat tracking (issue and receive can coincide).
+                // The subtraction is clamped: a spurious/duplicate beat (it
+                // is counted by the beat-extra detector) must not underflow
+                // the counter to 15 and wedge the occupancy guard.
                 in_flight_beats_r <= in_flight_beats_r
                                      + (issue_ok_w ? issue_beats_w : 4'd0)
-                                     - (fb_read_port.ready ? 4'd1 : 4'd0);
+                                     - ((fb_read_port.ready &&
+                                         (in_flight_beats_r != 4'd0 || issue_ok_w)) ? 4'd1 : 4'd0);
 
                 // Receive side: count beats; line complete when all received
                 if (fb_read_port.ready) begin
@@ -860,8 +894,8 @@ module framebuffer_480p #(
     wire beat_unexpected_w = fb_read_port.ready &&
                              ((fetch_state_r != FETCH_RUN) || (in_flight_beats_r == 4'd0));
 
-    always @(posedge clk or negedge rst_n) begin
-        if (!rst_n) begin
+    always @(posedge clk or negedge rst_n_clk) begin
+        if (!rst_n_clk) begin
             dbg_beat_extra_r <= 8'd0;
             dbg_beat_timeout_r <= 8'd0;
             beat_wait_cnt_r <= 11'd0;
@@ -964,8 +998,8 @@ module framebuffer_480p #(
     reg [10:0] lb_wr_pixel_x;
 
     // Push 1 word per ready pulse
-    always @(posedge clk or negedge rst_n) begin
-        if (!rst_n) begin
+    always @(posedge clk or negedge rst_n_clk) begin
+        if (!rst_n_clk) begin
             rd_fifo_wr_ptr <= '0;
         end else if (fetch_start_pulse_w) begin
             rd_fifo_wr_ptr <= '0;
@@ -978,8 +1012,8 @@ module framebuffer_480p #(
     // Pop + extract: latch word, then write 2 pixels sequentially to line buffer.
     // Even pixel (bits [15:0]) first, then odd pixel (bits [31:16]).
     // RGB565→RGB666 conversion at extraction time.
-    always @(posedge clk or negedge rst_n) begin
-        if (!rst_n) begin
+    always @(posedge clk or negedge rst_n_clk) begin
+        if (!rst_n_clk) begin
             rd_fifo_rd_ptr <= '0;
             rd_word_latched_r <= 32'd0;
             rd_pixel_idx_r <= 1'b0;
@@ -1025,8 +1059,8 @@ module framebuffer_480p #(
         reg [8:0]  bypass_y_r;
         reg        bp_sync_pending_r;
 
-        always @(posedge clk or negedge rst_n) begin
-            if (!rst_n) begin
+        always @(posedge clk or negedge rst_n_clk) begin
+            if (!rst_n_clk) begin
                 bypass_x_r <= 11'd0;
                 bypass_y_r <= 9'd0;
                 bp_sync_pending_r <= 1'b0;

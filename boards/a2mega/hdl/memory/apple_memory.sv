@@ -257,7 +257,12 @@ module apple_memory #(
     wire [20:0] unified_write_addr = UNIFIED_OFFSET + {7'b0, unified_group, unified_word};
     wire [3:0]  unified_byte_en    = 4'(1 << unified_byte);
 
-    // Mux between text (flat shadow) and unified ($2000+) addressing
+    // Mux between text (flat shadow) and unified ($2000+) addressing.
+    // NOTE: the text WRITE path never encodes a video bank, while the text
+    // READ path muxes on video_bank_i. On a2mega video_bank_i is constant 0
+    // (video_control_if.enable tied off in top.sv); if a video-control
+    // override is ever enabled, bank-1 text reads would hit unwritten DDR3 —
+    // tie the read bank to 0 or add bank encoding here first.
     wire [20:0] write_addr = is_text_write ?
         {6'b0, a2bus_if.addr[15:1]} : unified_write_addr;
     wire [3:0]  write_byte_en = is_text_write ?

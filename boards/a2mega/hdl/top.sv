@@ -146,7 +146,6 @@ module top #(
 
     // Clocks
 
-    wire clk_logic_ddr_w;           // 54 MHz from CLKDIV2 (kept for debug, no longer drives logic)
     wire clk_logic_pll_w;           // 54 MHz from board PLL CLKOUT2 (independent of DDR3)
     wire clk_logic_w = clk_logic_pll_w;  // logic runs on independent PLL
     wire clk_lock_w;
@@ -1073,18 +1072,6 @@ module top #(
     );
 
     assign ddr_addr[15] = 1'b0;
-
-    // -----------------------------------------------------------------
-    // CLKDIV /2: 81 MHz → 40.5 MHz (kept for debug, not used for logic)
-    // Logic clock now comes from independent board PLL (clk_logic_pll_w).
-    // -----------------------------------------------------------------
-    CLKDIV clkdiv2_logic (
-        .HCLKIN(clk_x1_w),         // 81 MHz from DDR3 IP
-        .RESETN(~ddr_rst_w),       // Release when DDR3 PLL stable
-        .CALIB(1'b0),
-        .CLKOUT(clk_logic_ddr_w)   // 40.5 MHz (unused — kept for debug)
-    );
-    defparam clkdiv2_logic.DIV_MODE = "2";
 
     // -----------------------------------------------------------------
     // DDR3 Multi-Port Arbiter
