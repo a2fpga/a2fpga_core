@@ -20,6 +20,32 @@ building; hardware bring-up of the new co-processor paths is next. See
 - [ ] Verify GW5A JTAG self-update path (IDCODE probe first — reg constants
       mirrored from openFPGALoader's GW5A support, not yet run on silicon)
 
+## DDR3 / BSRAM roadmap (from the 2026-07 fresh-eyes review)
+
+Done: DDR3 controller MC buffers → registers (BSRAM 118→102); wrap-safe
+hdmi_cy CDC; reset-deassert synchronizers; response-FIFO overflow guard;
+burst-alignment assert. Open, in recommended order:
+
+- [ ] Bench-verify the REG-mode controller + CDC hardening with the TEXT40
+      soak test (the rippling-band reproducer) — required before trusting
+      any of the DDR3-path changes
+- [ ] C4: round-robin arbitration below the two framebuffer ports — the
+      static-priority arbiter has no fairness bound for ports 2-5; this is
+      the gate for adding ANY new DDR3 client
+- [ ] DOC-on-ESP32 over the PPO bus (see the a2p25 postmortem): FPGA
+      timestamps every $C03C-$C03F snoop against a 7M-locked counter and
+      streams events over the idle PPO lines (LCD_CAM-shaped, 8 data +
+      PCLK + SYNC); ESP32 runs the ES5503 model in DOC cycles. Frees ~28
+      BSRAMs net. Make-or-break: event-loss hardening (FPGA event FIFO,
+      seq+CRC, OSPI credit flow control, snooped-read-data resync).
+      Fallback if it stalls: DOC-side prefetch converts the 838 ns fetch
+      deadline to ~30 us, which DDR3 meets — wavetable to DDR3 without
+      touching the DOC engine's real-time core
+- [ ] Disk track windows → DDR3 after C4 lands (−6 BSRAM net of CDC cost;
+      nibble cadence is ~32 us, hugely latency-tolerant)
+- [ ] Uthernet II buffer aliasing (−3…−6) — first verify what RMSR/TMSR
+      splits IP65/Contiki-class MACRAW drivers actually program
+
 ## Medium Priority
 
 - [ ] Wire MCU scratch regs (0x06, 0x0C-0x0F) to DebugOverlay slots for bring-up
