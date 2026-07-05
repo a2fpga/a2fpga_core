@@ -43,8 +43,12 @@ building; hardware bring-up of the new co-processor paths is next. See
 - USB-A port is wired to the FPGA (usb_hid_host core), not the ESP32;
   micro-SD, WiFi, and JTAG-to-FPGA are on the ESP32
 - Disk track/HDD block buffers are BSRAM (XFER SPACE 4/5), not DDR3
-- ⚠️ **BSRAM is 118/118 (full).** New BSRAM consumers must reclaim first —
-  the Ensoniq 64KB sound RAM (32 BSRAMs) can move to its idle DDR3 ports
+- ⚠️ **BSRAM is at the device limit.** New BSRAM consumers must reclaim first.
+  The Ensoniq 64KB wavetable (32 BSRAMs) is NOT trivially movable to DDR3 —
+  the DOC's ~838 ns per-fetch deadline loses to DDR3 tail latency (that's why
+  it's in BSRAM). Candidate reclaims: Uthernet II buffer aliasing (−3…−6,
+  verify driver RMSR/TMSR use first); DOC arbiter-priority preemption is an
+  unproven research option
 
 ## Build Status
 

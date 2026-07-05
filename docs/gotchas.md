@@ -70,8 +70,18 @@ working in these areas. **When you discover a new one, add it here** — that's 
   LUTs; synthesis then grinds for tens of minutes before `ERROR RP0006`). Mux the address by
   direction instead. Two R/W ports with one address each (the `hdd.sv`/`uthernet2.sv` pattern)
   infer fine.
-- **The GW5AT-60 has 118 BSRAMs and the a2mega uses all 118.** Any new BSRAM must reclaim one
-  first (largest pool: Ensoniq's 64KB sound RAM = 32 BSRAMs, movable to its idle DDR3 ports).
+- **The GW5AT-60 has 118 BSRAMs and the a2mega uses nearly all of them.** Any new BSRAM must
+  reclaim one first. Note the biggest pool — the Ensoniq 64KB wavetable (32 BSRAMs) — is NOT
+  simply movable to DDR3: the DOC has a hard ~838 ns per-fetch deadline (timeout = audible
+  silence) and DDR3 tail latency (burst queue + refresh + CDC) misses it; that is why it was
+  moved to BSRAM in the first place. Much of the a2mega's BSRAM spend (CDC FIFOs, line-buffer
+  lead, DOC wavetable, disk buffers) is deliberate latency insulation against DDR3 variance.
+- **Do NOT convert `ddr3_port_cdc`'s FIFOs to registers to save BSRAM.** GW5A has no
+  distributed RAM, so shallow FIFOs land in BSRAM and look like easy savings — but FF-array
+  buffers crossing independent clocks **corrupt data on GW5AT** (the debugged "8-char rippling
+  band" bug; see the comments in `hdl/ddr3/ddr3_port_cdc.sv` and the DDR3 project notes).
+  BSRAM's physically independent clock ports are the fix. Only *single-clock* small FIFOs
+  (e.g. `framebuffer_480p`'s rd_fifo) may use `syn_ramstyle="registers"`.
 - **`gw_sh` exits 0 on fatal errors.** `tools/build.sh` now greps for `ERROR` lines and rejects
   stale bitstreams; don't bypass it — a raw gw_sh run can leave a previous build's bitstream
   and timing report in `impl/pnr/` looking like a success.
