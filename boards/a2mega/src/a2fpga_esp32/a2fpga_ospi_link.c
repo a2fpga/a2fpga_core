@@ -78,6 +78,14 @@ esp_err_t ospi_link_init(ospi_link_t *l, spi_host_device_t host,
         l->octal_mode = true;
     }
 
+    // Hold SCLK low between transactions: the IDF driver can release the
+    // pin in gaps, and a floating SCLK feeds phantom edges to the FPGA's
+    // synchronizer — advancing its byte framing mid-protocol (symptom: the
+    // first command after an idle gap fails, follow-ups succeed). Mode-0
+    // SCLK must idle low, so pin it there.
+    gpio_pullup_dis((gpio_num_t)pins->sclk);
+    gpio_pulldown_en((gpio_num_t)pins->sclk);
+
     // Configure device
     spi_device_interface_config_t dev = {
         .clock_speed_hz = clock_hz,
@@ -127,6 +135,15 @@ static esp_err_t xfer(spi_device_handle_t dev, const void *tx, void *rx, size_t 
     return spi_device_transmit(dev, &t);
 }
 
+// Bus wake: the first byte clocked after an idle gap is unreliable (the
+// first SCLK pulse after the peripheral re-engages can be mangled, and the
+// FPGA misses it). Clock one 0x00 byte first — every parked FSM state
+// ignores a non-0xA5 byte, so the mangling lands on a byte nobody needs.
+static void bus_wake(ospi_link_t *l) {
+    uint8_t z = 0x00;
+    xfer(l->dev, &z, NULL, 1, l->octal_mode);
+}
+
 // RX-only phase (bus turnaround): clock n bytes with the data lines released
 // so the FPGA can drive its response. Octal mode is half-duplex — reads MUST
 // be split into a TX header phase and an RX phase; a combined TX+RX
@@ -144,6 +161,7 @@ static esp_err_t xfer_rx(spi_device_handle_t dev, void *rx, size_t n, bool octal
 
 esp_err_t ospi_reg_write(ospi_link_t *l, uint8_t reg, uint8_t val) {
     if (reg >= 127) return ESP_ERR_INVALID_ARG;
+    bus_wake(l);
 
     uint8_t buf[4]; // [sync?] opcode + payload
     size_t o = 0;
@@ -161,6 +179,7 @@ esp_err_t ospi_reg_write(ospi_link_t *l, uint8_t reg, uint8_t val) {
 // The FPGA drives exactly those two response slots and releases the bus.
 static esp_err_t reg_read_once(ospi_link_t *l, uint8_t reg,
                                uint8_t *val, uint8_t *status_out) {
+    bus_wake(l);
     uint8_t tx[3];
     size_t o = 0;
     if (l->use_sync) { tx[o++] = 0xA5; tx[o++] = 0x5A; }
@@ -168,8 +187,14 @@ static esp_err_t reg_read_once(ospi_link_t *l, uint8_t reg,
 
     if (l->octal_mode) {
         uint8_t rx[2] = {0};
+        // TEMPORARY (remove after the proto-proc live-reg_rdata fix is in
+        // the flashed bitstream): current fabric returns the PREVIOUS
+        // command's register value on the first read — issue the read twice
+        // and keep the second answer.
         ESP_RETURN_ON_ERROR(xfer(l->dev, tx, NULL, o, true), TAG, "rd hdr");
         ESP_RETURN_ON_ERROR(xfer_rx(l->dev, rx, 2, true), TAG, "rd resp");
+        ESP_RETURN_ON_ERROR(xfer(l->dev, tx, NULL, o, true), TAG, "rd hdr2");
+        ESP_RETURN_ON_ERROR(xfer_rx(l->dev, rx, 2, true), TAG, "rd resp2");
         *val = rx[0];
         if (status_out) *status_out = rx[1];
     } else {
@@ -212,6 +237,7 @@ esp_err_t ospi_xfer_write(ospi_link_t *l,
                           const uint8_t *data, uint16_t len, bool inc_addr)
 {
     if ((len == 0) || !data) return ESP_ERR_INVALID_ARG;
+    bus_wake(l);
 
     uint8_t hdr[11]; // sync + opcode + sub0 + addr24 + len16
     size_t o = 0;
@@ -235,6 +261,7 @@ esp_err_t ospi_xfer_read(ospi_link_t *l,
                          uint8_t *out, uint16_t len, bool inc_addr)
 {
     if ((len == 0) || !out) return ESP_ERR_INVALID_ARG;
+    bus_wake(l);
 
     uint8_t hdr[11];
     size_t o = 0;
@@ -269,6 +296,7 @@ esp_err_t ospi_xfer_read_status(ospi_link_t *l,
                                 uint8_t *status_out)
 {
     if ((len == 0) || !out) return ESP_ERR_INVALID_ARG;
+    bus_wake(l);
 
     uint8_t hdr[11];
     size_t o = 0;

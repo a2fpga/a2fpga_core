@@ -52,8 +52,11 @@ void __attribute__((weak)) osd_console_show(void) {}
 void __attribute__((weak)) osd_console_hide(void) {}
 
 /* Log to both the serial console and the on-screen OSD console. */
-#define DLOGI(...) do { ESP_LOGI(TAG, __VA_ARGS__); osd_log(__VA_ARGS__); } while (0)
-#define DLOGW(...) do { ESP_LOGW(TAG, __VA_ARGS__); osd_log(__VA_ARGS__); } while (0)
+/* printf, not ESP_LOGI: the Arduino core's precompiled IDF caps the log
+ * level at ERROR, silently discarding INFO — bring-up taught us that the
+ * hard way. printf reaches the USB-CDC console unconditionally. */
+#define DLOGI(...) do { printf("[disk] " __VA_ARGS__); printf("\n"); osd_log(__VA_ARGS__); } while (0)
+#define DLOGW(...) do { printf("[disk] " __VA_ARGS__); printf("\n"); osd_log(__VA_ARGS__); } while (0)
 
 /* ---- SD card mount point --------------------------------------------------
  * The card is mounted by the integrator (esp_vfs_fat_sdmmc_mount) before
@@ -548,12 +551,13 @@ static void serve_drive(int v)
     {
         static int s_last_trk[NDRV] = { -1, -1 };
         int trk = (int)(lba / 13u);
-        if (trk != s_last_trk[v]) {
-            s_last_trk[v] = trk;
-            DLOGI("DISK II: D%d %s TRK %d (LBA %lu N%lu)", v + 1,
-                  wr ? "WR" : "RD", trk, (unsigned long)lba,
-                  (unsigned long)nblk);
-        }
+        /* BRING-UP: log every serve, including same-track reloads after a
+         * warm reset (the dedup hid exactly the event under investigation).
+         * TODO: restore the dedup once boot serving is verified. */
+        (void)s_last_trk;
+        DLOGI("DISK II: D%d %s TRK %d (LBA %lu N%lu)", v + 1,
+              wr ? "WR" : "RD", trk, (unsigned long)lba,
+              (unsigned long)nblk);
     }
 
     if (wr) {

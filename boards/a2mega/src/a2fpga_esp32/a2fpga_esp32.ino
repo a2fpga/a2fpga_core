@@ -82,7 +82,7 @@ static const ospi_pins_t OSPI_PINS = {
     .cs   = -1,     // no CS — the protocol uses sync-pattern framing
 };
 
-static const int SPI_HZ = 10 * 1000 * 1000;  // 10 MHz for bring-up: the FPGA read
+static const int SPI_HZ = 2 * 1000 * 1000;  // 10 MHz for bring-up: the FPGA read
                                              // pipeline (2 cycles @ 54 MHz) is marginal
                                              // against back-to-back 20 MHz RX byte slots
 
