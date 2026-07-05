@@ -127,6 +127,21 @@ static esp_err_t xfer(spi_device_handle_t dev, const void *tx, void *rx, size_t 
     return spi_device_transmit(dev, &t);
 }
 
+// RX-only phase (bus turnaround): clock n bytes with the data lines released
+// so the FPGA can drive its response. Octal mode is half-duplex — reads MUST
+// be split into a TX header phase and an RX phase; a combined TX+RX
+// transaction is rejected by the IDF driver AND would fight the FPGA's
+// output drivers on the shared bus.
+static esp_err_t xfer_rx(spi_device_handle_t dev, void *rx, size_t n, bool octal) {
+    spi_transaction_ext_t ext = {0};
+    ext.base.length = 0;
+    ext.base.rxlength = n * 8;
+    ext.base.rx_buffer = rx;
+    if (octal)
+        ext.base.flags = SPI_TRANS_MODE_OCT;
+    return spi_device_transmit(dev, (spi_transaction_t*)&ext);
+}
+
 esp_err_t ospi_reg_write(ospi_link_t *l, uint8_t reg, uint8_t val) {
     if (reg >= 127) return ESP_ERR_INVALID_ARG;
 
@@ -142,48 +157,54 @@ esp_err_t ospi_reg_write(ospi_link_t *l, uint8_t reg, uint8_t val) {
     return xfer(l->dev, &val, NULL, 1, l->octal_mode);
 }
 
-esp_err_t ospi_reg_read(ospi_link_t *l, uint8_t reg, uint8_t *val) {
-    if (!val || reg >= 127) return ESP_ERR_INVALID_ARG;
-
-    uint8_t tx[5]; // [sync?] opcode + 1 dummy
-    uint8_t rx[sizeof(tx)] = {0};
+// Register read: TX [sync][read-opcode], turnaround, RX [data][status].
+// The FPGA drives exactly those two response slots and releases the bus.
+static esp_err_t reg_read_once(ospi_link_t *l, uint8_t reg,
+                               uint8_t *val, uint8_t *status_out) {
+    uint8_t tx[3];
     size_t o = 0;
     if (l->use_sync) { tx[o++] = 0xA5; tx[o++] = 0x5A; }
     tx[o++] = (uint8_t)((1 << 7) | (reg & 0x7F));
-    tx[o++] = 0x00; // dummy to clock out data in same transaction
 
-    ESP_RETURN_ON_ERROR(xfer(l->dev, tx, rx, o, l->octal_mode), TAG, "hdr+val");
+    if (l->octal_mode) {
+        uint8_t rx[2] = {0};
+        ESP_RETURN_ON_ERROR(xfer(l->dev, tx, NULL, o, true), TAG, "rd hdr");
+        ESP_RETURN_ON_ERROR(xfer_rx(l->dev, rx, 2, true), TAG, "rd resp");
+        *val = rx[0];
+        if (status_out) *status_out = rx[1];
+    } else {
+        // Standard SPI fallback: separate MOSI/MISO lines, full duplex is fine
+        uint8_t txf[5], rxf[5] = {0};
+        memcpy(txf, tx, o);
+        txf[o] = 0x00;
+        txf[o+1] = 0x00;
+        ESP_RETURN_ON_ERROR(xfer(l->dev, txf, rxf, o + 2, false), TAG, "rd fd");
+        *val = rxf[o];
+        if (status_out) *status_out = rxf[o+1];
+    }
+    return ESP_OK;
+}
 
-    // Check status (if sync used)
+esp_err_t ospi_reg_read(ospi_link_t *l, uint8_t reg, uint8_t *val) {
+    if (!val || reg >= 127) return ESP_ERR_INVALID_ARG;
+
+    uint8_t st = 0;
+    ESP_RETURN_ON_ERROR(reg_read_once(l, reg, val, &st), TAG, "rd");
     if (l->use_sync) {
-        uint8_t st = rx[o-2];
         uint8_t ok = (st & 0x01);
         uint8_t ver = (st >> 4) & 0x0F;
         if (!ok || ver != 0x1) {
-            // Retry once after a tiny delay
+            // Retry once after a tiny delay (reframing)
             vTaskDelay(1);
-            memset(rx, 0, sizeof(rx));
-            ESP_RETURN_ON_ERROR(xfer(l->dev, tx, rx, o, l->octal_mode), TAG, "retry hdr+val");
+            ESP_RETURN_ON_ERROR(reg_read_once(l, reg, val, &st), TAG, "rd retry");
         }
     }
-    *val = rx[o-1];
     return ESP_OK;
 }
 
 esp_err_t ospi_reg_read_status(ospi_link_t *l, uint8_t reg, uint8_t *val, uint8_t *status_out) {
     if (!val || reg >= 127) return ESP_ERR_INVALID_ARG;
-
-    uint8_t tx[5];
-    uint8_t rx[sizeof(tx)] = {0};
-    size_t o = 0;
-    if (l->use_sync) { tx[o++] = 0xA5; tx[o++] = 0x5A; }
-    tx[o++] = (uint8_t)((1 << 7) | (reg & 0x7F));
-    tx[o++] = 0x00;
-
-    ESP_RETURN_ON_ERROR(xfer(l->dev, tx, rx, o, l->octal_mode), TAG, "hdr+val");
-    if (status_out) *status_out = rx[o-2];
-    *val = rx[o-1];
-    return ESP_OK;
+    return reg_read_once(l, reg, val, status_out);
 }
 
 esp_err_t ospi_xfer_write(ospi_link_t *l,
@@ -226,43 +247,20 @@ esp_err_t ospi_xfer_read(ospi_link_t *l,
     hdr[o++] = (uint8_t)(len & 0xFF);
     hdr[o++] = (uint8_t)((len >> 8) & 0xFF);
 
-    // Send header and capture status
-    uint8_t status_hdr[sizeof(hdr)] = {0};
-    ESP_RETURN_ON_ERROR(xfer(l->dev, hdr, status_hdr, o, l->octal_mode), TAG, "xfer-r hdr");
+    // TX header, then bus turnaround: the dummy slot carries the status
+    // byte, followed by the payload — all driven by the FPGA.
+    ESP_RETURN_ON_ERROR(xfer(l->dev, hdr, NULL, o, l->octal_mode), TAG, "xfer-r hdr");
 
+    uint8_t st = 0;
+    ESP_RETURN_ON_ERROR(xfer_rx(l->dev, &st, 1, l->octal_mode), TAG, "xfer-r status");
     if (l->use_sync) {
-        uint8_t st = status_hdr[o-1];
         uint8_t ok = (st & 0x01);
         uint8_t ver = (st >> 4) & 0x0F;
-        if (!ok || ver != 0x1) {
-            vTaskDelay(1);
-            memset(status_hdr, 0, sizeof(status_hdr));
-            ESP_RETURN_ON_ERROR(xfer(l->dev, hdr, status_hdr, o, l->octal_mode), TAG, "retry xfer-r hdr");
-        }
+        if (!ok || ver != 0x1)
+            return ESP_ERR_INVALID_RESPONSE;   // caller retries the whole op
     }
 
-    // One dummy byte before first data
-    uint8_t d = 0, toss = 0;
-    ESP_RETURN_ON_ERROR(xfer(l->dev, &d, &toss, 1, l->octal_mode), TAG, "xfer-r dummy");
-
-    // Clock out data bytes
-    uint8_t tx_dummy[16] = {0};
-    size_t remaining = len;
-    uint8_t *p = out;
-    while (remaining) {
-        size_t blk = remaining < sizeof(tx_dummy) ? remaining : sizeof(tx_dummy);
-        spi_transaction_t t = {0};
-        t.length = blk * 8;
-        t.tx_buffer = tx_dummy;
-        t.rx_buffer = p;
-        if (l->octal_mode) {
-            t.flags = SPI_TRANS_MODE_OCT;
-        }
-        ESP_RETURN_ON_ERROR(spi_device_transmit(l->dev, &t), TAG, "data");
-        p += blk;
-        remaining -= blk;
-    }
-    return ESP_OK;
+    return xfer_rx(l->dev, out, len, l->octal_mode);
 }
 
 esp_err_t ospi_xfer_read_status(ospi_link_t *l,
@@ -283,40 +281,12 @@ esp_err_t ospi_xfer_read_status(ospi_link_t *l,
     hdr[o++] = (uint8_t)(len & 0xFF);
     hdr[o++] = (uint8_t)((len >> 8) & 0xFF);
 
-    uint8_t status[11] = {0};
-    ESP_RETURN_ON_ERROR(xfer(l->dev, hdr, status, o, l->octal_mode), TAG, "xfer-r hdr");
-    if (status_out) *status_out = status[o-1];
+    // TX header, turnaround, status (dummy slot), payload
+    ESP_RETURN_ON_ERROR(xfer(l->dev, hdr, NULL, o, l->octal_mode), TAG, "xfer-r hdr");
 
-    if (l->use_sync) {
-        uint8_t ok = (status[o-1] & 0x01);
-        uint8_t ver = (status[o-1] >> 4) & 0x0F;
-        if (!ok || ver != 0x1) {
-            vTaskDelay(1);
-            memset(status, 0, sizeof(status));
-            ESP_RETURN_ON_ERROR(xfer(l->dev, hdr, status, o, l->octal_mode), TAG, "retry xfer-r hdr");
-            if (status_out) *status_out = status[o-1];
-        }
-    }
+    uint8_t st = 0;
+    ESP_RETURN_ON_ERROR(xfer_rx(l->dev, &st, 1, l->octal_mode), TAG, "xfer-r status");
+    if (status_out) *status_out = st;
 
-    // One dummy byte before first data
-    uint8_t d = 0, toss = 0;
-    ESP_RETURN_ON_ERROR(xfer(l->dev, &d, &toss, 1, l->octal_mode), TAG, "xfer-r dummy");
-
-    uint8_t tx_dummy[16] = {0};
-    size_t remaining = len;
-    uint8_t *p = out;
-    while (remaining) {
-        size_t blk = remaining < sizeof(tx_dummy) ? remaining : sizeof(tx_dummy);
-        spi_transaction_t t = {0};
-        t.length = blk * 8;
-        t.tx_buffer = tx_dummy;
-        t.rx_buffer = p;
-        if (l->octal_mode) {
-            t.flags = SPI_TRANS_MODE_OCT;
-        }
-        ESP_RETURN_ON_ERROR(spi_device_transmit(l->dev, &t), TAG, "data");
-        p += blk;
-        remaining -= blk;
-    }
-    return ESP_OK;
+    return xfer_rx(l->dev, out, len, l->octal_mode);
 }

@@ -44,7 +44,7 @@ compile:
 # Upload to ESP32
 .PHONY: upload
 upload: compile
-	$(ARDUINO_CLI) upload --fqbn $(FQBN) --port $(PORT) .
+	$(ARDUINO_CLI) upload --fqbn $(FQBN) --port $(PORT) --input-dir ./build .
 
 # Monitor serial output
 .PHONY: monitor

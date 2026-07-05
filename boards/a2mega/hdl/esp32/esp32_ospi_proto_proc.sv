@@ -143,34 +143,47 @@ module esp32_ospi_proto_proc #(
     // TX data management - output on falling edge
     reg [7:0] tx_next;
 
+    // The data bus is SHARED (8-bit bidirectional, no separate MISO): the
+    // FPGA may only drive during genuine response slots, i.e. after a
+    // register-read opcode (data byte, then status byte) and during the
+    // XFER-read dummy (carries the status byte) and payload slots. Driving
+    // anywhere else — as the original port of the serial protocol did with
+    // its status byte — fights the master's push-pull outputs. The master
+    // performs a bus turnaround (TX header phase, then RX clock-only phase)
+    // for every read.
+    reg [1:0] reg_resp_cnt;   // response bytes left to drive for a reg read
+
+    always @(posedge clk or negedge rst_n) begin
+        if (!rst_n) begin
+            reg_resp_cnt <= 2'd0;
+        end else if (byte_rx_stb) begin
+            if (st == ST_OPCODE && rx_byte[7] && (rx_byte[6:0] != 7'd127))
+                reg_resp_cnt <= 2'd2;             // [read data][status]
+            else if (reg_resp_cnt != 2'd0)
+                reg_resp_cnt <= reg_resp_cnt - 2'd1;
+        end
+    end
+
     always @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
             data_out <= 8'hFF;
             data_oe <= 0;
         end else if (sclk_fall) begin
-            // Decide what to output next
-            if (st == ST_REG_RW && op_is_read && (op_reg != 7'd127)) begin
-                data_out <= reg_rdata;
+            if (st == ST_XPAY_RD_DMY) begin
+                data_out <= status_byte;   // dummy slot returns real status
                 data_oe <= 1;
-            end else if (load_reg_read_next) begin
+            end else if (st == ST_XPAY_RD) begin
+                data_out <= rd_buf_valid ? rd_buf : 8'hFF;
+                data_oe <= 1;
+            end else if (reg_resp_cnt == 2'd2) begin
                 data_out <= reg_read_value;
                 data_oe <= 1;
+            end else if (reg_resp_cnt == 2'd1) begin
+                data_out <= status_byte;
+                data_oe <= 1;
             end else begin
-                case (st)
-                    ST_XPAY_RD_DMY: begin
-                        data_out <= 8'hFF;  // Dummy byte
-                        data_oe <= 1;
-                    end
-                    ST_XPAY_RD: begin
-                        data_out <= rd_buf_valid ? rd_buf : 8'hFF;
-                        data_oe <= 1;
-                    end
-                    default: begin
-                        data_out <= status_byte;
-                        // Output enable during header phases when master expects response
-                        data_oe <= (st >= ST_OPCODE);
-                    end
-                endcase
+                data_out <= 8'hFF;
+                data_oe <= 0;              // master owns the bus
             end
         end else if (idle_expired) begin
             data_oe <= 0;
