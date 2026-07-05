@@ -22,7 +22,8 @@
 #include "bflb_mtimer.h"   /* bflb_mtimer_get_time_us — load-latency timing */
 #include "gcr_dsk.h"       /* on-the-fly .dsk/.do <-> 6-and-2 GCR nibble codec */
 #include "settings.h"      /* persisted image overrides + boot preference */
-#include "fwupdate.h"      /* firmware self-update (staged from this thread) */
+#include "fwupdate.h"
+#include "fpgaupdate.h"      /* firmware self-update (staged from this thread) */
 #include "usbh_core.h"     /* USB supervisor: tree walk + stack recycle */
 #include "usbh_hub.h"      /* port power-cycle kick for stalled hubs */
 #include "bl616_glb.h"
@@ -919,6 +920,7 @@ void disk_poll(void)
     /* Firmware self-update: staged one chunk per poll (FatFS + flash both
      * belong to this thread); the commit phase never returns. */
     fwupdate_poll();
+    fpgaupdate_poll();
 
     /* USB enumeration supervisor. The jump-restart path (fwupdate) re-inits
      * a USB stack whose devices are already up and settled, and CherryUSB's

@@ -17,6 +17,7 @@
 #include "settings.h"
 #include "disk.h"
 #include "fwupdate.h"
+#include "fpgaupdate.h"
 #include "menu.h"
 
 /* Button mapping by PAD LABEL: the 8BitDo SN30-style pads (our reference
@@ -348,6 +349,7 @@ static const menu_screen_t SCR_SLOTS = { "SLOT ASSIGNMENTS", slots_build };
 static disk_list_ent_t s_pick_ents[DISK_LIST_MAX];
 static int   s_pick_count;
 static bool  s_pick_fw;                        /* firmware picker mode */
+static bool  s_pick_fpga;                      /* FPGA bitstream picker mode */
 static char  s_pick_path[SETTINGS_NAME_LEN];   /* current subdir ("" = root) */
 static char *s_pick_target;            /* settings field to write */
 static const char *const *s_pick_exts; /* NULL-terminated extension list */
@@ -399,7 +401,7 @@ static void picker_choose(int id)
         return;
     }
 
-    if (s_pick_fw) {                           /* firmware file selected */
+    if (s_pick_fw || s_pick_fpga) {            /* update file selected */
         char full[SETTINGS_NAME_LEN];
         int n;
         if (s_pick_path[0])
@@ -411,7 +413,10 @@ static void picker_choose(int id)
             set_status(" PATH TOO LONG");
             return;
         }
-        fwupdate_request(full);
+        if (s_pick_fpga)
+            fpgaupdate_request(full);
+        else
+            fwupdate_request(full);
         screen_pop();                          /* back to the update screen */
         return;
     }
@@ -453,7 +458,7 @@ static void picker_build(void)
         m = mi_add(MI_ACTION, "(UP ONE DIRECTORY)", "");
         m->action = picker_choose;
         m->id = -3;
-    } else if (!s_pick_fw) {
+    } else if (!s_pick_fw && !s_pick_fpga) {
         m = mi_add(MI_ACTION, "(AUTO - BUILT-IN NAMES)", "");
         m->action = picker_choose;
         m->id = -1;
@@ -482,6 +487,7 @@ static void picker_open(char *target, const char *const *exts,
                         uint8_t eject_bit)
 {
     s_pick_fw        = false;
+    s_pick_fpga      = false;
     s_pick_target    = target;
     s_pick_exts      = exts;
     s_pick_eject_bit = eject_bit;
@@ -739,6 +745,7 @@ static void fw_pick(int id)
 {
     (void)id;
     s_pick_fw        = true;
+    s_pick_fpga      = false;
     s_pick_target    = NULL;
     s_pick_exts      = k_fw_exts;
     s_pick_eject_bit = 0;
@@ -828,6 +835,125 @@ static void fw_build(void)
 
 static const menu_screen_t SCR_FWUPDATE = { "FIRMWARE UPDATE", fw_build };
 
+/* ======================= SCREEN: FPGA UPDATE ============================== */
+static void fpga_pick(int id)
+{
+    (void)id;
+    s_pick_fw        = false;
+    s_pick_fpga      = true;
+    s_pick_target    = NULL;
+    s_pick_exts      = k_fw_exts;              /* .bin */
+    s_pick_eject_bit = 0;
+    s_pick_path[0]   = '\0';
+    picker_load();
+    screen_push(&SCR_PICKER);
+}
+
+static void fpga_install(int id)
+{
+    (void)id;
+    /* Same freeze-frame pattern as the MCU installer, but here the SCREEN
+     * ITSELF dies (the running bitstream is erased before the config flash
+     * becomes writable), so this page is the last thing visible. */
+    s_fw_installing = true;
+    fpga_screen_clear();
+    put_row(0,  "           UPDATING FPGA CORE           ", true);
+    put_row(4,  "  THE SCREEN WILL GO COMPLETELY DARK    ", false);
+    put_row(5,  "  FOR ONE TO TWO MINUTES WHILE THE      ", false);
+    put_row(6,  "  NEW CORE IS WRITTEN. THIS IS NORMAL.  ", false);
+    put_row(9,  "  THE BOARD THEN RESTARTS BY ITSELF     ", false);
+    put_row(10, "  INTO THE NEW CORE.                    ", false);
+    put_row(13, "  IF NOTHING APPEARS AFTER THREE        ", false);
+    put_row(14, "  MINUTES, POWER OFF AND ON. IF STILL   ", false);
+    put_row(15, "  DARK, RE-FLASH THE FPGA FROM A PC     ", false);
+    put_row(16, "  (SEE THE BOARD README).               ", false);
+    put_row(23, "            DO NOT POWER OFF            ", true);
+    fpga_spi_reg_write(REG_TEXT_MODE, 1);
+    fpga_spi_reg_write(REG_VIDEO_ENABLE, 1);
+    fpgaupdate_commit();   /* the disk thread takes it from here */
+}
+
+static void fpga_cancel(int id)
+{
+    (void)id;
+    fpgaupdate_cancel();
+    screen_refresh();
+}
+
+/* Read the gateware build stamp via indexed reg 0x3F (write index, read
+ * ASCII digit; 0x7F is the XFER opcode and must never be used as a reg).
+ * Cores predating the register return zeros -> unknown. */
+static bool fpga_core_version(char *out, size_t cap)
+{
+    char v[15];
+    for (int i = 0; i < 14; i++) {
+        fpga_spi_reg_write(0x3Fu, (uint8_t)i);
+        v[i] = (char)fpga_spi_reg_read(0x3Fu);
+        if (v[i] < '0' || v[i] > '9')
+            return false;
+    }
+    v[14] = 0;
+    /* Same shape as the MCU's __DATE__ __TIME__ ("Jul  4 2026 17:59:43"). */
+    static const char mon[12][4] = { "Jan", "Feb", "Mar", "Apr", "May",
+                                     "Jun", "Jul", "Aug", "Sep", "Oct",
+                                     "Nov", "Dec" };
+    int m = (v[4] - '0') * 10 + (v[5] - '0');
+    if (m < 1 || m > 12)
+        return false;
+    int d = (v[6] - '0') * 10 + (v[7] - '0');
+    snprintf(out, cap, "%s %2d %.4s %.2s:%.2s:%.2s",
+             mon[m - 1], d, v, v + 8, v + 10, v + 12);
+    return true;
+}
+
+static void fpga_build(void)
+{
+    menu_item_t *m;
+    {
+        char ver[24];
+        char line[MENU_LABEL_LEN + 1];
+        if (fpga_core_version(ver, sizeof(ver)))
+            snprintf(line, sizeof(line), "CORE: %s", ver);
+        else
+            snprintf(line, sizeof(line), "CORE: (NO VERSION REG)");
+        mi_add(MI_INFO, line, "");
+        mi_add(MI_INFO, "", "");
+    }
+    switch (fpgaupdate_state()) {
+    case FPU_IDLE:
+        m = mi_add(MI_ACTION, "CHOOSE CORE FILE (.BIN)", "");
+        m->action = fpga_pick;
+        break;
+    case FPU_CHECKING:
+        mi_add(MI_INFO, fpgaupdate_message(), "");
+        break;
+    case FPU_READY:
+        mi_add(MI_INFO, fpgaupdate_message(), "");
+        mi_add(MI_INFO, "", "");
+        m = mi_add(MI_ACTION, "INSTALL NOW", "");
+        m->action = fpga_install;
+        m = mi_add(MI_ACTION, "CANCEL", "");
+        m->action = fpga_cancel;
+        break;
+    case FPU_ERROR:
+        mi_add(MI_INFO, fpgaupdate_message(), "");
+        m = mi_add(MI_ACTION, "CHOOSE CORE FILE (.BIN)", "");
+        m->action = fpga_pick;
+        break;
+    default:
+        mi_add(MI_INFO, "INSTALLING...", "");
+        break;
+    }
+    mi_add(MI_INFO, "", "");
+    mi_add(MI_INFO, "USE THE .BIN FROM THE BUILD'S", "");
+    mi_add(MI_INFO, "IMPL/PNR DIRECTORY. THE FILE IS", "");
+    mi_add(MI_INFO, "VERIFIED BEFORE ANYTHING IS ERASED.", "");
+    mi_add(MI_INFO, "INSTALL BLANKS THE SCREEN FOR 1-2", "");
+    mi_add(MI_INFO, "MINUTES - DO NOT POWER OFF.", "");
+}
+
+static const menu_screen_t SCR_FPGAUPDATE = { "FPGA UPDATE", fpga_build };
+
 /* ======================= SCREEN: ROOT ===================================== */
 static void root_enter(int id)
 {
@@ -838,6 +964,7 @@ static void root_enter(int id)
     case 3: screen_push(&SCR_NETWORK);  break;
     case 4: screen_push(&SCR_USB);      break;
     case 5: screen_push(&SCR_FWUPDATE); break;
+    case 6: screen_push(&SCR_FPGAUPDATE); break;
     }
 }
 
@@ -864,9 +991,9 @@ static void root_build(void)
 {
     static const char *const entries[] = {
         "SLOT ASSIGNMENTS", "DISK IMAGES", "STORAGE", "NETWORK",
-        "USB DEVICES", "FIRMWARE UPDATE"
+        "USB DEVICES", "FIRMWARE UPDATE", "FPGA UPDATE"
     };
-    for (int i = 0; i < 6; i++) {
+    for (int i = 0; i < 7; i++) {
         menu_item_t *m = mi_add(MI_SUBMENU, entries[i], "");
         m->action = root_enter;
         m->id = i;
@@ -886,7 +1013,13 @@ static void root_build(void)
     }
     {
         char b[MENU_LABEL_LEN + 1];
-        snprintf(b, sizeof(b), "BUILD %s %s", __DATE__, __TIME__);
+        snprintf(b, sizeof(b), "MCU  %s %s", __DATE__, __TIME__);
+        mi_add(MI_INFO, b, "");
+        char ver[24];
+        if (fpga_core_version(ver, sizeof(ver)))
+            snprintf(b, sizeof(b), "CORE %s", ver);
+        else
+            snprintf(b, sizeof(b), "CORE (NO VERSION REG)");
         mi_add(MI_INFO, b, "");
     }
 }
@@ -1011,6 +1144,11 @@ void menu_input(uint16_t buttons)
     }
 
     /* firmware update progress: keep the update screen live */
+    if (s_view == VIEW_MENU && s_stack[s_depth] == &SCR_FPGAUPDATE &&
+        fpgaupdate_dirty() && !s_fw_installing) {
+        screen_refresh();
+        paint();
+    }
     if (s_view == VIEW_MENU && s_stack[s_depth] == &SCR_FWUPDATE &&
         fwupdate_dirty()) {
         screen_refresh();

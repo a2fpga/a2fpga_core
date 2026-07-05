@@ -163,6 +163,27 @@ bad file or interrupted copy cannot hurt the installed firmware. Only the
 short install window is critical; if power is lost there, recover with the
 PC flashing procedure above (the UPDATE-button boot mode always works).
 
+### Updating the FPGA core from the USB stick (no PC)
+
+The FPGA core (gateware) can also be updated from the stick — the BL616
+writes the bitstream into the FPGA's configuration flash over JTAG:
+
+1. Copy the build's `impl/pnr/a2n20v2_enhanced.bin` anywhere on the stick
+   (the raw `.bin`, not `.fs` or `.binx`)
+2. Menu → **FPGA UPDATE** → **CHOOSE CORE FILE (.BIN)** and pick it
+3. The file is verified first (Gowin bitstream for this exact FPGA; an MCU
+   firmware `.bin` is rejected), then choose **INSTALL NOW**
+4. The screen goes **completely dark for one to two minutes** while the
+   core is written — this is normal; **do not power off**
+5. The board restarts itself into the new core; the main menu shows the
+   new core build stamp next to the MCU one
+
+Unlike the MCU update there is no staged copy: the running core must be
+stopped before its flash is reachable. If the write is interrupted, the
+FPGA comes up unconfigured (dark screen) but the MCU stays fully alive —
+recover by re-flashing the FPGA from a PC (`tools/flash.sh
+a2n20v2-Enhanced` with the board attached to the computer).
+
 ### Recovery
 
 Nothing here can permanently brick the board: the UPDATE-button boot mode

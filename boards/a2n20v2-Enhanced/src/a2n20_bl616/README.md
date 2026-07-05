@@ -227,6 +227,30 @@ driver's connect tail), then falls back to a VBUS cycle and a full stack
 recycle. Any DMA buffer for such control transfers MUST be
 `USB_NOCACHE_RAM_SECTION` (a cached buffer reads back stale zeros).
 
+### FPGA self-flash over bit-banged JTAG (firmware_host/fpga_jtag.c)
+
+The host firmware programs the FPGA's external W25Q64 config flash itself
+— the JTAG pins are plain BL616 GPIOs (TMS=16, TCK=10, TDI=12, TDO=14),
+usable while USB host runs. Sequence (mirrors openFPGALoader's GW2A path;
+UG290E §7.2.4): erase the fabric SRAM (ConfigEnable 0x15 → ERASE_SRAM
+0x05 → XFER_DONE 0x09 → ConfigDisable 0x3A, with status polls via IR
+0x41), then each SPI transaction is IR 0x16 + one Shift-DR burst
+(TCK=SCLK, TMS=CS, TDI=MOSI, TDO=MISO). Hard-won details:
+
+- **GW2A(R)-18's IDCODE is `0x0000081B`** (part-number field is zero on
+  this early Gowin part — not a readback bug).
+- Every Gowin instruction needs **6 Run-Test/Idle clocks after Update-IR**
+  (openFPGALoader's `send_command`); without them commands don't execute.
+- The ConfigEnable+0x3D "flash access" prep is for NON-GW2A parts only —
+  sending it on a GW2A blocks 0x16 mode (MISO reads all-FF).
+- Shift **exactly 8·n clocks** per SPI transaction, TMS up on the last
+  data bit; a stray extra clock breaks page programming. MISO is delayed
+  one clock — reads shift one extra dummy byte and rebuild from samples
+  8i+1..8i+8.
+- SPI register **0x7F is the XFER opcode**, not a usable register — the
+  core build stamp readback lives at reg 0x3F (write index, read digit).
+- The Gowin `.bin` is the raw flash image, written verbatim at offset 0.
+
 ### Recovery Is Always Possible
 
 Regardless of board variant, entering boot mode (UPDATE button) lets you reflash. No board variant is permanently brickable — the ROM bootloader is in mask ROM and cannot be overwritten.

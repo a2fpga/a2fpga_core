@@ -9,7 +9,11 @@ module bl616_spi_connector #(
     // Standalone fallback: if no BL616 is detected (mcu_ready never latches)
     // within STANDALONE_TIMEOUT cycles after reset, release the Apple bus
     // anyway so the card works without the MCU firmware running.
-    parameter bit STANDALONE_FALLBACK_ENABLE = 1
+    parameter bit STANDALONE_FALLBACK_ENABLE = 1,
+    // 14-char build timestamp (YYYYMMDDHHMMSS), readable via reg 0x3F:
+    // write 0x3F = digit index (0-13), read 0x3F = ASCII digit.
+    // (0x7F is OFF-LIMITS: it is the XFER opcode in the SPI protocol.)
+    parameter [8*14-1:0] VERSION_STR = "00000000000000"
 )(
     input  wire clk,
     input  wire rst_n,
@@ -88,6 +92,7 @@ module bl616_spi_connector #(
     wire [6:0]  reg_idx;
     wire [7:0]  reg_wdata;
     reg  [7:0]  reg_rdata;
+    reg  [3:0]  ver_idx_r = 4'd0;   // reg 0x7F: version digit index
 
     wire        mem_wr_en;
     wire [2:0]  mem_space;
@@ -786,6 +791,7 @@ module bl616_spi_connector #(
             7'h3C: reg_rdata = {7'b0, a2bus_if.control_dma_n};
             7'h3D: reg_rdata = {7'b0, a2bus_if.control_nmi_n};
             7'h3E: reg_rdata = {7'b0, a2bus_if.control_reset_n};
+            7'h3F: reg_rdata = VERSION_STR[8*(13-ver_idx_r) +: 8];
 
             // Page 4: Volume 0
             7'h40: reg_rdata = {7'b0, volume_ready_r[0]};
@@ -1022,6 +1028,7 @@ module bl616_spi_connector #(
                     7'h2B: hdd_size_r[1][7:0]  <= reg_wdata;
                     7'h2C: hdd_size_r[1][15:8] <= reg_wdata;
                     7'h2D: hdd_ack_r[1]        <= 1'b1;
+                    7'h3F: ver_idx_r           <= reg_wdata[3:0];
                     7'h2E: a2_rst_release_r    <= reg_wdata[0];
 
                     // Page 6: Slot config & GPIO

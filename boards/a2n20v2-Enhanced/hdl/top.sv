@@ -567,7 +567,8 @@ module top #(
 
     bl616_spi_connector #(
         .USE_CRC(0),
-        .CLOCK_SPEED_HZ(CLOCK_SPEED_HZ)
+        .CLOCK_SPEED_HZ(CLOCK_SPEED_HZ),
+        .VERSION_STR(`BUILD_DATETIME)
     ) bl616_spi (
         .clk(clk_logic_w),
         .rst_n(device_reset_n_w),
