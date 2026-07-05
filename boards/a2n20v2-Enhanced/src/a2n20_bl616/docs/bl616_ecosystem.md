@@ -283,14 +283,35 @@ The main menu shows the running MCU and CORE build stamps for
 verification. The PC procedures below remain for first installs and
 recovery.
 
+### Fused vs unfused — verified facts (hardware-tested 2026-07-04)
+
+- `bl616_fpga_partner_20kNano.bin` is **AES-128-encrypted at rest**
+  (bootheader boot-cfg byte at offset 0x78 = `0x04`, encrypt_type=1). It
+  boots ONLY on fused boards, whose eFuse holds Sipeed's AES key. An
+  unfused board's BootROM **rejects it** and falls back to the Bouffalo
+  CDC recovery device — verified A/B/A on an unfused board (partner:
+  rejected; friend_20k: boots; partner again: rejected).
+- `friend_20k_bl616.bin` is plaintext (boot-cfg byte `0x00`) and boots on
+  unfused boards. Fused boards with encryption enforced cannot boot it.
+- The BootROM's `get_boot_info` reports the eFuse state (bytes 4/5 =
+  sign/encrypt; `00 00` = unfused). `a2n20-mcu-program` reads and prints
+  this in boot mode, and `--stage1` with no path selects the correct
+  image automatically. **Field reports should always include the
+  `eFuse state: … boot_info=…` line.**
+- Some early FUSED boards appear to have shipped with a Stage 1 that
+  lacks 0x40000 chain-load support (added by Sipeed around release
+  2025030317 after community feedback). On such boards a Stage-2-only
+  install does nothing; reflashing the partner image at 0x0 upgrades
+  Stage 1 and fixes it. This is why the fused procedure below flashes
+  Stage 1 unconditionally — it is a no-op on healthy boards and a repair
+  on stale ones.
+
 ### For End Users with Fused Boards (Stage 2 Deployment)
 
-Prerequisites: BouffaloLabDevCube v1.9.0 or BLFlashCommand CLI tool.
-
-1. Verify Stage 1 firmware version is 2025030317 or later:
-   - If unsure, download and flash `bl616_fpga_partner_20kNano.bin` at address `0x0` first
-2. Enter boot mode: hold UPDATE button, connect USB to Debug port, release
-3. Flash a2n20 firmware at address `0x40000`
+1. Enter boot mode: hold UPDATE button, connect USB to Debug port, release
+2. Restore/upgrade Stage 1: `a2n20-mcu-program --stage1` (auto-selects
+   `bl616_fpga_partner_20kNano.bin` for a fused board)
+3. Flash a2n20 firmware at address `0x40000` (`--stage2`)
 4. Power cycle
 5. Verify: connect to Debug USB normally (no UPDATE button) — should enumerate with a2n20 USB device when no JTAG host is active
 6. JTAG still works: openFPGALoader/OpenOCD will use Stage 1 when connected
@@ -298,8 +319,9 @@ Prerequisites: BouffaloLabDevCube v1.9.0 or BLFlashCommand CLI tool.
 ### For End Users with Unfused Boards
 
 1. Enter boot mode (UPDATE button)
-2. Flash `friend_20k` unencrypted Stage 1 at address `0x0`
-3. Flash a2n20 firmware at address `0x40000`
+2. Restore Stage 1: `a2n20-mcu-program --stage1` (auto-selects the
+   plaintext `friend_20k` — the encrypted partner image cannot boot here)
+3. Flash a2n20 firmware at address `0x40000` (`--stage2`)
 4. Power cycle
 5. Verify as above
 

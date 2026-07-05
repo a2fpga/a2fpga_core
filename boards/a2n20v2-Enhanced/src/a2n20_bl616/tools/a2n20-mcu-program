@@ -204,6 +204,97 @@ def detect_boot_port():
     sys.exit(1)
 
 
+def read_boot_info(port_dev):
+    """Read the BootROM's boot_info over the ISP serial protocol.
+
+    Only works while the board is in boot mode (Bouffalo CDC device).
+    Returns dict(raw=<hex str>, sign=<int>, encrypt=<int>) or None.
+
+    boot_info bytes 4/5 are the eFuse security state (bflb parse for
+    bl616): sign != 0 -> secure boot enforced; encrypt != 0 -> flash
+    image at 0x0 must be AES-encrypted with the key burned in eFuse.
+    Both zero -> UNFUSED. This is THE discriminator for which Stage 1
+    image a board can boot:
+      fused   -> Sipeed's bl616_fpga_partner_20kNano.bin (AES-encrypted)
+      unfused -> friend_20k_bl616.bin (plaintext; the BootROM of an
+                 unfused board REJECTS the encrypted partner image)
+    """
+    import serial as pyserial
+    import binascii
+    try:
+        sp = pyserial.Serial(port_dev, 500000, timeout=2)
+    except Exception:
+        return None
+    try:
+        for _ in range(2):
+            sp.reset_input_buffer()
+            sp.write(b"\x55" * 300)
+            time.sleep(0.2)
+            if sp.read(2) == b"OK":
+                break
+        else:
+            return None
+        sp.reset_input_buffer()
+        sp.write(bytes([0x10, 0x00, 0x00, 0x00]))
+        time.sleep(0.2)
+        if sp.read(2) != b"OK":
+            return None
+        ln = int.from_bytes(sp.read(2), "little")
+        payload = sp.read(ln)
+        if len(payload) < 6:
+            return None
+        return {
+            "raw": binascii.hexlify(payload).decode(),
+            "sign": payload[4],
+            "encrypt": payload[5],
+        }
+    except Exception:
+        return None
+    finally:
+        try:
+            sp.close()
+        except Exception:
+            pass
+
+
+def describe_efuse_state(info):
+    """One-line human classification of read_boot_info() output."""
+    if info is None:
+        return yellow("eFuse state: (could not read boot_info)")
+    if info["sign"] == 0 and info["encrypt"] == 0:
+        return (green("eFuse state: UNFUSED") +
+                f" (sign=0, encrypt=0)  boot_info={info['raw']}")
+    enc = {1: "AES-128", 2: "AES-256", 3: "AES-192"}.get(
+        info["encrypt"], f"type {info['encrypt']}")
+    return (green("eFuse state: FUSED") +
+            f" (sign={info['sign']}, encrypt={info['encrypt']}: {enc})"
+            f"  boot_info={info['raw']}")
+
+
+def recovery_dir():
+    """recovery/ directory holding the Stage 1 images, relative to this
+    script (tools/ -> ../recovery)."""
+    return os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                        os.pardir, "recovery")
+
+
+def pick_stage1_image(info):
+    """Choose the correct Stage 1 recovery image for the board's eFuse
+    state. Returns (path, reason) or (None, reason)."""
+    if info is None:
+        return None, ("cannot choose a Stage 1 image: boot_info read "
+                      "failed (need the board in boot mode)")
+    if info["encrypt"] != 0 or info["sign"] != 0:
+        return (os.path.join(recovery_dir(),
+                             "bl616_fpga_partner_20kNano.bin"),
+                "fused board -> Sipeed partner Stage 1 (AES-encrypted "
+                "factory image; also UPGRADES old Stage 1s that lack "
+                "0x40000 chain-load support)")
+    return (os.path.join(recovery_dir(), "friend_20k_bl616.bin"),
+            "unfused board -> friend_20k Stage 1 (plaintext; the "
+            "encrypted partner image CANNOT boot on unfused silicon)")
+
+
 def wait_for_board_state(target_states, timeout_secs=10):
     """Wait for the board to show a specific state after power cycle.
 
@@ -233,9 +324,20 @@ def print_board_info(state, ports):
         for p in ports:
             print(f"    {p.description}: {p.device}  [serial: {p.serial_number}]")
     elif state == STATE_CDC_DEMO:
-        print(yellow("  [DETECTED]") + " Bouffalo CDC DEMO (bricked / no valid firmware)")
+        print(yellow("  [DETECTED]") + " Bouffalo BootROM (boot/recovery mode)")
         for p in ports:
             print(f"    {p.device}")
+        print("    This means one of: UPDATE was held at power-on (boot mode),")
+        print("    nothing is flashed at 0x0, or the BootROM REJECTED the")
+        print("    Stage 1 image at 0x0 (e.g. the AES-encrypted Sipeed partner")
+        print("    image on an UNFUSED board, which cannot decrypt it).")
+        info = read_boot_info(ports[0].device)
+        print("    " + describe_efuse_state(info))
+        s1, why = pick_stage1_image(info)
+        if s1:
+            print(f"    Correct Stage 1 for this board: {os.path.basename(s1)}")
+            print(f"      ({why})")
+        print("    Include the eFuse/boot_info line above in any field report.")
     elif state == STATE_UNKNOWN_FTDI:
         print(yellow("  [DETECTED]") + " Unknown FT2232 device")
         for p in ports:
@@ -932,14 +1034,16 @@ def run_manual(args):
     stage1_path = args.stage1
     stage2_path = args.stage2
 
-    # Resolve default firmware path for flags without explicit PATH
-    if stage1_path == "__default__":
-        stage1_path = args.firmware
+    # Resolve default paths for flags without explicit PATH.
+    # --stage2 defaults to our firmware. --stage1 must NEVER default to our
+    # firmware (0x0 belongs to a Stage 1 loader); instead it auto-selects
+    # the correct recovery image for the board's eFuse state, probed from
+    # the BootROM once the board is in boot mode (resolved below).
     if stage2_path == "__default__":
         stage2_path = args.firmware
 
-    # Validate files exist
-    if stage1_path:
+    # Validate files exist (auto-selected Stage 1 is validated after probing)
+    if stage1_path and stage1_path != "__default__":
         check_file_exists(stage1_path, "Stage 1 image")
     if stage2_path:
         check_file_exists(stage2_path, "Stage 2 image")
@@ -949,6 +1053,22 @@ def run_manual(args):
     # Enter boot mode
     port = enter_boot_mode(args, step_num)
     step_num += 1
+
+    # Auto-select the Stage 1 image from the board's eFuse state
+    if stage1_path == "__default__":
+        print(bold(f"Step {step_num}: Probing eFuse state for Stage 1 selection"))
+        info = read_boot_info(port)
+        print("  " + describe_efuse_state(info))
+        stage1_path, why = pick_stage1_image(info)
+        if not stage1_path:
+            print(red("ERROR:") + f" {why}")
+            print("  Pass an explicit image: --stage1 PATH")
+            sys.exit(1)
+        print(f"  Selected: {os.path.basename(stage1_path)}")
+        print(f"    ({why})")
+        check_file_exists(stage1_path, "Stage 1 image")
+        print()
+        step_num += 1
 
     # Flash Stage 1
     if stage1_path:
@@ -981,7 +1101,9 @@ def main():
 modes:
   (default)        Auto-detect board state and flash accordingly (recommended)
   --detect         Detect board state and exit (no flashing)
-  --stage1 [PATH]  Flash image at 0x0 (default: firmware binary)
+  --stage1 [PATH]  Flash image at 0x0 (default: auto-select the correct
+                   recovery Stage 1 for the board's eFuse state — Sipeed
+                   partner image for fused boards, friend_20k for unfused)
   --stage2 [PATH]  Flash image at 0x40000 (default: firmware binary)
 
 auto-detect identifies the board by USB product string:
@@ -994,8 +1116,8 @@ examples:
   %(prog)s                              # auto-detect (recommended)
   %(prog)s --detect                     # just show board status
   %(prog)s --stage2                     # force firmware at 0x40000
-  %(prog)s --stage1                     # force firmware at 0x0
-  %(prog)s --stage1 recovery/friend_20k_bl616.bin  # flash friend_20k at 0x0
+  %(prog)s --stage1                     # restore the right Stage 1 (auto)
+  %(prog)s --stage1 recovery/friend_20k_bl616.bin  # flash a specific Stage 1
   %(prog)s --stage1 sipeed.bin --stage2 # flash custom Stage 1 + firmware
 """,
     )
@@ -1004,7 +1126,7 @@ examples:
                         help="Detect board state and exit (no flashing)")
     parser.add_argument("--stage1", nargs="?", const="__default__", default=None,
                         metavar="PATH",
-                        help="Flash image at 0x0 (default: firmware binary)")
+                        help="Flash image at 0x0 (default: auto-select recovery Stage 1 by eFuse state)")
     parser.add_argument("--stage2", nargs="?", const="__default__", default=None,
                         metavar="PATH",
                         help="Flash image at 0x40000 (default: firmware binary)")

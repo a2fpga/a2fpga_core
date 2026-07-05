@@ -144,6 +144,25 @@ Wait for both `[OK] Stage 2 flashed successfully` and
 read-back is your proof it worked — the host firmware is invisible over USB
 once running, so there's no other way to confirm from the PC side.
 
+**If the board does nothing after flashing Stage 2** (power-cycles back
+into the Bouffalo boot device, no FPGA activity): your board's first-stage
+bootloader at `0x0` is missing, damaged, or is an early Sipeed release
+that cannot chain-load firmware from `0x40000`. Fix it by restoring the
+correct Stage 1 — from boot mode:
+
+```
+./tools/a2n20-mcu-program --stage1 --port /dev/cu.usbmodemXXXX --non-interactive --verify-flash
+```
+
+With no path, `--stage1` reads the chip's eFuse security state from the
+BootROM and picks the right image automatically: **fused** boards (most
+retail Tang Nano 20Ks — the BootROM requires an AES-encrypted image) get
+Sipeed's `bl616_fpga_partner_20kNano.bin`, **unfused** boards (which
+*reject* that encrypted image) get the plaintext `friend_20k_bl616.bin`.
+Then flash Stage 2 as above. When reporting problems, include the
+`eFuse state: …  boot_info=…` line the tool prints — it tells us exactly
+what kind of board you have.
+
 **Step 3 — run it:** disconnect the board from the computer entirely and
 power it **in the Apple II with no PC attached**. The MCU firmware only
 starts when no computer is enumerating the BL616 (that's what lets step 1
