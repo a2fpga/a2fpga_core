@@ -115,6 +115,8 @@ static uint32_t g_hdd_blocks[NHDD];     /* size in 512-byte blocks       */
 static char     g_hdd_name[NHDD][SETTINGS_NAME_LEN + 4];
 static uint8_t  g_blockbuf[SECTOR_BYTES];
 
+static void fs_service(void);   /* async FS proxy step (defined below) */
+
 /* Menu directory-listing request (see disk_list_begin/poll in disk.h). */
 static volatile bool          g_list_req;
 static volatile bool          g_list_done;
@@ -878,6 +880,8 @@ void disk_poll(void)
     /* Async directory listing for the menu (FatFS is not re-entrant, so the
      * scan runs here, in the thread that owns the filesystem). Two passes so
      * directories sort before files. */
+    fs_service();
+
     if (g_list_req) {
         g_list_count = 0;
         for (int pass = 0; pass < 2; pass++) {
@@ -1032,6 +1036,160 @@ bool disk_backend_is_usb(void)
 bool disk_remount_pending(void)
 {
     return g_remount_req || g_remounting;
+}
+
+/* ---- async FS proxy (see disk.h) ---------------------------------------- */
+#define FS_IDLE 0
+#define FS_PEND 1
+#define FS_DONE 2
+static fs_req_t *volatile g_fs_req;
+static volatile int       g_fs_state = FS_IDLE;
+static volatile int       g_fs_fr;
+static FIL                g_fs_fil;
+static DIR                g_fs_dir;
+static bool               g_fs_fil_open, g_fs_dir_open;
+
+int disk_fs_request(fs_req_t *r)
+{
+    /* single submitter (ftpd thread); serialize defensively anyway */
+    while (g_fs_state != FS_IDLE)
+        usb_osal_msleep(1);
+    r->out = 0;
+    g_fs_req = r;
+    g_fs_state = FS_PEND;
+    for (int waited = 0; g_fs_state != FS_DONE; waited++) {
+        if (waited > 30000)            /* 30 s: something is very wrong */
+            return -1;
+        usb_osal_msleep(1);
+    }
+    g_fs_state = FS_IDLE;
+    return g_fs_fr;
+}
+
+bool disk_path_mounted(const char *path)
+{
+    char full[SETTINGS_NAME_LEN + 4];
+    snprintf(full, sizeof(full), "0:/%s", path);
+    for (int v = 0; v < NDRV; v++)
+        if (g_fmt[v] != FMT_NONE && !strcasecmp(full, g_imgname[v]))
+            return true;
+    for (int u = 0; u < NHDD; u++)
+        if (g_hdd_name[u][0] && !strcasecmp(full, g_hdd_name[u]))
+            return true;
+    return false;
+}
+
+/* Execute one bounded step of the pending FS job (disk thread only). READ
+ * and WRITE move at most one r->len chunk (<=4 KB from ftpd) per poll so
+ * track serving keeps its cadence; everything else completes in one step. */
+static void fs_service(void)
+{
+    fs_req_t *r = g_fs_req;
+    if (g_fs_state != FS_PEND || !r)
+        return;
+    char full[SETTINGS_NAME_LEN + 4];
+    FRESULT fr = FR_OK;
+    UINT n = 0;
+
+    switch (r->op) {
+    case FSOP_OPEN_R:
+    case FSOP_OPEN_W:
+        if (g_fs_fil_open) {
+            f_close(&g_fs_fil);
+            g_fs_fil_open = false;
+        }
+        snprintf(full, sizeof(full), "0:/%s", r->path);
+        fr = f_open(&g_fs_fil, full,
+                    r->op == FSOP_OPEN_R ? FA_READ
+                                         : FA_WRITE | FA_CREATE_ALWAYS);
+        g_fs_fil_open = (fr == FR_OK);
+        if (fr == FR_OK)
+            r->size = (uint32_t)f_size(&g_fs_fil);
+        break;
+    case FSOP_READ:
+        fr = g_fs_fil_open ? f_read(&g_fs_fil, r->buf, r->len, &n)
+                           : FR_NOT_ENABLED;
+        r->out = n;
+        break;
+    case FSOP_WRITE:
+        fr = g_fs_fil_open ? f_write(&g_fs_fil, r->buf, r->len, &n)
+                           : FR_NOT_ENABLED;
+        r->out = n;
+        break;
+    case FSOP_CLOSE:
+        if (g_fs_fil_open) {
+            fr = f_close(&g_fs_fil);
+            g_fs_fil_open = false;
+        }
+        break;
+    case FSOP_DELETE:
+    case FSOP_MKDIR:
+    case FSOP_RMDIR:
+        snprintf(full, sizeof(full), "0:/%s", r->path);
+        fr = r->op == FSOP_DELETE ? f_unlink(full)
+           : r->op == FSOP_MKDIR  ? f_mkdir(full)
+                                  : f_unlink(full);   /* rmdir==unlink */
+        break;
+    case FSOP_RENAME: {
+        char full2[SETTINGS_NAME_LEN + 4];
+        snprintf(full, sizeof(full), "0:/%s", r->path);
+        snprintf(full2, sizeof(full2), "0:/%s", r->path2);
+        fr = f_rename(full, full2);
+        break;
+    }
+    case FSOP_STAT: {
+        FILINFO fno;
+        snprintf(full, sizeof(full), "0:/%s", r->path);
+        if (!r->path[0]) {             /* volume root */
+            r->size = 0;
+            r->attr = AM_DIR;
+            fr = FR_OK;
+            break;
+        }
+        fr = f_stat(full, &fno);
+        if (fr == FR_OK) {
+            r->size  = (uint32_t)fno.fsize;
+            r->attr  = fno.fattrib;
+            r->fdate = fno.fdate;
+            r->ftime = fno.ftime;
+        }
+        break;
+    }
+    case FSOP_LIST_OPEN:
+        if (g_fs_dir_open) {
+            f_closedir(&g_fs_dir);
+            g_fs_dir_open = false;
+        }
+        snprintf(full, sizeof(full), "0:/%s", r->path);
+        fr = f_opendir(&g_fs_dir, full);
+        g_fs_dir_open = (fr == FR_OK);
+        break;
+    case FSOP_LIST_NEXT: {
+        FILINFO fno;
+        r->name[0] = 0;
+        fr = g_fs_dir_open ? f_readdir(&g_fs_dir, &fno) : FR_NOT_ENABLED;
+        if (fr == FR_OK && fno.fname[0]) {
+            snprintf(r->name, sizeof(r->name), "%s", fno.fname);
+            r->size  = (uint32_t)fno.fsize;
+            r->attr  = fno.fattrib;
+            r->fdate = fno.fdate;
+            r->ftime = fno.ftime;
+        }
+        break;
+    }
+    case FSOP_LIST_CLOSE:
+        if (g_fs_dir_open) {
+            f_closedir(&g_fs_dir);
+            g_fs_dir_open = false;
+        }
+        break;
+    default:
+        fr = FR_INVALID_PARAMETER;
+        break;
+    }
+
+    g_fs_fr = fr;
+    g_fs_state = FS_DONE;
 }
 
 void disk_list_begin(const char *path, const char *const *exts)

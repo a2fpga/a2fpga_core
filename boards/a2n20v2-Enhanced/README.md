@@ -331,6 +331,18 @@ This works with no gamepad attached, and it is the best way to include
 diagnostics in a problem report: copy the console text instead of
 photographing the screen.
 
+## Copying disk images over the network (FTP)
+
+With the USB-Ethernet adapter connected, the board serves the storage
+volume over FTP (port 21) — no more shuttling the stick between machines.
+Point Cyberduck, FileZilla or `lftp` at `ftp://<board-ip>` (the IP is on
+the boot console and the NETWORK menu screen): any username/password,
+passive mode (every client's default). Upload, download, rename, delete
+and manage folders with your normal file manager; disk serving to the
+Apple II keeps running throughout, and files that are currently mounted
+as disk images are protected from overwrite/delete (eject them in the
+menu first). Plaintext FTP: fine on your LAN, don't port-forward it.
+
 ## Modem on the Super Serial Card (dial the Internet)
 
 The virtual Super Serial Card (slot 2 by default) is wired to a

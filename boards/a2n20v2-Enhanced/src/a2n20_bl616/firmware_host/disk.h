@@ -61,4 +61,46 @@ typedef struct {
 void disk_list_begin(const char *path, const char *const *exts);
 int  disk_list_poll(disk_list_ent_t *ents, int max);
 
+/* ---- async FS proxy for network services (ftpd) --------------------------
+ * FatFS is single-threaded (FF_FS_REENTRANT=0, disk thread owns it). Network
+ * services submit one job at a time; the disk thread executes it in bounded
+ * steps between image-serving polls. disk_fs_request() blocks the CALLING
+ * thread until done and returns the FRESULT (int). Paths are relative to
+ * the volume root, no "0:/" prefix. */
+typedef enum {
+    FSOP_NONE = 0,
+    FSOP_OPEN_R,      /* path                       */
+    FSOP_OPEN_W,      /* path (create/truncate)     */
+    FSOP_READ,        /* buf,len -> out             */
+    FSOP_WRITE,       /* buf,len -> out             */
+    FSOP_CLOSE,
+    FSOP_DELETE,      /* path                       */
+    FSOP_RENAME,      /* path -> path2              */
+    FSOP_MKDIR,       /* path                       */
+    FSOP_RMDIR,       /* path                       */
+    FSOP_STAT,        /* path -> size,attr          */
+    FSOP_LIST_OPEN,   /* path                       */
+    FSOP_LIST_NEXT,   /* -> name,size,attr,date,time; name[0]==0 at end */
+    FSOP_LIST_CLOSE,
+} fs_op_t;
+
+typedef struct {
+    fs_op_t     op;
+    const char *path;
+    const char *path2;
+    void       *buf;
+    uint32_t    len;
+    uint32_t    out;          /* bytes transferred          */
+    uint32_t    size;         /* STAT/LIST size             */
+    uint8_t     attr;         /* FatFS AM_* bits            */
+    uint16_t    fdate, ftime; /* FatFS packed date/time     */
+    char        name[64];     /* LIST_NEXT entry name       */
+} fs_req_t;
+
+int  disk_fs_request(fs_req_t *r);          /* returns FRESULT */
+
+/* True if the path (volume-root relative) is one of the currently mounted
+ * disk/HDD images — network services must not overwrite those. */
+bool disk_path_mounted(const char *path);
+
 #endif

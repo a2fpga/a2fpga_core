@@ -39,6 +39,7 @@ target_sources(app PRIVATE
     fpgaupdate.c
     telnetd.c
     sscbridge.c
+    ftpd.c
     ../firmware/gcr_dsk.c
     ../firmware/fpga_spi.c
     ../firmware/fpga_screen.c

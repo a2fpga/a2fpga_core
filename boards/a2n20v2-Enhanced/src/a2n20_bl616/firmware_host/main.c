@@ -42,7 +42,8 @@
 #include "settings.h"       /* persisted preferences (flash) */
 #include "menu.h"
 #include "telnetd.h"
-#include "sscbridge.h"           /* gamepad menu system */
+#include "sscbridge.h"
+#include "ftpd.h"           /* gamepad menu system */
 
 struct netif;
 static void net_apply_static(struct netif *nif);   /* defined below */
@@ -1217,6 +1218,9 @@ int main(void)
 
     /* Super Serial Card bridge: 6551 wire <-> Hayes modem / TCP. */
     sscbridge_init();
+
+    /* FTP server for the storage volume (port 21). */
+    ftpd_init();
 
     dbg_stage(STG_SCHED);
     dbg_set(F_THREAD_UP);
