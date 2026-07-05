@@ -51,21 +51,28 @@ The current a2fpga design uses a PicoRV32 soft CPU inside the FPGA for SD card a
 | FPGA cost | ~2000 LUTs + 9 BRAM blocks | 0 (external MCU) |
 | Filesystem | Minimal FAT32 in 14 KB | Full FatFS with large buffers |
 
-### Source Layout (Planned)
+### Source Layout (as shipped)
+
+Two builds share `firmware/` sources:
 
 ```
-firmware/
-├── CMakeLists.txt
-├── Makefile
-├── flash_prog_cfg.ini          # Two-stage flash layout (Stage 2 at 0x40000)
-├── main.c                      # FreeRTOS task init, main loop
-├── mcu_protocol.c              # UART command/response protocol
-├── mcu_protocol.h              # Protocol constants, message format
-├── disk_service.c              # FAT32 disk image access, sector service
-├── disk_service.h
-├── sd_card.c                   # SD card init, FatFS mount
-├── sd_card.h
-└── usb_device.c                # USB device descriptors (future: USB host)
+firmware/            # device-mode build (FT2232 emulation: PC JTAG/UART bridge)
+│                    # + sources shared with the host build:
+├── fpga_spi.c       #   SPI protocol to the FPGA (regs + XFER)
+├── fpga_screen.c    #   40x24 text screen writer
+├── gcr_dsk.c        #   .dsk/.do/.po <-> 6-and-2 GCR nibble codec
+├── ff.c, sdmm.c     #   FatFS + SD backend
+firmware_host/       # USB-host build (the one users run)
+├── main.c           # FreeRTOS init, xinput/net/disk threads, overlay
+├── disk.c           # disk-image serving, remount, USB supervisor
+├── usbh_xinput.c    # gamepad host driver
+├── w5100.c          # Uthernet II (W5100) MACRAW bridge
+├── menu.c           # gamepad menu system (all screens)
+├── settings.c       # persisted settings blob (last 4 KB of flash)
+├── fwupdate.c       # MCU firmware self-update + warm restart
+├── fpga_jtag.c      # bit-banged JTAG / SPI-over-JTAG to the W25Q64
+├── fpgaupdate.c     # FPGA core self-update from the stick
+└── osd_console.c    # boot/status console on the FPGA text screen
 ```
 
 ### Communication Protocol

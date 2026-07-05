@@ -260,6 +260,29 @@ Sipeed's troubleshooting confirms: "abnormal efuse content on the BL616" indicat
 
 ## Field Update Procedures
 
+### No-PC updates from the USB stick (preferred once the firmware is installed)
+
+Boards already running the host firmware update themselves through the
+on-screen menu — this is the normal path for end users:
+
+- **MCU firmware**: copy the new `a2n20_bl616_host_bl616.bin` to the
+  stick, menu → FIRMWARE UPDATE. The image is staged to flash 0x200000
+  and CRC-verified before the app region is touched; the install
+  (~1 min, screen frozen) ends with an automatic warm restart. A power
+  loss during staging is harmless; during install, the UPDATE-button
+  boot mode still works for recovery.
+- **FPGA core**: copy the build's `a2n20v2_enhanced.bin` (the raw Gowin
+  flash image from `impl/pnr/`) to the stick, menu → FPGA UPDATE. The
+  file is validated (Gowin sync + device IDCODE) before anything is
+  erased; the write (~1-2 min, screen dark) is verified page by page,
+  then the board reloads the new core and warm-restarts the MCU. An
+  interrupted write leaves the FPGA unconfigured but the MCU alive —
+  recover with a PC FPGA flash.
+
+The main menu shows the running MCU and CORE build stamps for
+verification. The PC procedures below remain for first installs and
+recovery.
+
 ### For End Users with Fused Boards (Stage 2 Deployment)
 
 Prerequisites: BouffaloLabDevCube v1.9.0 or BLFlashCommand CLI tool.

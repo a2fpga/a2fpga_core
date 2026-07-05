@@ -13,7 +13,7 @@ build outputs in `impl/pnr/`, and a `TODO.md` with current status and priorities
 | ---------------------------------------------------------- | ------------------------------------- | ------------- | ----- | ------- | ----------------------- | ------------------------------------------------------ |
 | [`a2n20v2`](../boards/a2n20v2/README.md)                   | Tang Nano 20K / GW2AR-LV18QN88C8/I7   | BSRAM         | None  | None    | `a2n20v2.gprj`          | **Stable production** (recommended; supports IIgs)     |
 | [`a2n20v2-GS`](../boards/a2n20v2-GS/README.md)             | Tang Nano 20K / GW2AR-LV18QN88C8/I7   | BSRAM + SDRAM | SDRAM | SDRAM   | `a2n20v2_gs.gprj`       | Experimental — IIgs/Ensoniq audio focus                |
-| [`a2n20v2-Enhanced`](../boards/a2n20v2-Enhanced/README.md) | Tang Nano 20K / GW2AR-LV18QN88C8/I7 | SDRAM | SDRAM | SDRAM | `a2n20v2_enhanced.gprj` | Experimental — BL616 MCU coprocessor for USB & SD Card |
+| [`a2n20v2-Enhanced`](../boards/a2n20v2-Enhanced/README.md) | Tang Nano 20K / GW2AR-LV18QN88C8/I7 | SDRAM | SDRAM | SDRAM | `a2n20v2_enhanced.gprj` | Beta — BL616 MCU coprocessor: USB host (gamepad/storage/Ethernet), disk-image serving, on-screen menu, self-update of both MCU firmware and FPGA core from a USB stick |
 | [`a2mega`](../boards/a2mega/README.md) | Tang Mega 60K / GW5AT-LV60PG484AC1/I0 | DDR3 | DDR3 | BSRAM | `a2mega.gprj` | WIP, active development |
 | [`a2p25`](../boards/a2p25/README.md) | Tang Primer 25K / GW5A-LV25MG121NC1/I0 | BSRAM | None | ESP32 | `a2p25.gprj` | WIP, no off-chip memory, no FB possible |
 | [`a2n9`](../boards/a2n9/README.md) | Tang Nano 9K / GW1NR-LV9QN88PC6/I5 | BSRAM | PSRAM | None | `a2n9.gprj` | Deprecated — limited resources, no IIgs |

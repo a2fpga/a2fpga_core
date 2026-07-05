@@ -83,6 +83,12 @@ There are **two things to flash**, and they are flashed differently:
 Flash the FPGA first, then the MCU. Both are done over the same Debug
 USB-C port.
 
+> The PC procedures below are only needed for the FIRST flash (or for
+> recovery). Once the board runs this firmware, **both** the MCU firmware
+> and the FPGA core can be updated from the USB stick through the
+> on-screen menu — no PC, no cables (see "Updating … from the USB stick"
+> below).
+
 ### 1. Flash the FPGA bitstream
 
 Connect the Debug port to your computer and power the board normally (no
@@ -263,7 +269,18 @@ Menu screens:
 - **NETWORK** — DHCP on/off; with DHCP off, edit a static IP, netmask and
   gateway with the pad. Live link status, IP, and MAC.
 - **USB DEVICES** — the USB device tree (hubs, VID:PID, driver, speed).
+- **FIRMWARE UPDATE** — install a new MCU firmware `.bin` from the stick
+  (staged and verified in the background, then installed; the board
+  restarts itself). Shows the installed MCU build stamp.
+- **FPGA UPDATE** — install a new FPGA core `.bin` from the stick (the
+  screen goes dark for the 1-2 minute write, then the board restarts
+  itself into the new core). Shows the running core's build stamp.
+- **RESTART MCU** — warm-restart the MCU firmware (remounts storage,
+  re-enumerates USB, resets the Apple II).
 - **RESET SETTINGS TO DEFAULTS** — clears all saved preferences.
+
+The bottom of the main menu shows the **MCU** and **CORE** build stamps —
+after any update, check them to confirm what is actually running.
 
 All settings persist in the BL616's flash (not on the stick). The main
 menu's diagnostic line (`FLASH 4M @3FF000 LD:OK SV:OK`) shows the
