@@ -37,6 +37,15 @@ module top #(
     parameter bit SUPERSERIAL_IRQ_ENABLE = 1,
     parameter bit [7:0] SUPERSERIAL_ID = 3,
 
+    parameter bit DISK_II_ENABLE = 1,
+    parameter bit [7:0] DISK_II_ID = 4,
+
+    parameter bit UTHERNET2_ENABLE = 1,
+    parameter bit [7:0] UTHERNET2_ID = 5,
+
+    parameter bit HDD_ENABLE = 1,
+    parameter bit [7:0] HDD_ID = 6,
+
     parameter bit ENSONIQ_ENABLE = 1,
     parameter bit ENSONIQ_MONO_MIX = 0, // If true, mono mix is used instead of stereo
 
@@ -227,6 +236,10 @@ module top #(
 
     a2bus_if a2bus_if ();
 
+    // Apple II bus control (reset hold/release) — driven by the ESP32 OSPI
+    // connector so the Apple II waits in RESET until disk mounts are ready.
+    a2bus_control_if a2bus_control_if();
+
     wire sleep_w;
 
     wire irq_n_w;
@@ -284,6 +297,8 @@ module top #(
         .a2_dma_out_n(a2_dma_out_n),
         .a2_dma_in_n(a2_dma_in_n),
         .irq_n_i(1'b1),
+
+        .reset_hold_i(a2bus_control_if.reset_hold),
 
         .sleep_o(sleep_w)
     );
@@ -396,10 +411,9 @@ module top #(
         .slot_if(slot_if)
     );
 
-    assign slotmaker_config_if.slot = 3'b0;
-    assign slotmaker_config_if.wr = 1'b0;
-    assign slotmaker_config_if.card_i = 8'b0;
-    assign slotmaker_config_if.reconfig = 1'b0;
+    // Slot configuration is driven by the ESP32 OSPI connector (regs
+    // 0x30-0x33); the slotmaker keeps its slots.hex defaults until the ESP32
+    // reconfigures it.
 
     // Video
 
@@ -761,18 +775,117 @@ module top #(
         .uart_tx_o(ssc_uart_tx)
     );
 
+    // Disk II controller (track-on-demand). drive_ii drives the drive side of
+    // volumes[] (lba/blk_cnt/rd) on a seek; the ESP32 (esp32_ospi_connector
+    // volume regs 0x40-0x5F) streams the requested track into the SPACE 4
+    // BSRAM window via XFER, then pulses ack.
+
+    drive_volume_if volumes[2]();
+
+    mem_port_if #(
+        .PORT_ADDR_WIDTH(21),
+        .DATA_WIDTH(32),
+        .DQM_WIDTH(4),
+        .PORT_OUTPUT_WIDTH(32)
+    ) disk_ram_if ();
+
+    wire [7:0] diskii_d_w;
+    wire diskii_rd;
+
+    DiskII #(
+        .ENABLE(DISK_II_ENABLE),
+        .ID(DISK_II_ID)
+    ) diskii (
+        .a2bus_if(a2bus_if),
+        .slot_if(slot_if),
+        .data_o(diskii_d_w),
+        .rd_en_o(diskii_rd),
+        .ram_disk_if(disk_ram_if),
+        .volumes(volumes)
+    );
+
+    // ProDOS hard disk (block device). The card requests one 512-byte block
+    // at a time over hdd_volumes[] (compact regs 0x26-0x2D); the ESP32 serves
+    // it from a .hdv/.po image into the SPACE 5 BSRAM window via XFER, then
+    // pulses ack and the card streams it to the 6502 through its sector
+    // buffer.
+
+    drive_volume_if hdd_volumes[2]();
+
+    mem_port_if #(
+        .PORT_ADDR_WIDTH(21),
+        .DATA_WIDTH(32),
+        .DQM_WIDTH(4),
+        .PORT_OUTPUT_WIDTH(32)
+    ) hdd_ram_if ();
+
+    wire [7:0] hdd_d_w;
+    wire hdd_rd;
+
+    HDD #(
+        .ENABLE(HDD_ENABLE),
+        .ID(HDD_ID)
+    ) hdd (
+        .a2bus_if(a2bus_if),
+        .slot_if(slot_if),
+        .data_o(hdd_d_w),
+        .rd_en_o(hdd_rd),
+        .ram_hdd_if(hdd_ram_if),
+        .volumes(hdd_volumes)
+    );
+
+    // Uthernet II (W5100) Ethernet card. The ESP32 services the MACRAW
+    // bridge over XFER SPACE 3 + doorbell reg 0x7A, forwarding frames to
+    // WiFi.
+
+    wire [7:0] u2_d_w;
+    wire u2_rd;
+    wire u2_irq_n;
+
+    wire        u2_host_wr_w;
+    wire [15:0] u2_host_addr_w;
+    wire [7:0]  u2_host_wdata_w;
+    wire [7:0]  u2_host_rdata_w;
+    wire [3:0]  u2_cmd_pending_w;
+    wire [3:0]  u2_cmd_clr_w;
+
+    Uthernet2 #(
+        .ENABLE(UTHERNET2_ENABLE),
+        .ID(UTHERNET2_ID)
+    ) uthernet2 (
+        .a2bus_if(a2bus_if),
+        .slot_if(slot_if),
+
+        .data_o(u2_d_w),
+        .rd_en_o(u2_rd),
+        .irq_n_o(u2_irq_n),
+
+        .w5100_host_wr(u2_host_wr_w),
+        .w5100_host_addr(u2_host_addr_w),
+        .w5100_host_wdata(u2_host_wdata_w),
+        .w5100_host_rdata(u2_host_rdata_w),
+        .cmd_pending_o(u2_cmd_pending_w),
+        .cmd_pending_clr(u2_cmd_clr_w),
+        .dbg_portb_wr_count(),
+        .dbg_portb_last_addr(),
+        .dbg_portb_last_wdata()
+    );
+
     // Data output
 
-    assign data_out_en_w = ssp_rd || mb_rd || ssc_rd;
+    assign data_out_en_w = ssp_rd || mb_rd || ssc_rd || u2_rd || diskii_rd || hdd_rd;
 
     assign data_out_w = ssc_rd ? ssc_d_w :
         ssp_rd ? ssp_d_w :
         mb_rd ? mb_d_w :
+        u2_rd ? u2_d_w :
+        diskii_rd ? diskii_d_w :
+        hdd_rd ? hdd_d_w :
         a2bus_if.data;
 
     // Interrupts
 
-    assign irq_n_w = mb_irq_n && vdp_irq_n && ssc_irq_n;
+    assign irq_n_w = mb_irq_n && vdp_irq_n && ssc_irq_n && u2_irq_n;
 
     // Audio
 
@@ -1294,6 +1407,109 @@ module top #(
         .rom_en       (usb_rom_en_w)
     );
 
+    // -----------------------------------------------------------------
+    // HID report capture (clk_usb) + CDC into clk_logic for the ESP32
+    // readback registers (0x16-0x1B). Values are latched per full report
+    // and quasi-static between reports, so double-flop synchronizers are
+    // sufficient.
+    // -----------------------------------------------------------------
+    reg [1:0] hid_typ_usb_r;
+    reg [3:0] hid_report_cnt_usb_r;
+    reg [7:0] pad_btns0_usb_r;   // {Y,X,B,A,R,L,D,U}
+    reg [7:0] pad_btns1_usb_r;   // {extra[3:0],2'b0,START,SELECT}
+    reg [7:0] key_mod_usb_r;
+    reg [7:0] key0_usb_r, key1_usb_r;
+
+    always @(posedge clk_usb_w) begin
+        if (usb_reset_w) begin
+            hid_typ_usb_r <= 2'd0;
+            hid_report_cnt_usb_r <= 4'd0;
+            pad_btns0_usb_r <= 8'd0;
+            pad_btns1_usb_r <= 8'd0;
+            key_mod_usb_r <= 8'd0;
+            key0_usb_r <= 8'd0;
+            key1_usb_r <= 8'd0;
+        end else if (usb_report_w) begin
+            hid_typ_usb_r <= usb_typ_w;
+            hid_report_cnt_usb_r <= hid_report_cnt_usb_r + 4'd1;
+            if (usb_typ_w == 2'd3) begin
+                pad_btns0_usb_r <= {usb_game_y_w, usb_game_x_w, usb_game_b_w, usb_game_a_w,
+                                    usb_game_r_w, usb_game_l_w, usb_game_d_w, usb_game_u_w};
+                pad_btns1_usb_r <= {usb_game_extra_w, 2'b00, usb_game_sta_w, usb_game_sel_w};
+            end
+            if (usb_typ_w == 2'd1) begin
+                key_mod_usb_r <= usb_key_modifiers_w;
+                key0_usb_r <= usb_key_w[0];
+                key1_usb_r <= usb_key_w[1];
+            end
+        end
+    end
+
+    reg [1:0] hid_typ_sync0, hid_typ_sync1;
+    reg       hid_connerr_sync0, hid_connerr_sync1;
+    reg [3:0] hid_cnt_sync0, hid_cnt_sync1;
+    reg [7:0] pad_btns0_sync0, pad_btns0_sync1;
+    reg [7:0] pad_btns1_sync0, pad_btns1_sync1;
+    reg [7:0] key_mod_sync0, key_mod_sync1;
+    reg [7:0] key0_sync0, key0_sync1;
+    reg [7:0] key1_sync0, key1_sync1;
+
+    always @(posedge clk_logic_w) begin
+        hid_typ_sync0 <= hid_typ_usb_r;         hid_typ_sync1 <= hid_typ_sync0;
+        hid_connerr_sync0 <= usb_connerr_w;     hid_connerr_sync1 <= hid_connerr_sync0;
+        hid_cnt_sync0 <= hid_report_cnt_usb_r;  hid_cnt_sync1 <= hid_cnt_sync0;
+        pad_btns0_sync0 <= pad_btns0_usb_r;     pad_btns0_sync1 <= pad_btns0_sync0;
+        pad_btns1_sync0 <= pad_btns1_usb_r;     pad_btns1_sync1 <= pad_btns1_sync0;
+        key_mod_sync0 <= key_mod_usb_r;         key_mod_sync1 <= key_mod_sync0;
+        key0_sync0 <= key0_usb_r;               key0_sync1 <= key0_sync0;
+        key1_sync0 <= key1_usb_r;               key1_sync1 <= key1_sync0;
+    end
+
+    // =========================================================================
+    // OSD text overlay — ESP32 menu/console text page (clk_pixel domain)
+    // =========================================================================
+    // Painted over the framebuffer output (opaque when enabled), upstream of
+    // the DebugOverlay. The text page BSRAM lives in the ESP32 OSPI connector
+    // (XFER SPACE 1); its port B is clocked here in clk_pixel.
+
+    wire [10:0] osd_vram_addr_w;
+    wire [7:0]  osd_vram_data_w;
+    wire [23:0] osd_rgb_w;
+
+    // ESP32-controlled video interface (declared here because the OSD enable
+    // is consumed in this section; driven by esp32_ospi_connector below)
+    video_control_if esp_video_control_if();
+
+    // OSD enable: quasi-static, CDC from clk_logic to clk_pixel
+    reg osd_en_sync0, osd_en_sync1;
+    always @(posedge clk_pixel_w) begin
+        osd_en_sync0 <= esp_video_control_if.enable;
+        osd_en_sync1 <= osd_en_sync0;
+    end
+
+    osd_text_overlay #(
+        .X_OFFSET(80),
+        .Y_OFFSET(48)
+    ) osd_overlay (
+        .clk_i      (clk_pixel_w),
+        .reset_n    (device_reset_n_w),
+        .enable_i   (osd_en_sync1),
+
+        .screen_x_i (hdmi_cx_w),
+        .screen_y_i (hdmi_cy_w),
+
+        .vram_addr_o(osd_vram_addr_w),
+        .vram_data_i(osd_vram_data_w),
+
+        .r_i        (fb_rgb_w[23:16]),
+        .g_i        (fb_rgb_w[15:8]),
+        .b_i        (fb_rgb_w[7:0]),
+
+        .r_o        (osd_rgb_w[23:16]),
+        .g_o        (osd_rgb_w[15:8]),
+        .b_o        (osd_rgb_w[7:0])
+    );
+
     // =========================================================================
     // Debug Overlay — runs in clk_pixel (27 MHz) domain
     // =========================================================================
@@ -1372,9 +1588,9 @@ module top #(
         .screen_x_i     (hdmi_cx_w),
         .screen_y_i     (hdmi_cy_w),
 
-        .r_i            (fb_rgb_w[23:16]),
-        .g_i            (fb_rgb_w[15:8]),
-        .b_i            (fb_rgb_w[7:0]),
+        .r_i            (osd_rgb_w[23:16]),
+        .g_i            (osd_rgb_w[15:8]),
+        .b_i            (osd_rgb_w[7:0]),
 
         .r_o            (overlay_rgb_w[23:16]),
         .g_o            (overlay_rgb_w[15:8]),
@@ -1410,17 +1626,17 @@ module top #(
         .o_negedge()
     );
 
-    // ESP32 control interfaces
-    slotmaker_config_if esp_slotmaker_config_if();
+    // ESP32 control interfaces. The F18A GPU interface is a placeholder (the
+    // SuperSprite has its own tied-off instance); esp_video_control_if.enable
+    // gates the OSD text overlay.
     f18a_gpu_if esp_f18a_gpu_if();
-    video_control_if esp_video_control_if();
-    drive_volume_if esp_volumes[2]();
 
     // Octal SPI connector instance
     esp32_ospi_connector #(
         .USE_SYNC(1),
         .USE_CRC(0),
-        .IDLE_TO_CYC(5_400_000)  // ~100ms at 54MHz
+        .IDLE_TO_CYC(5_400_000),  // ~100ms at 54MHz
+        .CLOCK_SPEED_HZ(CLOCK_SPEED_HZ)
     ) esp32_ospi (
         .clk(clk_logic_w),
         .rst_n(device_reset_n_w),
@@ -1428,18 +1644,43 @@ module top #(
         .data_i(esp_data_i),
         .data_o(esp_data_o),
         .data_oe(esp_data_oe),
-        .slotmaker_config_if(esp_slotmaker_config_if),
+
+        .slotmaker_config_if(slotmaker_config_if),
         .f18a_gpu_if(esp_f18a_gpu_if),
         .video_control_if(esp_video_control_if),
-        .volumes(esp_volumes)
-    );
+        .volumes(volumes),
+        .hdd_volumes(hdd_volumes),
+        .a2bus_control_if(a2bus_control_if),
 
-    // Note: These interfaces are currently independent of the main system.
-    // Future integration:
-    // - esp_slotmaker_config_if can be muxed with slotmaker_config_if
-    // - esp_f18a_gpu_if can replace f18a_gpu_if when ESP32 controls VDP
-    // - esp_video_control_if can replace video_control_if for OSD
-    // - esp_volumes can be connected to disk drive infrastructure
+        .disk_ram_if(disk_ram_if),
+        .hdd_ram_if(hdd_ram_if),
+
+        .ddr3_ready_i(init_calib_complete_w),
+        .a2_reset_n_i(a2_reset_n),
+
+        .pad_typ_i(hid_typ_sync1),
+        .pad_connerr_i(hid_connerr_sync1),
+        .pad_report_cnt_i(hid_cnt_sync1),
+        .pad_btns0_i(pad_btns0_sync1),
+        .pad_btns1_i(pad_btns1_sync1),
+        .key_mod_i(key_mod_sync1),
+        .key0_i(key0_sync1),
+        .key1_i(key1_sync1),
+
+        .w5100_host_wr(u2_host_wr_w),
+        .w5100_host_addr(u2_host_addr_w),
+        .w5100_host_wdata(u2_host_wdata_w),
+        .w5100_host_rdata(u2_host_rdata_w),
+        .w5100_cmd_pending(u2_cmd_pending_w),
+        .w5100_cmd_clr(u2_cmd_clr_w),
+
+        .scratch_o(),
+        .mcu_ready_o(),
+
+        .osd_clk_i(clk_pixel_w),
+        .osd_addr_i(osd_vram_addr_w),
+        .osd_data_o(osd_vram_data_w)
+    );
 
     /*
     // Data bus IOBUF instantiation

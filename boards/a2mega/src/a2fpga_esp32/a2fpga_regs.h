@@ -132,13 +132,15 @@
 // ---------------------------------------------------------------------------
 // XFER memory spaces (reg 0x7F portal)
 // ---------------------------------------------------------------------------
-#define A2SPACE_TEST        0   // 2KB test memory
+#define A2SPACE_TEST        0   // 64B test memory
 #define A2SPACE_OSD         1   // 2KB OSD text page, 40x24 screen codes at y*40+x
                                 // (write-only from the ESP32 side)
-#define A2SPACE_VRAM1       2   // 2KB reserved
+#define A2SPACE_VRAM1       2   // unimplemented (reads return 0xFF)
 #define A2SPACE_W5100       3   // 32KB W5100 address space (0x0000-0x7FFF)
 #define A2SPACE_DISK        4   // 16KB: 2 x 8KB Disk II track windows
-#define A2SPACE_HDD         5   // 1KB: 2 x 512B HDD block buffers
+#define A2SPACE_HDD         5   // 1KB: 2 x 512B HDD block buffers. Writes must
+                                // be sequential and 4-byte aligned (the FPGA
+                                // packs bytes into 32-bit words)
 
 // SPACE 4/5 window geometry
 #define A2DISK_WINDOW(d)    ((d) ? 0x2000u : 0x0000u)  // 8KB per drive

@@ -22,6 +22,7 @@ module esp32_ospi_proto_proc #(
 
     // Register file interface
     output reg         reg_wr_req,
+    output reg         reg_rd_req,
     output reg  [6:0]  reg_idx,
     output reg  [7:0]  reg_wdata,
     input  wire [7:0]  reg_rdata,
@@ -202,6 +203,7 @@ module esp32_ospi_proto_proc #(
             rd_buf_valid <= 0;
             load_reg_read_next <= 0;
             reg_wr_req <= 0;
+            reg_rd_req <= 0;
             reg_idx <= 0;
             reg_wdata <= 0;
             mem_wr_en <= 0;
@@ -214,6 +216,7 @@ module esp32_ospi_proto_proc #(
         end else begin
             // One-shots
             reg_wr_req <= 0;
+            reg_rd_req <= 0;
             mem_wr_en <= 0;
             mem_rd_req <= 0;
             status_align <= 0;
@@ -269,6 +272,7 @@ module esp32_ospi_proto_proc #(
                             if (rx_byte[7]) begin  // READ
                                 reg_read_value <= reg_rdata;
                                 load_reg_read_next <= 1;
+                                reg_rd_req <= 1;
                                 st <= ST_REG_RW;
                             end else begin  // WRITE
                                 st <= ST_REG_RW;
@@ -353,11 +357,11 @@ module esp32_ospi_proto_proc #(
                         if (len_cnt == 0) begin
                             st <= ST_DONE;
                         end else begin
-                            if (mem_space == 3'd0) begin
-                                mem_wr_addr <= addr;
-                                mem_wr_data <= rx_byte;
-                                mem_wr_en <= 1;
-                            end
+                            // Write applies to every space; the connector routes
+                            // mem_space to the right backing store.
+                            mem_wr_addr <= addr;
+                            mem_wr_data <= rx_byte;
+                            mem_wr_en <= 1;
                             len_cnt <= len_cnt - 16'd1;
                             if (sub_inc) addr <= addr + 24'd1;
                             if (len_cnt == 16'd1) st <= ST_DONE;

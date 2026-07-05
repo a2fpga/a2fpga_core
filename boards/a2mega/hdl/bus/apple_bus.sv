@@ -68,13 +68,18 @@ module apple_bus #(
 
     input irq_n_i,
 
+    // Hold the Apple II in RESET. FPGA_RES_OUT goes through an inverting
+    // open-drain gate (74LVC2G06) to the bus RESET line, so driving 1 here
+    // pulls the Apple II RESET low; 0 releases it.
+    input reset_hold_i,
+
     output sleep_o
 
 );
 
     assign a2_dma_out_n = a2_dma_in_n;
     assign a2_int_out_n = a2_int_in_n;
-    assign a2_res_out_n = 1'b0;
+    assign a2_res_out_n = reset_hold_i;
     
     assign a2bus_if.clk_logic = clk_logic_i;
     assign a2bus_if.clk_pixel = clk_pixel_i;

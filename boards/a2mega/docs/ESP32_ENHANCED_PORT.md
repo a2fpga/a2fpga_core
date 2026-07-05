@@ -57,12 +57,12 @@ register.
 
 | Space | Contents | Size | Backing |
 |-------|----------|------|---------|
-| 0 | Test memory | 2KB | BSRAM (existing) |
-| 1 | OSD text page — 40×24 Apple II screen codes, linear `y*40+x` | 2KB | BSRAM (existing text_vram0), read by `osd_text_overlay` |
-| 2 | Text VRAM bank 1 (unused, reserved) | 2KB | BSRAM (existing) |
+| 0 | Test memory | 64B | FFs (kept off BSRAM — the device is near its BSRAM limit) |
+| 1 | OSD text page — 40×24 Apple II screen codes, linear `y*40+x` | 2KB | BSRAM, write-only from the ESP32; port B feeds `osd_text_overlay` |
+| 2 | Unimplemented (reads return 0xFF) | — | — |
 | 3 | W5100 address space (0x0000-0x7FFF) | 32KB | Uthernet2 card port B |
-| 4 | Disk II track buffers; addr[13]=drive, 8KB window each (track = 0x1A00 bytes used) | 16KB | BSRAM, byte port (ESP32) + 32-bit port (DiskII) |
-| 5 | HDD block buffers; addr[9]=unit, 512B each | 1KB | BSRAM, dual port as above |
+| 4 | Disk II track buffers; addr[13]=drive, 8KB window each (track = 0x1A00 bytes used) | 16KB | 4 byte-lane BSRAMs: byte port (ESP32) + 32-bit byte-enable port (DiskII) |
+| 5 | HDD block buffers; addr[9]=unit, 512B each. ESP32 writes must be sequential + 4-byte aligned (word-packing accumulator) | 1KB | one 32-bit BSRAM (the HDD card port is pure 32-bit) |
 
 Track/HDD serving protocol is identical to Enhanced (poll VOL/HDD request
 regs → XFER the data → ACK strobe), only the space/window differs (SPACE 4/5
