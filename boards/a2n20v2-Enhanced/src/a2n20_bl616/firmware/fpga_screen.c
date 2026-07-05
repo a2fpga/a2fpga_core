@@ -32,6 +32,28 @@ static int cursor_h = 0;
 static int cursor_v = 0;
 static bool inverse_mode = false;
 
+/* Shadow of the text page (screen codes, no padding bytes) so other
+ * subsystems (host build: the telnet menu mirror) can render the current
+ * screen without SDRAM read-back. gen bumps on every visible change. */
+static uint8_t s_shadow[SCREEN_H][SCREEN_W];
+static volatile uint32_t s_shadow_gen;
+
+const uint8_t *fpga_screen_shadow_row(int y)
+{
+    return s_shadow[(y < 0 || y >= SCREEN_H) ? 0 : y];
+}
+
+uint32_t fpga_screen_shadow_gen(void)
+{
+    return s_shadow_gen;
+}
+
+static void shadow_set(int x, int y, uint8_t code)
+{
+    if (x >= 0 && x < SCREEN_W && y >= 0 && y < SCREEN_H)
+        s_shadow[y][x] = code;
+}
+
 /* ASCII -> Apple II screen code. Normal text = ASCII+128; inverse = codes
  * $00-$3F (uppercase + symbols only, so lowercase is folded to uppercase). */
 static uint8_t screen_code(uint8_t c)
@@ -58,6 +80,8 @@ void fpga_screen_clear(void)
     fpga_spi_xfer_fill(FPGA_SPACE_SDRAM, OSD_BASE, 0xA0, OSD_SIZE);
     cursor_h = 0;
     cursor_v = 0;
+    memset(s_shadow, 0xA0, sizeof(s_shadow));
+    s_shadow_gen++;
 }
 
 static void newline(void)
@@ -94,6 +118,8 @@ void fpga_screen_putchar(uint8_t c)
      * sees a complete even/odd pair, reducing flush race likelihood. */
     uint8_t pair[2] = { screen_code(c), 0xA0 };
     fpga_spi_xfer_write(FPGA_SPACE_SDRAM, screen_addr(cursor_h, cursor_v), pair, 2);
+    shadow_set(cursor_h, cursor_v, pair[0]);
+    s_shadow_gen++;
 
     cursor_h++;
     if (cursor_h >= SCREEN_W) {
@@ -124,6 +150,7 @@ void fpga_screen_puts(const char *str)
 
         buf[count++] = screen_code(c);
         buf[count++] = 0xA0;      /* odd-byte padding */
+        shadow_set(cursor_h, cursor_v, buf[count - 2]);
 
         cursor_h++;
         if (cursor_h >= SCREEN_W) {
@@ -136,6 +163,7 @@ void fpga_screen_puts(const char *str)
     }
 
     flush_line(start_h, start_v, buf, count);
+    s_shadow_gen++;
 }
 
 void fpga_screen_home(void)

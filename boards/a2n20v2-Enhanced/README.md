@@ -307,6 +307,30 @@ settings-store state: `LD:` is the load result at boot (`OK`, or `MAG` on a
 first boot with no saved settings), `SV:` the last save (`-` = none yet
 this session).
 
+## Remote console and menu (telnet)
+
+With the USB-Ethernet adapter connected, the board runs a telnet server on
+port 23 (the IP is shown on the boot console and in the NETWORK menu).
+From any machine on the LAN:
+
+```
+telnet <board-ip>
+```
+
+You get the boot/status console (the same log the on-screen console
+shows), streamed live. Press **m** to mirror the on-screen menu and drive
+it from the keyboard — up/down arrows move, right-arrow/Enter select,
+left-arrow/Esc/b go back, `y` toggles menu/console, `s` toggles the
+board's display between the Apple II and the MCU, `[` / `]` are the ±16
+keys, `c` returns to the console stream, `q` disconnects. Entering the
+remote menu switches the board's HDMI output to the menu too (there is
+one shared view); press `s` or back out of the root menu to hand the
+display back to the Apple II.
+
+This works with no gamepad attached, and it is the best way to include
+diagnostics in a problem report: copy the console text instead of
+photographing the screen.
+
 ## DIP switches
 
 The A2N20v2 card's 4-position DIP switch:

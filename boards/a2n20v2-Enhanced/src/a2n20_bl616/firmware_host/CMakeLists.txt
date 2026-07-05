@@ -37,6 +37,7 @@ target_sources(app PRIVATE
     fwupdate.c
     fpga_jtag.c
     fpgaupdate.c
+    telnetd.c
     ../firmware/gcr_dsk.c
     ../firmware/fpga_spi.c
     ../firmware/fpga_screen.c

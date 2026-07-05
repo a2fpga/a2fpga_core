@@ -25,11 +25,27 @@
  *   0x200000  update staging area                     <- FWU_STAGE_ADDR
  *   0x3FF000  settings blob (settings.c)
  */
-#define FWU_APP_ADDR    0x040000u
 #define FWU_STAGE_ADDR  0x200000u
-#define FWU_MAX_SIZE    (FWU_STAGE_ADDR - FWU_APP_ADDR)   /* 1.75 MB */
 #define FWU_MIN_SIZE    0x10000u                          /* sanity   */
 #define FWU_CHUNK       4096u
+
+/* Where does the RUNNING image live in flash? Not a constant: chain-loaded
+ * boards (fused Sipeed Stage 1, or friend_20k on unfused boards) run us
+ * from 0x40000, but a standalone unfused install runs us from 0x0. The
+ * update must be written where THIS image boots from, and the flash
+ * controller knows: Stage 1 / BootROM programmed the XIP image offset,
+ * which maps flash base+0x1000 (the boot header occupies the first 4 KB)
+ * to the code window. */
+uint32_t fwupdate_app_base(void)
+{
+    uint32_t off = bflb_flash_get_image_offset();
+    return off >= 0x1000u ? off - 0x1000u : 0u;
+}
+
+static bool app_base_sane(uint32_t base)
+{
+    return base == 0x0u || base == 0x040000u;
+}
 
 static volatile fwu_state_t s_state = FWU_IDLE;
 static char     s_path[132];          /* "0:/" + relative path */
@@ -108,7 +124,8 @@ void ATTR_TCM_SECTION fwupdate_restart_app(void)
  * into fwupdate_poll (flash-resident), silently discarding the TCM section —
  * and the commit loop would execute from the region it is erasing. */
 __attribute__((noinline))
-static void ATTR_TCM_SECTION commit_tcm(uint32_t len, uint32_t want_crc)
+static void ATTR_TCM_SECTION commit_tcm(uint32_t app_base, uint32_t len,
+                                        uint32_t want_crc)
 {
     uintptr_t flags = bflb_irq_save();
 
@@ -118,8 +135,8 @@ static void ATTR_TCM_SECTION commit_tcm(uint32_t len, uint32_t want_crc)
             if (n > FWU_CHUNK)
                 n = FWU_CHUNK;
             bflb_flash_read(FWU_STAGE_ADDR + off, s_buf, n);
-            bflb_flash_erase(FWU_APP_ADDR + off, FWU_CHUNK);
-            bflb_flash_write(FWU_APP_ADDR + off, s_buf, n);
+            bflb_flash_erase(app_base + off, FWU_CHUNK);
+            bflb_flash_write(app_base + off, s_buf, n);
         }
         /* verify */
         uint32_t crc = 0xFFFFFFFFu;
@@ -127,7 +144,7 @@ static void ATTR_TCM_SECTION commit_tcm(uint32_t len, uint32_t want_crc)
             uint32_t n = len - off;
             if (n > FWU_CHUNK)
                 n = FWU_CHUNK;
-            bflb_flash_read(FWU_APP_ADDR + off, s_buf, n);
+            bflb_flash_read(app_base + off, s_buf, n);
             crc = crc32_step(crc, s_buf, n);
         }
         if (~crc == want_crc)
@@ -245,10 +262,17 @@ void fwupdate_poll(void)
             }
             s_file_open = true;
             s_size = (uint32_t)f_size(&s_file);
-            if (s_size < FWU_MIN_SIZE || s_size > FWU_MAX_SIZE) {
+            uint32_t base = fwupdate_app_base();
+            if (!app_base_sane(base)) {
+                fail("UNKNOWN FLASH LAYOUT");
+                return;
+            }
+            if (s_size < FWU_MIN_SIZE ||
+                s_size > FWU_STAGE_ADDR - base) {
                 fail("BAD FILE SIZE");
                 return;
             }
+            osd_log("FWUPDATE: APP BASE 0x%lX", (unsigned long)base);
             osd_log("FWUPDATE: STAGING %s (%lu B)", s_path + 3,
                     (unsigned long)s_size);
         }
@@ -263,7 +287,7 @@ void fwupdate_poll(void)
              * app (same image type Stage-1 chain-loads today) */
             uint8_t cur[4];
             if (memcmp(s_buf, "BFNP", 4) != 0 ||
-                bflb_flash_read(FWU_APP_ADDR, cur, 4) != 0 ||
+                bflb_flash_read(fwupdate_app_base(), cur, 4) != 0 ||
                 memcmp(s_buf, cur, 4) != 0) {
                 fail("NOT A FIRMWARE IMAGE");
                 return;
@@ -323,7 +347,7 @@ void fwupdate_poll(void)
         PDS_Turn_Off_USB();
         HBN_Set_User_Boot_Config(0);
         s_state = FWU_IDLE;   /* moot — commit_tcm never returns */
-        commit_tcm(s_size, s_file_crc);
+        commit_tcm(fwupdate_app_base(), s_size, s_file_crc);
         break;
 
     default:

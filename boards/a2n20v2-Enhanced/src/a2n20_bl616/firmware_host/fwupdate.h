@@ -59,6 +59,11 @@ bool fwupdate_dirty(void);
 /* Service the state machine. Call from the disk thread only. */
 void fwupdate_poll(void);
 
+/* Flash base the RUNNING image boots from (0x0 standalone, 0x40000
+ * chain-loaded), derived from the XIP image offset Stage 1 programmed.
+ * The self-update installs to this address. */
+uint32_t fwupdate_app_base(void);
+
 /* Request a firmware restart (jump to app entry). Executed by the disk
  * thread on its next poll — menu actions run in the USB poll context and
  * must not tear down the USB stack from a thread it owns. */

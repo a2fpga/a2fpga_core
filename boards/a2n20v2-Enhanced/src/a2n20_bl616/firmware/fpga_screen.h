@@ -31,4 +31,9 @@ void fpga_screen_goto(int x, int y);
  * $00-$3F). Lowercase is uppercased; only uppercase/digits/symbols render. */
 void fpga_screen_set_inverse(bool inverse);
 
+/* Shadow of the 40x24 text page (Apple II screen codes) maintained by the
+ * writers above, for remote mirroring. gen bumps on every change. */
+const uint8_t *fpga_screen_shadow_row(int y);
+uint32_t       fpga_screen_shadow_gen(void);
+
 #endif

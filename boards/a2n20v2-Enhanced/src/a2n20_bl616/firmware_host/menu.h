@@ -41,6 +41,14 @@ void menu_init(void);
  * hold-repeat are handled inside). Safe to call with an unchanged state. */
 void menu_input(uint16_t buttons);
 
+/* OR one-tick button pulses into the next menu_input() call (remote
+ * control, e.g. the telnet mirror). Thread-safe. */
+void menu_inject(uint16_t buttons);
+
+/* Ask the menu (on its own input tick) to bring up the MENU view,
+ * whatever view is currently active. Used by the telnet mirror. */
+void menu_request_menu_view(void);
+
 /* True when the MCU owns the display (menu or console view). */
 bool menu_mcu_view_active(void);
 
