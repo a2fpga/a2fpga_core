@@ -302,10 +302,17 @@ module top #(
         .OEN(!a2_bridge_d_oe_w)
     );
 
+    // No onboard MCU in this build — stub the bus control interface so the
+    // shared apple_bus starts immediately and never holds the Apple II reset.
+    a2bus_control_if a2bus_control_if();
+    assign a2bus_control_if.ready = 1'b1;
+    assign a2bus_control_if.reset_hold = 1'b0;
+
     apple_bus #(
         .CLOCK_SPEED_HZ(CLOCK_SPEED_HZ),
         .BUS_DATA_OUT_ENABLE(BUS_DATA_OUT_ENABLE),
-        .IRQ_OUT_ENABLE(IRQ_OUT_ENABLE)
+        .IRQ_OUT_ENABLE(IRQ_OUT_ENABLE),
+        .INH_OUT_ENABLE(1'b0)
     ) apple_bus (
         .clk_logic_i(clk_logic_w),
         .clk_pixel_i(clk_logic_w),    // F18A runs on clk_logic (54 MHz) — no separate pixel clock
@@ -316,6 +323,7 @@ module top #(
         .a2_7M_i(a2_7M),
 
         .a2bus_if(a2bus_if),
+        .a2bus_control_if(a2bus_control_if),
 
         .a2_bridge_sel_o(a2_bridge_sel),
         .a2_bridge_bus_a_oe_n_o(a2_bridge_bus_a_oe_n),
@@ -330,6 +338,7 @@ module top #(
         .data_out_i(data_out_w),
 
         .irq_n_i(irq_n_w),
+        .inh_n_i(1'b1),
 
         .dip_switches_n_o(dip_switches_n_w),
 
@@ -351,7 +360,7 @@ module top #(
     wire vgc_rd_w;
     wire [31:0] vgc_data_w;
 
-    apple_memory #(
+    apple_memory_sdram #(
         .VGC_MEMORY(1)
     ) apple_memory (
         .a2bus_if(a2bus_if),
