@@ -72,6 +72,17 @@ IO_PORT "led[0]" IO_TYPE=LVCMOS33 PULL_MODE=NONE;
 IO_LOC  "led[1]" D14; 
 IO_PORT "led[1]" IO_TYPE=LVCMOS33 PULL_MODE=NONE;
 
+// USB-A Host Port
+// D+/D- wired directly to BANK3 GPIO (no PHY); 15k pulldowns + ESD diodes on
+// board. DRIVE=8/SLEW=SLOW approximates the 28-44 ohm FS driver impedance —
+// no series resistors on this board spin, so keep cables short.
+
+IO_LOC  "usb_dp" H13;
+IO_PORT "usb_dp" IO_TYPE=LVCMOS33 PULL_MODE=NONE DRIVE=8 SLEW_RATE=SLOW;
+
+IO_LOC  "usb_dm" G13;
+IO_PORT "usb_dm" IO_TYPE=LVCMOS33 PULL_MODE=NONE DRIVE=8 SLEW_RATE=SLOW;
+
 // Apple II Bus Interface
 
 // Bus Transceiver Control Lines

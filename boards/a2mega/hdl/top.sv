@@ -123,7 +123,11 @@ module top #(
 
     // ESP32 Octal SPI interface
     input         esp_sclk,
-    inout  [7:0]  esp_data
+    inout  [7:0]  esp_data,
+
+    // USB-A host port (direct GPIO, BANK3)
+    inout usb_dp,
+    inout usb_dm
 
 );
 
@@ -146,6 +150,16 @@ module top #(
         .clkout0(clk_pixel_w), //output clkout0 (27 MHz pixel clock)
         .clkout1(clk_hdmi_w), //output clkout1 (135 MHz TMDS)
         .clkout2(clk_logic_pll_w), //output clkout2 (54 MHz logic — independent of DDR3)
+        .clkin(clk) //input clkin
+    );
+
+    // Dedicated USB host clock — usb_hid_host needs crystal-accurate 60 MHz
+    wire clk_usb_w;
+    wire usb_pll_lock_w;
+
+    pll_usb pll_usb_inst (
+        .lock(usb_pll_lock_w),
+        .clkout0(clk_usb_w), //output clkout0 (60 MHz USB host clock)
         .clkin(clk) //input clkin
     );
 
@@ -1171,6 +1185,114 @@ module top #(
 
     // DDR3 calibration status on LED[1]
     assign led[1] = !init_calib_complete_w;
+
+    // =========================================================================
+    // USB HID host — runs in clk_usb (60 MHz) domain
+    // =========================================================================
+    // Full-speed host for mouse/keyboard/gamepad on the USB-A port. The board
+    // wires D+/D- straight to BANK3 GPIO with external 15k pulldowns (host
+    // topology); no PHY, no series resistors on this board spin, so keep
+    // cables short during bring-up.
+
+    wire usb_reset_w;
+
+    reset_sync usb_reset_sync (
+        .clk (clk_usb_w),
+        .arst(~(device_reset_n_w & usb_pll_lock_w)),
+        .srst(usb_reset_w)
+    );
+
+    wire usb_dp_i_w, usb_dm_i_w;
+    wire usb_dp_o_w, usb_dm_o_w;
+    wire usb_oe_w;
+
+    IOBUF usb_dp_iobuf (
+        .O  (usb_dp_i_w),
+        .IO (usb_dp),
+        .I  (usb_dp_o_w),
+        .OEN(!usb_oe_w)
+    );
+
+    IOBUF usb_dm_iobuf (
+        .O  (usb_dm_i_w),
+        .IO (usb_dm),
+        .I  (usb_dm_o_w),
+        .OEN(!usb_oe_w)
+    );
+
+    // UKP microcode ROM is external to the core in the m1nl fork
+    wire [9:0] usb_rom_addr_w;
+    wire [3:0] usb_rom_dout_w;
+    wire       usb_rom_en_w;
+
+    usb_hid_host_rom usb_rom (
+        .clk (clk_usb_w),
+        .addr(usb_rom_addr_w),
+        .dout(usb_rom_dout_w),
+        .en  (usb_rom_en_w)
+    );
+
+    wire [1:0] usb_typ_w;          // 0: none, 1: keyboard, 2: mouse, 3: gamepad
+    wire       usb_report_w;
+    wire       usb_connerr_w;
+    wire [7:0] usb_key_modifiers_w;
+    wire [7:0] usb_key_w [6];
+    wire [2:0] usb_mouse_btn_w;
+    wire signed [7:0] usb_mouse_dx_w, usb_mouse_dy_w;
+    wire usb_game_l_w, usb_game_r_w, usb_game_u_w, usb_game_d_w;
+    wire usb_game_a_w, usb_game_b_w, usb_game_x_w, usb_game_y_w;
+    wire usb_game_sel_w, usb_game_sta_w;
+    wire [3:0] usb_game_extra_w;
+
+    usb_hid_host #(
+        .FULL_SPEED(1)
+    ) usb_hid_host (
+        .clk          (clk_usb_w),
+        .reset        (usb_reset_w),
+        .cs           (1'b1),
+
+        .usb_dm_i     (usb_dm_i_w),
+        .usb_dp_i     (usb_dp_i_w),
+        .usb_dm_o     (usb_dm_o_w),
+        .usb_dp_o     (usb_dp_o_w),
+        .usb_oe       (usb_oe_w),
+
+        .typ          (usb_typ_w),
+        .full_report  (usb_report_w),
+        .connerr      (usb_connerr_w),
+        .busy         (),
+
+        .key_modifiers(usb_key_modifiers_w),
+        .key_0        (usb_key_w[0]),
+        .key_1        (usb_key_w[1]),
+        .key_2        (usb_key_w[2]),
+        .key_3        (usb_key_w[3]),
+        .key_4        (usb_key_w[4]),
+        .key_5        (usb_key_w[5]),
+
+        .mouse_btn    (usb_mouse_btn_w),
+        .mouse_dx     (usb_mouse_dx_w),
+        .mouse_dy     (usb_mouse_dy_w),
+
+        .game_l       (usb_game_l_w),
+        .game_r       (usb_game_r_w),
+        .game_u       (usb_game_u_w),
+        .game_d       (usb_game_d_w),
+        .game_a       (usb_game_a_w),
+        .game_b       (usb_game_b_w),
+        .game_x       (usb_game_x_w),
+        .game_y       (usb_game_y_w),
+        .game_sel     (usb_game_sel_w),
+        .game_sta     (usb_game_sta_w),
+        .game_extra   (usb_game_extra_w),
+
+        .dbg_hid_report(),
+        .dbg_hid_regs (),
+
+        .rom_addr     (usb_rom_addr_w),
+        .rom_dout     (usb_rom_dout_w),
+        .rom_en       (usb_rom_en_w)
+    );
 
     // =========================================================================
     // Debug Overlay — runs in clk_pixel (27 MHz) domain
