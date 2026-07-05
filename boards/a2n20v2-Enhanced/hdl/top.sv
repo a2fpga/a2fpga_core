@@ -498,10 +498,16 @@ module top #(
     wire [12:0] vgc_address_w;
     wire vgc_rd_w;
     wire [31:0] vgc_data_w;
+    wire vgc_ready_w;
 
     apple_memory_sdram #(
         .VGC_MEMORY(1),
-        .SHADOW_ALL_MEMORY(SHADOW_ALL_MEMORY)
+        .SHADOW_ALL_MEMORY(SHADOW_ALL_MEMORY),
+`ifdef DUAL_RATE_SDRAM
+        .VGC_IN_SDRAM(1)
+`else
+        .VGC_IN_SDRAM(0)
+`endif
     ) apple_memory (
         .a2bus_if(a2bus_if),
         .a2mem_if(a2mem_if),
@@ -518,7 +524,8 @@ module top #(
         .vgc_active_i(vgc_active_w),
         .vgc_address_i(vgc_address_w),
         .vgc_rd_i(vgc_rd_w),
-        .vgc_data_o(vgc_data_w)
+        .vgc_data_o(vgc_data_w),
+        .vgc_ready_o(vgc_ready_w)
     );
 
     // Slots
@@ -963,19 +970,9 @@ module top #(
         // --- VGC (Super Hi-Res) generator + direct display ---
         pixel_stream_if vgc_ps();
 
-        // BSRAM read-ready for vgc_gen: it captures one cycle after asserting
-        // vgc_rd_o, but the SHR aux sdpram32 has a 2-cycle read latency, so
-        // present a ready pulse 2 cycles after the read request.
-        reg vgc_rd_d1_r, vgc_rd_d2_r;
-        always @(posedge clk_logic_w) begin
-            if (!system_reset_n_w) begin
-                vgc_rd_d1_r <= 1'b0;
-                vgc_rd_d2_r <= 1'b0;
-            end else begin
-                vgc_rd_d1_r <= vgc_rd_w;
-                vgc_rd_d2_r <= vgc_rd_d1_r;
-            end
-        end
+        // Read-ready for vgc_gen comes from apple_memory_sdram: a fixed
+        // 2-cycle sdpram32 latency in BSRAM mode, or the real SDRAM port
+        // ready when VGC_IN_SDRAM (dual-rate config).
 
         vgc_gen vgc_gen (
             .clk_i(clk_logic_w),
@@ -990,7 +987,7 @@ module top #(
             .vgc_address_o(vgc_address_w),
             .vgc_rd_o(vgc_rd_w),
             .vgc_data_i(vgc_data_w),
-            .vgc_ready_i(vgc_rd_d2_r),
+            .vgc_ready_i(vgc_ready_w),
             .dbg_missed_hsync_o()
         );
 
