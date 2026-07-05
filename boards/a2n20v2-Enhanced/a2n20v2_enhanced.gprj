@@ -90,10 +90,10 @@
         <File path="../../hdl/video/video.hex" type="file.other" enable="1"/>
         <File path="hdl/a2n20v2_enhanced.cst" type="file.cst" enable="1"/>
         <File path="hdl/a2n20v2_enhanced.sdc" type="file.sdc" enable="1"/>
-        <File path="hdl/bus/apple_bus.sv" type="file.verilog" enable="1"/>
+        <File path="../../hdl/bus/apple_bus.sv" type="file.verilog" enable="1"/>
         <File path="hdl/gowin/clk_hdmi/clk_hdmi.v" type="file.verilog" enable="1"/>
         <File path="hdl/gowin/clk_logic/clk_logic.v" type="file.verilog" enable="1"/>
-        <File path="hdl/memory/apple_memory.sv" type="file.verilog" enable="1"/>
+        <File path="../../hdl/memory/apple_memory_sdram.sv" type="file.verilog" enable="1"/>
         <File path="hdl/bl616/bl616_spi_proto_proc.sv" type="file.verilog" enable="1"/>
         <File path="hdl/bl616/bl616_spi_connector.sv" type="file.verilog" enable="1"/>
         <File path="hdl/bl616/fpga_sd_spi.sv" type="file.verilog" enable="1"/>

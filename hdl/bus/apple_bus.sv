@@ -1,6 +1,6 @@
-// A2N20 Version 2 - Apple II Bus Interface
+// A2N20 Version 2 - Apple II Bus Interface (a2bridge CPLD boards)
 //
-// (c) 2023,2024 Ed Anuff <ed@a2fpga.com> 
+// (c) 2023,2024,2025,2026 Ed Anuff <ed@a2fpga.com>
 //
 // Permission to use, copy, modify, and/or distribute this software for any
 // purpose with or without fee is hereby granted, provided that the above
@@ -23,9 +23,18 @@
 // Provide control strobes that indicate when these values have been
 // sampled.
 //
+// Shared by the a2n20v2-family boards (a2n20v2, a2n20v2-GS, a2n20v2-Enhanced)
+// that use the 100-pin a2bridge CPLD.
+//
+// a2bus_control_if lets an onboard MCU gate startup (ready) and hold the
+// Apple II reset line at power-on (reset_hold) until initialization is done.
+// Boards without an MCU stub the interface: assign ready = 1'b1 and
+// reset_hold = 1'b0, tie inh_n_i high, and set INH_OUT_ENABLE = 0.
+//
 
 module apple_bus #(
     parameter bit IRQ_OUT_ENABLE = 1,
+    parameter bit INH_OUT_ENABLE = 1,
     parameter bit BUS_DATA_OUT_ENABLE = 1,
     parameter bit ENABLE_DENOISE = 1,
     parameter int CLOCK_SPEED_HZ = 54_000_000,
@@ -46,6 +55,7 @@ module apple_bus #(
     input a2_7M_i,
 
     a2bus_if.master a2bus_if,
+    a2bus_control_if.a2bus a2bus_control_if,
 
     output reg [2:0] a2_bridge_sel_o,
     output reg a2_bridge_bus_a_oe_n_o,
@@ -60,6 +70,8 @@ module apple_bus #(
     input [7:0] data_out_i,
 
     input irq_n_i,
+
+    input inh_n_i,
 
     output reg [3:0] dip_switches_n_o,
 
@@ -116,7 +128,12 @@ module apple_bus #(
         if (!a2bus_if.device_reset_n) begin
             control_out_r <= 8'hFF;
         end else begin
+            control_out_r[1] <=  inh_n_i || !INH_OUT_ENABLE;
             control_out_r[2] <=  irq_n_i || !IRQ_OUT_ENABLE;
+            // Hold the Apple II in RESET (open-collector, active low) while
+            // the connector asks for it (power-on storage bring-up); see
+            // a2bus_control_if.reset_hold. Pushed to the bridge on change.
+            control_out_r[6] <= !a2bus_control_if.reset_hold;
         end
     end
 
@@ -209,46 +226,48 @@ module apple_bus #(
             data_in_strobe_r <= 1'b0;
 
             if (io_state != IO_INIT) begin
-            if (a2bus_if.phi1 && (phase_cycles_r == READ_COUNT)) begin
-                next_io_state <= IO_READ_ADDR;
-            end else if (a2bus_if.phi0 && (phase_cycles_r == WRITE_COUNT) && data_out_en_i) begin
-                next_io_state <= IO_WRITE_DATA;
-            end else if (a2bus_if.phi0 && (phase_cycles_r == READ_COUNT)) begin
-                next_io_state <= IO_READ_DATA;
-            end else if (!io_state_pending && (control_out_r != prev_control_out_r)) begin
-                next_io_state <= IO_WRITE_GPIO;
-                prev_control_out_r <= control_out_r;
-            end
+                if (a2bus_if.phi1 && (phase_cycles_r == READ_COUNT)) begin
+                    next_io_state <= IO_READ_ADDR;
+                end else if (a2bus_if.phi0 && (phase_cycles_r == WRITE_COUNT) && data_out_en_i) begin
+                    next_io_state <= IO_WRITE_DATA;
+                end else if (a2bus_if.phi0 && (phase_cycles_r == READ_COUNT)) begin
+                    next_io_state <= IO_READ_DATA;
+                end else if (!io_state_pending && (control_out_r != prev_control_out_r)) begin
+                    next_io_state <= IO_WRITE_GPIO;
+                    prev_control_out_r <= control_out_r;
+                end
             end
 
             case (io_state) 
                 IO_INIT : begin
-                    io_cycle <= io_cycle + 1'b1;
-                    if (io_cycle == 3'd0) begin
-                        a2_bridge_sel_o <= 3'd0;
-                        a2_bridge_rd_n_o <= 1'b1;
-                        a2_bridge_wr_n_o <= 1'b1;
-                        a2_bridge_d_o <= 8'b11111111;
-                        a2_bridge_d_oe_o <= 1'b1;
-                    end else if (io_cycle == 3'd1) begin
-                        a2_bridge_sel_o <= 3'd0;
-                        a2_bridge_rd_n_o <= 1'b1;
-                        a2_bridge_wr_n_o <= 1'b0;
-                        a2_bridge_d_oe_o <= 1'b1;
-                    end else if (io_cycle == 3'd2) begin
-                        a2_bridge_sel_o <= 3'd5;
-                        a2_bridge_rd_n_o <= 1'b0;
-                        a2_bridge_wr_n_o <= 1'b1;
-                        a2_bridge_d_oe_o <= 1'b0;
-                    end else if (io_cycle == 3'd3) begin
-                        dip_switches_n_o <= a2_bridge_d_i[3:0];
-                        a2_bridge_sel_o <= 3'd0;
-                        a2_bridge_rd_n_o <= 1'b1;
-                        a2_bridge_wr_n_o <= 1'b1;
-                        a2_bridge_d_oe_o <= 1'b0;
-                        io_state <= IO_IDLE;
-                        next_io_state <= IO_IDLE;
-                    end  
+                    if (a2bus_control_if.ready) begin
+                        io_cycle <= io_cycle + 1'b1;
+                        if (io_cycle == 3'd0) begin
+                            a2_bridge_sel_o <= 3'd0;
+                            a2_bridge_rd_n_o <= 1'b1;
+                            a2_bridge_wr_n_o <= 1'b1;
+                            a2_bridge_d_o <= 8'b11111111;
+                            a2_bridge_d_oe_o <= 1'b1;
+                        end else if (io_cycle == 3'd1) begin
+                            a2_bridge_sel_o <= 3'd0;
+                            a2_bridge_rd_n_o <= 1'b1;
+                            a2_bridge_wr_n_o <= 1'b0;
+                            a2_bridge_d_oe_o <= 1'b1;
+                        end else if (io_cycle == 3'd2) begin
+                            a2_bridge_sel_o <= 3'd5;
+                            a2_bridge_rd_n_o <= 1'b0;
+                            a2_bridge_wr_n_o <= 1'b1;
+                            a2_bridge_d_oe_o <= 1'b0;
+                        end else if (io_cycle == 3'd3) begin
+                            dip_switches_n_o <= a2_bridge_d_i[3:0];
+                            a2_bridge_sel_o <= 3'd0;
+                            a2_bridge_rd_n_o <= 1'b1;
+                            a2_bridge_wr_n_o <= 1'b1;
+                            a2_bridge_d_oe_o <= 1'b0;
+                            io_state <= IO_IDLE;
+                            next_io_state <= IO_IDLE;
+                        end  
+                    end
                 end
                 IO_IDLE : begin
                     io_cycle <= 0;

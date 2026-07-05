@@ -402,7 +402,10 @@ module top #(
     wire vgc_rd_w;
     wire [31:0] vgc_data_w;
 
-    apple_memory apple_memory (
+    apple_memory_sdram #(
+        .VGC_MEMORY(1),
+        .SHADOW_ALL_MEMORY(SHADOW_ALL_MEMORY)
+    ) apple_memory (
         .a2bus_if(a2bus_if),
         .a2mem_if(a2mem_if),
 

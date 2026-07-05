@@ -1,6 +1,6 @@
-// A2N20v2_enhanced - Tang Nano 20K SDRAM implementation of Apple II memory
+// Tang Nano 20K SDRAM implementation of Apple II memory
 //
-// (c) 2023,2024 Ed Anuff <ed@a2fpga.com> 
+// (c) 2023,2024,2025,2026 Ed Anuff <ed@a2fpga.com>
 //
 // Permission to use, copy, modify, and/or distribute this software for any
 // purpose with or without fee is hereby granted, provided that the above
@@ -17,18 +17,26 @@
 // Description:
 //
 // Handle the writing of data to the shadow memory copy of the Apple II's
-// memory that is kept in the FPGA's SDRAM. IIgs SHRG memory is in blockram.
+// memory that is kept in the FPGA's SDRAM. Text and hires main memory are
+// in SDRAM to free BSRAM. VGC aux memory stays in BSRAM (interleave_mux
+// requires dual-BRAM read).
+//
+// Shared by the SDRAM-based a2n20v2-family boards (a2n20v2-GS,
+// a2n20v2-Enhanced). The BSRAM-only implementation used by other boards
+// is hdl/memory/apple_memory.sv.
 //
 
-module apple_memory #(
-    parameter SHADOW_ALL_MEMORY = 1'b0  // 1 = shadow all memory, 0 = shadow only video memory
+module apple_memory_sdram #(
+    parameter VGC_MEMORY = 0,        // 1 = extend aux memory to 32KB for VGC, 0 = 16KB
+    parameter SHADOW_ALL_MEMORY = 0  // 1 = shadow all memory to SDRAM, 0 = only video pages
 ) (
     a2bus_if.slave a2bus_if,
     a2mem_if.master a2mem_if,
-    
-    mem_port_if.client main_mem_if,
-    mem_port_if.client video_mem_if,
-    
+
+    // SDRAM ports for shadow memory
+    mem_port_if.client main_mem_if,    // CPU writes to SDRAM
+    mem_port_if.client video_mem_if,   // video gen reads from SDRAM
+
     input [15:0] video_address_i,
     input video_bank_i,
     input video_rd_i,
@@ -143,7 +151,7 @@ module apple_memory #(
             INTC8ROM <= 1'b0;
             SLOTROM <= 3'b0;
         end else if ((a2bus_if.phi1_posedge) && (a2bus_if.addr >= 16'hC100) && (a2bus_if.addr < 16'hC800) && !a2bus_if.m2sel_n) begin
-            if (!a2mem_if.SLOTC3ROM && (a2bus_if.addr[15:8] == 8'hC3)) INTC8ROM <= 1'b1; // Slot C3 ROM  
+            if (!a2mem_if.SLOTC3ROM && (a2bus_if.addr[15:8] == 8'hC3)) INTC8ROM <= 1'b1; // Slot C3 ROM
             SLOTROM <= a2bus_if.addr[10:8];
         end
     end
@@ -172,7 +180,7 @@ module apple_memory #(
     assign a2mem_if.keypress_strobe = keypress_strobe_r;
 
     logic aux_mem_r;
-    
+
     always_comb begin
         aux_mem_r = 1'b0;
         if (a2bus_if.addr[15:9] == 7'b0000000 | a2bus_if.addr[15:14] == 2'b11)		// Page 00,01,C0-FF
@@ -219,19 +227,27 @@ module apple_memory #(
 
     wire [3:0] hires_byte_enable = 4'(1 << hires_write_offset[1:0]);
 
-    // Aux memory bank, linear
-    
-    // The aux memory bank for hires is 16KB, but but when VGC_MEMORY is set, an additional 16KB is added
+    // video_data_o comes directly from SDRAM for apple_video_gen reads
+    assign video_data_o = video_mem_if.q;
+    assign video_ready_o = video_mem_if.ready;
 
-    // Set up reads and combine ouputs for VGC
-
-    wire [11:0] hires_aux_read_offset = vgc_address_i[12:1];
-    
+    // vgc_data_o comes from BSRAM via interleave_mux (unchanged)
     wire [31:0] hires_data_aux_6000_9FFF;
+
+    // VGC reads from BSRAM aux banks
+    logic [11:0] hires_aux_read_offset;
+
+    always_comb begin
+        if (VGC_MEMORY && vgc_active_i) begin
+            hires_aux_read_offset = vgc_address_i[12:1];
+        end else begin
+            hires_aux_read_offset = 12'b0;  // VGC only reads from BSRAM
+        end
+    end
 
     assign vgc_data_o = vgc_active_i ? interleave_mux(vgc_address_i[0], hires_data_aux, hires_data_aux_6000_9FFF) : 32'b0;
 
-    // Set up writes
+    // Aux memory writes — still go to BSRAM for VGC reads
 
     logic write_enable_aux_2000_5FFF;
     logic write_enable_aux_6000_9FFF;
@@ -249,27 +265,33 @@ module apple_memory #(
         write_offset_aux_6000_9FFF = 12'b0;
         hires_byte_enable_aux_6000_9FFF = 4'b0;
 
-        if (a2mem_if.LINEARIZE_MODE) begin
-            write_enable_aux_2000_5FFF = write_strobe && bus_addr_2000_9FFF && E1;
-            write_offset_aux_2000_5FFF = hires_write_offset[14:3];
-            hires_byte_enable_aux_2000_5FFF = hires_write_offset[0] ? 4'b0 : 4'(1 << hires_write_offset[2:1]);
+        if (VGC_MEMORY) begin
+            if (a2mem_if.LINEARIZE_MODE) begin
+                write_enable_aux_2000_5FFF = write_strobe && bus_addr_2000_9FFF && E1;
+                write_offset_aux_2000_5FFF = hires_write_offset[14:3];
+                hires_byte_enable_aux_2000_5FFF = hires_write_offset[0] ? 4'b0 : 4'(1 << hires_write_offset[2:1]);
 
-            write_enable_aux_6000_9FFF = write_strobe && bus_addr_2000_9FFF && E1;
-            write_offset_aux_6000_9FFF = hires_write_offset[14:3];
-            hires_byte_enable_aux_6000_9FFF = hires_write_offset[0] ? 4'(1 << hires_write_offset[2:1]) : 4'b0;
+                write_enable_aux_6000_9FFF = write_strobe && bus_addr_2000_9FFF && E1;
+                write_offset_aux_6000_9FFF = hires_write_offset[14:3];
+                hires_byte_enable_aux_6000_9FFF = hires_write_offset[0] ? 4'(1 << hires_write_offset[2:1]) : 4'b0;
 
-        end else begin
-            if (bus_addr_2000_5FFF) begin
-                write_enable_aux_2000_5FFF = write_strobe && bus_addr_2000_5FFF && E1;
-                write_offset_aux_2000_5FFF = hires_write_offset[13:2];
-                hires_byte_enable_aux_2000_5FFF = hires_byte_enable;
-            end else if (bus_addr_6000_9FFF) begin
-                write_enable_aux_6000_9FFF = write_strobe && bus_addr_6000_9FFF && E1;
-                write_offset_aux_6000_9FFF = hires_write_offset[13:2];
-                hires_byte_enable_aux_6000_9FFF = hires_byte_enable;
+            end else begin
+                if (bus_addr_2000_5FFF) begin
+                    write_enable_aux_2000_5FFF = write_strobe && bus_addr_2000_5FFF && E1;
+                    write_offset_aux_2000_5FFF = hires_write_offset[13:2];
+                    hires_byte_enable_aux_2000_5FFF = hires_byte_enable;
+                end else if (bus_addr_6000_9FFF) begin
+                    write_enable_aux_6000_9FFF = write_strobe && bus_addr_6000_9FFF && E1;
+                    write_offset_aux_6000_9FFF = hires_write_offset[13:2];
+                    hires_byte_enable_aux_6000_9FFF = hires_byte_enable;
+                end
             end
+        end else begin
+            // only write to the aux 2000-5FFF bank when VGC_MEMORY is not set
+            write_enable_aux_2000_5FFF = write_strobe && bus_addr_2000_5FFF && E1;
+            write_offset_aux_2000_5FFF = hires_write_offset[13:2];
+            hires_byte_enable_aux_2000_5FFF = hires_byte_enable;
         end
-
     end
 
     sdpram32 #(
@@ -281,28 +303,34 @@ module apple_memory #(
         .write_enable(write_enable_aux_2000_5FFF),
         .byte_enable(hires_byte_enable_aux_2000_5FFF),
         .read_addr(hires_aux_read_offset),
-        .read_enable(1'b1),
+        .read_enable(vgc_rd_i && vgc_active_i),
         .read_data(hires_data_aux)
     );
 
-    sdpram32 #(
-        .ADDR_WIDTH(12)
-    ) hires_aux_6000_9FFF (
-        .clk(a2bus_if.clk_logic),
-        .write_addr(write_offset_aux_6000_9FFF),
-        .write_data(write_word),
-        .write_enable(write_enable_aux_6000_9FFF),
-        .byte_enable(hires_byte_enable_aux_6000_9FFF),
-        .read_addr(hires_aux_read_offset),
-        .read_enable(1'b1),
-        .read_data(hires_data_aux_6000_9FFF)
-    );
+    generate
+        if (VGC_MEMORY) begin
+            sdpram32 #(
+                .ADDR_WIDTH(12)
+            ) hires_aux_6000_9FFF (
+                .clk(a2bus_if.clk_logic),
+                .write_addr(write_offset_aux_6000_9FFF),
+                .write_data(write_word),
+                .write_enable(write_enable_aux_6000_9FFF),
+                .byte_enable(hires_byte_enable_aux_6000_9FFF),
+                .read_addr(hires_aux_read_offset),
+                .read_enable(vgc_rd_i && vgc_active_i),
+                .read_data(hires_data_aux_6000_9FFF)
+            );
+        end else begin
+            assign hires_data_aux_6000_9FFF = 32'b0;
+        end
+    endgenerate
 
-    // SDRAM interace
+    // SDRAM write path — CPU writes text and hires to SDRAM
 
-    wire write_en = !a2bus_if.rw_n && 
-        a2bus_if.data_in_strobe && 
-        (SHADOW_ALL_MEMORY || bus_addr_2000_5FFF || bus_addr_0400_0BFF) && 
+    wire write_en = !a2bus_if.rw_n &&
+        a2bus_if.data_in_strobe &&
+        (SHADOW_ALL_MEMORY || bus_addr_2000_5FFF || bus_addr_0400_0BFF) &&
         !a2bus_if.m2sel_n;
 
     assign main_mem_if.rd = 1'b0;
@@ -312,13 +340,13 @@ module apple_memory #(
     assign main_mem_if.byte_en = 1'b1 << {a2bus_if.addr[0], aux_mem_r || a2bus_if.m2b0};
     assign main_mem_if.burst = 1'b0;
 
+    // SDRAM read path — video gen reads text and hires from SDRAM
+
     assign video_mem_if.rd = video_rd_i;
     assign video_mem_if.wr = 1'b0;
     assign video_mem_if.addr = {5'b0, video_bank_i, video_address_i[15:1]};
     assign video_mem_if.data = 32'b0;
     assign video_mem_if.byte_en = 4'b1111;
     assign video_mem_if.burst = 1'b0;
-    assign video_data_o = video_mem_if.q;
-    assign video_ready_o = video_mem_if.ready;   // SDRAM read-data beat (for apple_video_gen)
 
 endmodule
