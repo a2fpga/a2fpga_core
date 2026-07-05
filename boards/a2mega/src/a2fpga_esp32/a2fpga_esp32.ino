@@ -1,43 +1,48 @@
 /*
- * A2FPGA ESP32-S3 Firmware (Simplified)
+ * A2FPGA ESP32-S3 Firmware — a2mega co-processor
  *
- * Minimal firmware for ESP32-S3 to FPGA communication via Octal SPI.
- * This version excludes LCD_CAM, radio, tone generator, and ES5503 emulation.
+ * Port of the a2n20v2-Enhanced BL616 feature set to the a2mega's
+ * ESP32-S3-MINI-1-N8 (see boards/a2mega/docs/ESP32_ENHANCED_PORT.md):
+ *   - Octal SPI (8-bit parallel) communication with the FPGA
+ *   - On-screen menu + console (gamepad-driven via the FPGA usb_hid_host)
+ *   - Disk-image serving from the micro-SD card (Disk II + ProDOS HDD)
+ *   - Uthernet II (W5100) MACRAW bridge to WiFi
+ *   - FPGA core self-update from a file on the SD card
+ *   - USB JTAG bridge for PC-driven FPGA programming (openFPGALoader)
+ *   - Serial forwarding to FPGA; CLI mode for diagnostics ("+++")
  *
- * Features:
- *   - Octal SPI (8-bit parallel) communication with FPGA
- *   - USB JTAG bridge for FPGA programming
- *   - Serial forwarding to FPGA
- *   - CLI mode for diagnostics (enter with "+++")
- *
- * Board: ESP32-S3 (Adafruit QT Py ESP32-S3 or similar)
+ * Board: a2mega (ESP32-S3-MINI-1-N8, 8 MB flash, no PSRAM)
  *
  * Arduino IDE Settings:
- *   - Board: ESP32S3 Dev Module or Adafruit QT Py ESP32-S3
+ *   - Board: ESP32S3 Dev Module
  *   - USB Mode: Hardware CDC and JTAG
  *   - USB CDC On Boot: Enabled
  *   - CPU Frequency: 240MHz
  */
 
 #include <Arduino.h>
+#include <SD_MMC.h>
 #include "driver/gpio.h"
 #include "soc/usb_serial_jtag_reg.h"
 #include "a2fpga_jtag.h"
 #include "a2fpga_spi_service.h"
+#include "a2fpga_regs.h"
+#include "fpga_link.h"
+#include "fpga_screen.h"
+#include "osd_console.h"
+#include "settings.h"
+#include "disk.h"
+#include "menu.h"
+#include "w5100.h"
+#include "wifi_bridge.h"
+#include "fpgaupdate.h"
 #include "esp_err.h"
 #include <ctype.h>
 #include <stdlib.h>
 
 // ============================================================================
-// Pin Assignments (DUMMY - Replace with actual hardware pins)
+// Pin Assignments (a2-mega schematic p.3, "ESP32 & I/O")
 // ============================================================================
-
-// LEDs
-#define PIN_LED0 1
-#define PIN_LED1 2
-
-#define LED_ON  HIGH
-#define LED_OFF LOW
 
 // Serial interface to the FPGA
 #define PIN_RXD  44
@@ -47,25 +52,34 @@
 // Configuration done signal from the FPGA
 #define PIN_FPGA_DONE  48
 
-// JTAG interface to the FPGA
+// JTAG interface to the FPGA (shared: USB bridge and fpga_jtag.c self-update)
 const int PIN_TCK  = 40;
 const int PIN_TMS  = 41;
 const int PIN_TDI  = 42;
 const int PIN_TDO  = 45;
 const int PIN_SRST = 3;  // unused and unconnected, but required by the JTAG bridge
 
+// Micro-SD slot (4-bit SDMMC)
+#define PIN_SD_CLK  37
+#define PIN_SD_CMD  36
+#define PIN_SD_D0   38
+#define PIN_SD_D1   39
+#define PIN_SD_D2   35   // verify at bring-up (schematic pin 31 net inferred)
+#define PIN_SD_D3   34
+#define PIN_SD_DET  46   // low when a card is inserted
+
 // Octal SPI interface to the FPGA
 static const ospi_pins_t OSPI_PINS = {
-    .sclk = 47,      // SPI Clock
-    .d0   = 1,     // Data bit 0 (MOSI in standard SPI mode)
-    .d1   = 2,     // Data bit 1 (MISO in standard SPI mode)
-    .d2   = 4,     // Data bit 2
-    .d3   = 5,     // Data bit 3
-    .d4   = 6,     // Data bit 4
-    .d5   = 7,     // Data bit 5
-    .d6   = 8,     // Data bit 6
-    .d7   = 9,     // Data bit 7
-    .cs   = -1,     // Chip select (-1 if directly controlled)
+    .sclk = 47,     // ESP32_OPI_CLK
+    .d0   = 1,      // ESP32_OPI_D0
+    .d1   = 2,
+    .d2   = 4,
+    .d3   = 5,
+    .d4   = 6,
+    .d5   = 7,
+    .d6   = 8,
+    .d7   = 9,
+    .cs   = -1,     // no CS — the protocol uses sync-pattern framing
 };
 
 static const int SPI_HZ = 20 * 1000 * 1000;  // 20 MHz SPI clock
@@ -75,6 +89,8 @@ static const int SPI_HZ = 20 * 1000 * 1000;  // 20 MHz SPI clock
 // ============================================================================
 
 bool usb_was_connected = false;
+static bool sd_mounted = false;
+static bool subsystems_up = false;
 
 // CLI Escape Sequence
 const char* CLI_ESCAPE_SEQUENCE = "+++";
@@ -367,7 +383,8 @@ static void cmd_process(String cmd) {
         Serial.printf("  TXD:  %d\n", PIN_TXD);
         Serial.println("Other:");
         Serial.printf("  FPGA_DONE: %d\n", PIN_FPGA_DONE);
-        Serial.printf("  LED0: %d\n", PIN_LED0);
+        Serial.printf("  SD:   CLK=%d CMD=%d D0=%d D1=%d D2=%d D3=%d DET=%d\n",
+                      PIN_SD_CLK, PIN_SD_CMD, PIN_SD_D0, PIN_SD_D1, PIN_SD_D2, PIN_SD_D3, PIN_SD_DET);
 
     } else if (cmd == "exit") {
         cli_mode = false;
@@ -436,6 +453,119 @@ String check_escape_sequence(char c) {
 }
 
 // ============================================================================
+// Subsystem bring-up
+// ============================================================================
+
+// Apply DHCP/static-IP changes from the menu. The Apple II's own IP stack
+// (via the W5100) configures itself; the ESP32 netif keeps DHCP for its own
+// address, so there is nothing to reconfigure here yet.
+extern "C" void menu_hook_net_apply(void) {
+    Serial.println("[net] settings applied (Apple II stack owns its own IP config)");
+}
+
+static bool mount_sd() {
+    pinMode(PIN_SD_DET, INPUT_PULLUP);
+    SD_MMC.setPins(PIN_SD_CLK, PIN_SD_CMD, PIN_SD_D0, PIN_SD_D1, PIN_SD_D2, PIN_SD_D3);
+    if (!SD_MMC.begin("/sdcard", false)) {
+        // Retry in 1-bit mode in case D1-D3 routing differs on this board spin
+        if (!SD_MMC.begin("/sdcard", true)) {
+            Serial.println("[sd] mount failed");
+            return false;
+        }
+        Serial.println("[sd] mounted (1-bit mode)");
+        return true;
+    }
+    Serial.println("[sd] mounted (4-bit mode)");
+    return true;
+}
+
+// WiFi credentials: /sdcard/A2FPGA/wifi.txt (line 1 = SSID, line 2 = PSK)
+// overrides and persists into settings; otherwise use the stored settings.
+static void load_wifi_credentials() {
+    a2_settings_t *s = settings();
+    FILE *f = fopen("/sdcard/A2FPGA/wifi.txt", "r");
+    if (f) {
+        char ssid[64] = {0}, psk[96] = {0};
+        if (fgets(ssid, sizeof(ssid), f)) {
+            ssid[strcspn(ssid, "\r\n")] = 0;
+            if (fgets(psk, sizeof(psk), f))
+                psk[strcspn(psk, "\r\n")] = 0;
+        }
+        fclose(f);
+        if (ssid[0] && (strcmp(s->wifi_ssid, ssid) || strcmp(s->wifi_psk, psk))) {
+            strlcpy(s->wifi_ssid, ssid, sizeof(s->wifi_ssid));
+            strlcpy(s->wifi_psk, psk, sizeof(s->wifi_psk));
+            settings_save();
+            Serial.printf("[net] WiFi credentials updated from wifi.txt (%s)\n", ssid);
+        }
+    }
+}
+
+// Disk service task: image serving + FPGA update state machine. All SD
+// filesystem work (including the menu's directory listings) runs here.
+static void disk_task(void *arg) {
+    (void)arg;
+    for (;;) {
+        disk_poll();
+        fpgaupdate_poll();
+        vTaskDelay(pdMS_TO_TICKS(2));
+    }
+}
+
+// Menu/UI task: gamepad polling + OSD rendering at ~50 Hz.
+static void menu_task(void *arg) {
+    (void)arg;
+    for (;;) {
+        menu_tick();
+        vTaskDelay(pdMS_TO_TICKS(20));
+    }
+}
+
+static void start_subsystems() {
+    if (subsystems_up)
+        return;
+
+    esp_err_t err = a2spi_init_once(SPI2_HOST, &OSPI_PINS, SPI_HZ);
+    if (err != ESP_OK) {
+        Serial.printf("[SPI] init failed: %s\n", esp_err_to_name(err));
+        return;
+    }
+    if (!fpga_link_init()) {
+        Serial.println("[fpga] no A2FP device on the OSPI link; retrying later");
+        return;
+    }
+
+    settings_init();
+    sd_mounted = mount_sd();
+
+    osd_console_show();
+    osd_log("A2MEGA ESP32 %s %s", __DATE__, __TIME__);
+    osd_log(sd_mounted ? "SD CARD MOUNTED" : "NO SD CARD");
+
+    disk_init();
+    menu_init();
+    w5100_init();
+
+    if (sd_mounted)
+        load_wifi_credentials();
+    a2_settings_t *s = settings();
+    if (s->wifi_ssid[0]) {
+        if (wifi_bridge_init(s->wifi_ssid, s->wifi_psk))
+            osd_log("WIFI: JOINING %s", s->wifi_ssid);
+        else
+            osd_log("WIFI: INIT FAILED");
+    } else {
+        osd_log("WIFI: NOT CONFIGURED (A2FPGA/WIFI.TXT)");
+    }
+
+    xTaskCreatePinnedToCore(disk_task, "disk", 8192, NULL, 5, NULL, 1);
+    xTaskCreatePinnedToCore(menu_task, "menu", 8192, NULL, 4, NULL, 1);
+
+    subsystems_up = true;
+    Serial.println("[a2fpga] subsystems up");
+}
+
+// ============================================================================
 // Arduino Setup and Loop
 // ============================================================================
 
@@ -445,17 +575,30 @@ void setup() {
     delay(300);
 
     Serial.printf("A2FPGA ESP32-S3 Firmware (%s %s)\n", __DATE__, __TIME__);
-    Serial.println("Simplified version with Octal SPI support");
+    Serial.println("a2mega co-processor: menu, SD disk serving, WiFi bridge");
     Serial.println("Serial forwarding mode active. Use '+++' to enter CLI mode.");
 
     cli_mode = false;
 
     pinMode(PIN_FPGA_DONE, INPUT_PULLUP);
-    pinMode(PIN_LED0, OUTPUT);
+
+    start_subsystems();
 }
 
 void loop() {
-    digitalWrite(PIN_LED0, digitalRead(PIN_FPGA_DONE));
+    // Late bring-up: keep probing until the FPGA answers on the OSPI link
+    // (it may still be configuring at ESP32 boot).
+    if (!subsystems_up) {
+        static uint32_t last_try = 0;
+        if (millis() - last_try > 500) {
+            last_try = millis();
+            start_subsystems();
+        }
+    } else {
+        // Network servicing (W5100 doorbells + WiFi uplink), same task.
+        w5100_poll();
+        wifi_bridge_poll();
+    }
 
     // Handle USB JTAG connection changes
     bool usb_is_connected = usb_serial_jtag_is_connected();

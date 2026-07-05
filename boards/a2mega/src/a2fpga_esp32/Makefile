@@ -1,8 +1,8 @@
 # ESP32-S3 Arduino CLI Makefile
-# A2FPGA ESP32 project (Simplified with Octal SPI)
+# A2FPGA ESP32 co-processor firmware (a2mega board)
 
-# Configuration - Adafruit QT Py ESP32-S3 (4M Flash 2M PSRAM)
-BOARD = adafruit_qtpy_esp32s3_n4r2
+# Configuration - ESP32-S3-MINI-1-N8 module on the a2mega (8M flash, no PSRAM)
+BOARD = esp32s3
 PORT ?= /dev/cu.usbmodem*
 BAUD = 115200
 PROJECT_NAME = a2fpga_esp32
@@ -11,13 +11,18 @@ PROJECT_NAME = a2fpga_esp32
 ARDUINO_CLI = arduino-cli
 
 # Board FQBN with specific settings
-FQBN = esp32:esp32:$(BOARD):USBMode=hwcdc,CDCOnBoot=cdc,CPUFreq=240,UploadMode=default,PartitionScheme=no_ota
+FQBN = esp32:esp32:$(BOARD):USBMode=hwcdc,CDCOnBoot=cdc,CPUFreq=240,FlashSize=8M,PSRAM=disabled,PartitionScheme=default_8MB
 
 # Source files
 SKETCH = a2fpga_esp32.ino
 CPP_FILES = a2fpga_jtag.cpp
-C_FILES = a2fpga_ospi_link.c a2fpga_spi_service.c
-HEADER_FILES = a2fpga_jtag.h a2fpga_ospi_link.h a2fpga_spi_service.h
+C_FILES = a2fpga_ospi_link.c a2fpga_spi_service.c fpga_link.c fpga_screen.c \
+          osd_console.c menu.c settings.c disk.c gcr_dsk.c w5100.c \
+          wifi_bridge.c fpga_jtag.c fpgaupdate.c
+HEADER_FILES = a2fpga_jtag.h a2fpga_ospi_link.h a2fpga_spi_service.h \
+               a2fpga_regs.h fpga_link.h fpga_screen.h osd_console.h menu.h \
+               net_status.h settings.h disk.h gcr_dsk.h w5100.h \
+               wifi_bridge.h fpga_jtag.h fpgaupdate.h
 ALL_SOURCES = $(SKETCH) $(CPP_FILES) $(C_FILES) $(HEADER_FILES)
 
 # Default target
