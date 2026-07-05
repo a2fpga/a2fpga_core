@@ -43,6 +43,8 @@ building; hardware bring-up of the new co-processor paths is next. See
 - USB-A port is wired to the FPGA (usb_hid_host core), not the ESP32;
   micro-SD, WiFi, and JTAG-to-FPGA are on the ESP32
 - Disk track/HDD block buffers are BSRAM (XFER SPACE 4/5), not DDR3
+- ⚠️ **BSRAM is 118/118 (full).** New BSRAM consumers must reclaim first —
+  the Ensoniq 64KB sound RAM (32 BSRAMs) can move to its idle DDR3 ports
 
 ## Build Status
 
