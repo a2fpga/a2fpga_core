@@ -16,8 +16,28 @@ For development, you can use the SRAM program option for testing builds (will lo
 
 `openFPGALoader -c esp32s3 boards/a2mega/impl/pnr/a2mega.fs`
 
+## ESP32 co-processor (Enhanced feature set)
 
-Coming soon
+The on-board ESP32-S3 runs the a2mega port of the a2n20v2-Enhanced feature
+set (see [docs/ESP32_ENHANCED_PORT.md](docs/ESP32_ENHANCED_PORT.md)):
+
+- **On-screen menu & console** rendered by the FPGA's OSD overlay, driven by
+  a USB gamepad plugged into the board's USB-A port (handled by the on-FPGA
+  `usb_hid_host` core; SELECT toggles Apple II ⇄ menu, Y toggles menu ⇄ console)
+- **Disk-image serving from the micro-SD card**: Disk II (.nib/.dsk/.do/.po/.2mg)
+  and ProDOS hard disk (.hdv/.po/.2mg) volumes, with a file picker and
+  subdirectory browsing
+- **Uthernet II (W5100) networking over WiFi**: the FPGA emulates the W5100 in
+  MACRAW mode and the ESP32 bridges frames to WiFi with MAC NAT. Configure
+  credentials in `A2FPGA/wifi.txt` on the SD card (line 1 SSID, line 2 password)
+- **FPGA core self-update** from a bitstream file on the SD card (menu →
+  Firmware → FPGA UPDATE), via bit-banged JTAG to the GW5A's config flash
+- **Runtime slot configuration** from the menu
+
+The ESP32 firmware lives in [`src/a2fpga_esp32/`](src/a2fpga_esp32/) and builds
+with `arduino-cli` (`make compile` in that directory). The ESP32 itself is
+reflashed over its USB-C port; it also acts as the USB JTAG bridge that
+openFPGALoader uses to program the FPGA.
 
 ## Documentation
 
@@ -29,4 +49,5 @@ Coming soon
   - [DDR3 480p framebuffer design](docs/ddr3_framebuffer_480p_design.md)
   - [Scan timer design](docs/scan_timer_design.md)
   - [ESP32 OSPI protocol & design](docs/ESP32_OSPI_DESIGN.md)
+  - [ESP32 Enhanced feature-set port (menu, disks, WiFi, self-update)](docs/ESP32_ENHANCED_PORT.md)
   - [TransWarp GS reference](docs/twgs_reference.md)
