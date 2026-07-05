@@ -779,7 +779,9 @@ static const menu_screen_t SCR_STATUS = { "SYSTEM STATUS", status_build };
 /* ======================= SCREEN: FIRMWARE ================================= */
 /* FPGA core update (fpgaupdate state machine). MCU update items from the
  * BL616 menu are gone: the ESP32 reflashes over its own USB-C port. */
-static const char *const k_fpga_exts[] = { "fs", "bin", NULL };
+/* .bin only: the build's .fs is the 20MB ASCII bitstream (rejected by the
+ * updater's size cap anyway); impl/pnr/a2mega.bin is the flashable binary. */
+static const char *const k_fpga_exts[] = { "bin", NULL };
 
 static void fpga_pick(int id)
 {

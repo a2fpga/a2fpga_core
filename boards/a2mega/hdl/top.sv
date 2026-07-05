@@ -1602,16 +1602,11 @@ module top #(
         .OEN(!esp_data_oe)      // Output enable (active low for IOBUF)
     );
 
-    // Synchronize SCLK to logic clock domain
-    wire esp_sclk_sync;
-    cdc_denoise cdc_esp_sclk (
-        .clk(clk_logic_w),
-        .i(esp_sclk),
-        .o(esp_sclk_sync),
-        .o_n(),
-        .o_posedge(),
-        .o_negedge()
-    );
+    // SCLK goes to the connector RAW: the protocol processor has its own
+    // 2FF synchronizer, and stacking cdc_denoise on top skewed the byte
+    // sample point 55-110 ns past the SCLK edge — beyond the master's
+    // data-change edge at 10+ MHz, which made the FPGA deaf to the link
+    // (live-debugged failure). Matched 2FF-vs-2FF paths sample mid-window.
 
     // ESP32 control interfaces. The F18A GPU interface is a placeholder (the
     // SuperSprite has its own tied-off instance); esp_video_control_if.enable
@@ -1627,7 +1622,7 @@ module top #(
     ) esp32_ospi (
         .clk(clk_logic_w),
         .rst_n(device_reset_n_w),
-        .sclk(esp_sclk_sync),
+        .sclk(esp_sclk),
         .data_i(esp_data_i),
         .data_o(esp_data_o),
         .data_oe(esp_data_oe),

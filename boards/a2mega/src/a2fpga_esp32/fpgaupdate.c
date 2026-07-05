@@ -1,8 +1,9 @@
 /*
  * fpgaupdate.c — FPGA bitstream self-update from the SD card.
  *
- * Writes a Gowin binary bitstream (the a2mega build emits binary FORMAT at
- * impl/pnr/a2mega.fs) into the GW5AT-60's external SPI config flash over
+ * Writes a Gowin binary bitstream (impl/pnr/a2mega.bin — NOT the .fs,
+ * which is the 20MB ASCII form) into the GW5AT-60's external SPI config
+ * flash over
  * bit-banged JTAG (fpga_jtag.c). There is no staging step: the running
  * bitstream must be killed (SRAM erase) before the flash is reachable, so
  * the screen and Apple II are down for the whole write. The menu paints a

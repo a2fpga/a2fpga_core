@@ -176,7 +176,11 @@ module esp32_ospi_proto_proc #(
                 data_out <= rd_buf_valid ? rd_buf : 8'hFF;
                 data_oe <= 1;
             end else if (reg_resp_cnt == 2'd2) begin
-                data_out <= reg_read_value;
+                // Live mux, NOT a value latched at the opcode strobe:
+                // reg_idx settles one clk after the strobe, and this fall is
+                // later still — a latched value is the PREVIOUS command's
+                // register (live-tested failure mode).
+                data_out <= reg_rdata;
                 data_oe <= 1;
             end else if (reg_resp_cnt == 2'd1) begin
                 data_out <= status_byte;

@@ -54,7 +54,7 @@ esac
 cmd=("$LOADER" "${tag[@]}")
 if [[ "$mode" == "flash" ]]; then
     if [[ "$esp32s3" == "1" ]]; then
-        cmd+=(--bulk-erase -f)     # ESP32S3-programmed board: erase + write SPI flash
+        cmd+=(--bulk-erase -f --verify)  # ESP32S3 bridge: erase + write + read-back verify
     else
         cmd+=(-f)                  # write to SPI flash (persistent)
     fi
@@ -62,10 +62,29 @@ fi
 cmd+=("$fs")
 
 if [[ "$board" == "a2mega" ]]; then
-    echo "NOTE (DDR3): power-cycle the board between flashes. Reprogramming without a power"
-    echo "             cycle can fail DDR3 init and produce a black screen that looks like a logic bug."
+    echo "NOTE (a2mega): POWER THE HOST APPLE OFF before flashing — flashing with the"
+    echo "               machine live fails intermittently (verified on hardware)."
+    echo "NOTE (a2mega): power-cycle the board after flashing. The config-load CRC makes"
+    echo "               the heartbeat LED after a power cycle the real write verifier;"
+    echo "               a 'Done' without --verify has produced corrupt flash."
 fi
 
 echo ">> ${cmd[*]}"
 [[ "${DRY_RUN:-}" == "1" ]] && { echo "-- DRY RUN -- not executed."; exit 0; }
-"${cmd[@]}"
+
+if [[ "$esp32s3" == "1" && "$mode" == "flash" ]]; then
+    # The esp_usb_jtag bridge drops status reads intermittently during long
+    # flash sessions (~50% per-attempt failure observed); retry a few times.
+    for attempt in 1 2 3 4 5; do
+        echo ">> flash attempt $attempt"
+        if "${cmd[@]}"; then
+            exit 0
+        fi
+        echo "!! attempt $attempt failed; retrying..."
+        sleep 3
+    done
+    echo "!! all flash attempts failed — try replugging the USB (bridge reset) and rerun"
+    exit 1
+else
+    "${cmd[@]}"
+fi

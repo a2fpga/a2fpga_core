@@ -82,7 +82,11 @@ static const ospi_pins_t OSPI_PINS = {
     .cs   = -1,     // no CS — the protocol uses sync-pattern framing
 };
 
-static const int SPI_HZ = 2 * 1000 * 1000;  // 10 MHz for bring-up: the FPGA read
+static const int SPI_HZ = 4 * 1000 * 1000;  // reg path is clean at 8 MHz but
+                                             // XFER payload reads outrun the
+                                             // proto's 1-byte read pipeline
+                                             // above ~4 MHz (FF fill) — add a
+                                             // fabric-side prefetch to go higher  // 10 MHz for bring-up: the FPGA read
                                              // pipeline (2 cycles @ 54 MHz) is marginal
                                              // against back-to-back 20 MHz RX byte slots
 
@@ -662,7 +666,13 @@ void loop() {
     if (cli_mode) {
         if (Serial.available()) {
             String s = Serial.readStringUntil('\n');
+            // Hold the FPGA-link mutex across the whole command: the CLI's
+            // a2spi_* calls otherwise race the disk/menu/w5100 tasks'
+            // transactions on the same SPI device — live-observed as an IDF
+            // spi_device_transmit assert (ret_trans == trans_desc) crash.
+            fpga_link_lock();
             cmd_process(s);
+            fpga_link_unlock();
         }
     } else {
         if (Serial.available()) {

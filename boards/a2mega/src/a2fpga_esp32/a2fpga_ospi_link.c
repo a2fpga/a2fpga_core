@@ -187,14 +187,8 @@ static esp_err_t reg_read_once(ospi_link_t *l, uint8_t reg,
 
     if (l->octal_mode) {
         uint8_t rx[2] = {0};
-        // TEMPORARY (remove after the proto-proc live-reg_rdata fix is in
-        // the flashed bitstream): current fabric returns the PREVIOUS
-        // command's register value on the first read — issue the read twice
-        // and keep the second answer.
         ESP_RETURN_ON_ERROR(xfer(l->dev, tx, NULL, o, true), TAG, "rd hdr");
         ESP_RETURN_ON_ERROR(xfer_rx(l->dev, rx, 2, true), TAG, "rd resp");
-        ESP_RETURN_ON_ERROR(xfer(l->dev, tx, NULL, o, true), TAG, "rd hdr2");
-        ESP_RETURN_ON_ERROR(xfer_rx(l->dev, rx, 2, true), TAG, "rd resp2");
         *val = rx[0];
         if (status_out) *status_out = rx[1];
     } else {
