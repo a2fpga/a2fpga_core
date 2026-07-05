@@ -456,11 +456,12 @@ String check_escape_sequence(char c) {
 // Subsystem bring-up
 // ============================================================================
 
-// Apply DHCP/static-IP changes from the menu. The Apple II's own IP stack
-// (via the W5100) configures itself; the ESP32 netif keeps DHCP for its own
-// address, so there is nothing to reconfigure here yet.
+// Apply DHCP/static-IP changes from the menu to the ESP32's WiFi netif.
+// (The Apple II's own IP stack, over the W5100, configures itself.)
 extern "C" void menu_hook_net_apply(void) {
-    Serial.println("[net] settings applied (Apple II stack owns its own IP config)");
+    a2_settings_t *s = settings();
+    wifi_bridge_config_ip(s->dhcp_enable != 0, s->static_ip, s->static_mask, s->static_gw);
+    Serial.printf("[net] applied %s config\n", s->dhcp_enable ? "DHCP" : "static IP");
 }
 
 static bool mount_sd() {
@@ -479,25 +480,68 @@ static bool mount_sd() {
     return true;
 }
 
-// WiFi credentials: /sdcard/A2FPGA/wifi.txt (line 1 = SSID, line 2 = PSK)
-// overrides and persists into settings; otherwise use the stored settings.
+// WiFi configuration file: wifi.txt on the SD card (root, with
+// /sdcard/A2FPGA/wifi.txt as a fallback location).
+//   line 1: SSID
+//   line 2: password
+//   lines 3-5 (optional): static IP address, netmask, gateway
+// When lines 3-5 are absent (or unparsable), DHCP is assumed. The parsed
+// configuration is persisted into settings so it survives without the card.
+static bool parse_ip4(const char *str, uint8_t out[4]) {
+    unsigned a, b, c, d;
+    if (sscanf(str, "%u.%u.%u.%u", &a, &b, &c, &d) != 4)
+        return false;
+    if (a > 255 || b > 255 || c > 255 || d > 255)
+        return false;
+    out[0] = a; out[1] = b; out[2] = c; out[3] = d;
+    return true;
+}
+
 static void load_wifi_credentials() {
     a2_settings_t *s = settings();
-    FILE *f = fopen("/sdcard/A2FPGA/wifi.txt", "r");
-    if (f) {
-        char ssid[64] = {0}, psk[96] = {0};
-        if (fgets(ssid, sizeof(ssid), f)) {
-            ssid[strcspn(ssid, "\r\n")] = 0;
-            if (fgets(psk, sizeof(psk), f))
-                psk[strcspn(psk, "\r\n")] = 0;
+    FILE *f = fopen("/sdcard/wifi.txt", "r");
+    if (!f)
+        f = fopen("/sdcard/A2FPGA/wifi.txt", "r");
+    if (!f)
+        return;
+
+    char line[5][96];
+    int nlines = 0;
+    while (nlines < 5 && fgets(line[nlines], sizeof(line[0]), f)) {
+        line[nlines][strcspn(line[nlines], "\r\n")] = 0;
+        nlines++;
+    }
+    fclose(f);
+
+    if (nlines < 1 || !line[0][0])
+        return;
+
+    const char *ssid = line[0];
+    const char *psk  = (nlines >= 2) ? line[1] : "";
+
+    uint8_t ip[4] = {0}, mask[4] = {0}, gw[4] = {0};
+    bool have_static = (nlines >= 5) &&
+                       parse_ip4(line[2], ip) &&
+                       parse_ip4(line[3], mask) &&
+                       parse_ip4(line[4], gw);
+
+    bool changed = strcmp(s->wifi_ssid, ssid) || strcmp(s->wifi_psk, psk) ||
+                   (s->dhcp_enable != (have_static ? 0 : 1)) ||
+                   (have_static && (memcmp(s->static_ip, ip, 4) ||
+                                    memcmp(s->static_mask, mask, 4) ||
+                                    memcmp(s->static_gw, gw, 4)));
+    if (changed) {
+        strlcpy(s->wifi_ssid, ssid, sizeof(s->wifi_ssid));
+        strlcpy(s->wifi_psk, psk, sizeof(s->wifi_psk));
+        s->dhcp_enable = have_static ? 0 : 1;
+        if (have_static) {
+            memcpy(s->static_ip, ip, 4);
+            memcpy(s->static_mask, mask, 4);
+            memcpy(s->static_gw, gw, 4);
         }
-        fclose(f);
-        if (ssid[0] && (strcmp(s->wifi_ssid, ssid) || strcmp(s->wifi_psk, psk))) {
-            strlcpy(s->wifi_ssid, ssid, sizeof(s->wifi_ssid));
-            strlcpy(s->wifi_psk, psk, sizeof(s->wifi_psk));
-            settings_save();
-            Serial.printf("[net] WiFi credentials updated from wifi.txt (%s)\n", ssid);
-        }
+        settings_save();
+        Serial.printf("[net] wifi.txt: ssid '%s', %s\n", ssid,
+                      have_static ? "static IP" : "DHCP");
     }
 }
 
@@ -550,12 +594,15 @@ static void start_subsystems() {
         load_wifi_credentials();
     a2_settings_t *s = settings();
     if (s->wifi_ssid[0]) {
+        wifi_bridge_config_ip(s->dhcp_enable != 0, s->static_ip,
+                              s->static_mask, s->static_gw);
         if (wifi_bridge_init(s->wifi_ssid, s->wifi_psk))
-            osd_log("WIFI: JOINING %s", s->wifi_ssid);
+            osd_log("WIFI: JOINING %s (%s)", s->wifi_ssid,
+                    s->dhcp_enable ? "DHCP" : "STATIC IP");
         else
             osd_log("WIFI: INIT FAILED");
     } else {
-        osd_log("WIFI: NOT CONFIGURED (A2FPGA/WIFI.TXT)");
+        osd_log("WIFI: NOT CONFIGURED (WIFI.TXT)");
     }
 
     xTaskCreatePinnedToCore(disk_task, "disk", 8192, NULL, 5, NULL, 1);

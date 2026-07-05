@@ -38,6 +38,12 @@ static bool         s_apple_valid;
 static char         s_ssid[33];
 static esp_netif_t *s_netif;
 
+/* Static IP config (wifi.txt lines 3-5 / menu Network screen). When
+ * s_use_static is false the DHCP client runs. */
+static bool         s_use_static;
+static bool         s_static_applied;   /* status flag for net_connected() */
+static uint8_t      s_cfg_ip[4], s_cfg_mask[4], s_cfg_gw[4];
+
 /* Diagnostics */
 static volatile uint32_t s_rx_drop_ring;   /* ingress dropped: SPSC ring full */
 static volatile uint32_t s_tx_err;         /* esp_wifi_internal_tx failures */
@@ -285,6 +291,52 @@ static void on_wifi_event(void *arg, esp_event_base_t base, int32_t id, void *da
     }
 }
 
+/* Apply the stored DHCP/static-IP choice to the netif (no-op until the
+ * netif exists). Static config takes effect immediately; DHCP restarts the
+ * client and the address arrives via IP_EVENT_STA_GOT_IP. */
+static void apply_ip_config(void)
+{
+    if (!s_netif)
+        return;
+
+    bool zero_ip = !(s_cfg_ip[0] | s_cfg_ip[1] | s_cfg_ip[2] | s_cfg_ip[3]);
+    if (s_use_static && !zero_ip) {
+        esp_netif_ip_info_t info;
+        memset(&info, 0, sizeof(info));
+        info.ip.addr      = (uint32_t)s_cfg_ip[0] | ((uint32_t)s_cfg_ip[1] << 8) |
+                            ((uint32_t)s_cfg_ip[2] << 16) | ((uint32_t)s_cfg_ip[3] << 24);
+        info.netmask.addr = (uint32_t)s_cfg_mask[0] | ((uint32_t)s_cfg_mask[1] << 8) |
+                            ((uint32_t)s_cfg_mask[2] << 16) | ((uint32_t)s_cfg_mask[3] << 24);
+        info.gw.addr      = (uint32_t)s_cfg_gw[0] | ((uint32_t)s_cfg_gw[1] << 8) |
+                            ((uint32_t)s_cfg_gw[2] << 16) | ((uint32_t)s_cfg_gw[3] << 24);
+        esp_netif_dhcpc_stop(s_netif);
+        esp_err_t err = esp_netif_set_ip_info(s_netif, &info);
+        if (err == ESP_OK) {
+            s_ip = info.ip.addr;
+            s_static_applied = true;
+            ESP_LOGI(TAG, "static ip %u.%u.%u.%u mask %u.%u.%u.%u gw %u.%u.%u.%u",
+                     s_cfg_ip[0], s_cfg_ip[1], s_cfg_ip[2], s_cfg_ip[3],
+                     s_cfg_mask[0], s_cfg_mask[1], s_cfg_mask[2], s_cfg_mask[3],
+                     s_cfg_gw[0], s_cfg_gw[1], s_cfg_gw[2], s_cfg_gw[3]);
+        } else {
+            ESP_LOGE(TAG, "esp_netif_set_ip_info: %s", esp_err_to_name(err));
+        }
+    } else {
+        s_static_applied = false;
+        esp_netif_dhcpc_start(s_netif);  /* idempotent; INVALID_STATE if running */
+    }
+}
+
+void wifi_bridge_config_ip(bool dhcp, const uint8_t ip[4],
+                           const uint8_t mask[4], const uint8_t gw[4])
+{
+    s_use_static = !dhcp;
+    if (ip)   memcpy(s_cfg_ip, ip, 4);     else memset(s_cfg_ip, 0, 4);
+    if (mask) memcpy(s_cfg_mask, mask, 4); else memset(s_cfg_mask, 0, 4);
+    if (gw)   memcpy(s_cfg_gw, gw, 4);     else memset(s_cfg_gw, 0, 4);
+    apply_ip_config();
+}
+
 static void on_ip_event(void *arg, esp_event_base_t base, int32_t id, void *data)
 {
     (void)arg; (void)base;
@@ -329,6 +381,8 @@ bool wifi_bridge_init(const char *ssid, const char *psk)
         s_netif = esp_netif_create_default_wifi_sta();
     if (!s_netif) return false;
 
+    apply_ip_config();   /* honor a static config set before init */
+
     wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
     err = esp_wifi_init(&cfg);
     if (err != ESP_OK) {
@@ -372,5 +426,5 @@ bool wifi_bridge_init(const char *ssid, const char *psk)
 /* ---- net status helpers (declared in wifi_bridge.h / net_status.h) ---- */
 
 const char *net_ssid(void)   { return s_ssid; }
-bool net_connected(void)     { return s_link_up && s_got_ip; }
+bool net_connected(void)     { return s_link_up && (s_got_ip || s_static_applied); }
 uint32_t net_ip(void)        { return s_ip; }

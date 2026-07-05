@@ -43,6 +43,14 @@ extern "C" {
  * password only shows up later as net_connected() == false. */
 bool wifi_bridge_init(const char *ssid, const char *psk);
 
+/* Configure the ESP32's own IPv4 address on the WiFi uplink. Call any time
+ * (before or after init): with dhcp=true the DHCP client runs (default);
+ * with dhcp=false the given ip/mask/gw (4 bytes each, first octet first)
+ * are applied statically. An all-zero ip with dhcp=false falls back to
+ * DHCP. */
+void wifi_bridge_config_ip(bool dhcp, const uint8_t ip[4],
+                           const uint8_t mask[4], const uint8_t gw[4]);
+
 /* Drain queued ingress frames into w5100_macraw_rx(). Call from the same main
  * loop (same task) as w5100_poll(); ~1 kHz cadence recommended. */
 void wifi_bridge_poll(void);

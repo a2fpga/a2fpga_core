@@ -28,8 +28,12 @@ set (see [docs/ESP32_ENHANCED_PORT.md](docs/ESP32_ENHANCED_PORT.md)):
   and ProDOS hard disk (.hdv/.po/.2mg) volumes, with a file picker and
   subdirectory browsing
 - **Uthernet II (W5100) networking over WiFi**: the FPGA emulates the W5100 in
-  MACRAW mode and the ESP32 bridges frames to WiFi with MAC NAT. Configure
-  credentials in `A2FPGA/wifi.txt` on the SD card (line 1 SSID, line 2 password)
+  MACRAW mode and the ESP32 bridges frames to WiFi with MAC NAT. Configure it
+  with a `wifi.txt` in the root of the SD card:
+  - line 1: SSID
+  - line 2: password
+  - lines 3-5 (optional): static IP address, netmask, and gateway for the
+    ESP32's own address — when absent, DHCP is assumed
 - **FPGA core self-update** from a bitstream file on the SD card (menu →
   Firmware → FPGA UPDATE), via bit-banged JTAG to the GW5A's config flash
 - **Runtime slot configuration** from the menu

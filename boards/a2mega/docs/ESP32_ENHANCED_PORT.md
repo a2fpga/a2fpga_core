@@ -121,7 +121,9 @@ ported from `a2n20_bl616/firmware_host`:
 - `menu.*`, `osd_console.*` — ported UI, gamepad polled from FPGA regs
 - `settings.*` — same blob layout, stored in NVS (Preferences)
 - `disk.*`, `gcr_dsk.*` — image mount/track-serve, FatFS→VFS (`SD_MMC`)
-- `w5100_bridge.*` — W5100 poll loop + WiFi raw-frame MAC-NAT bridge
+- `w5100_bridge.*` — W5100 poll loop + WiFi raw-frame MAC-NAT bridge.
+  Configured by `wifi.txt` in the SD card root (line 1 SSID, line 2
+  password; optional lines 3-5 = static IP/netmask/gateway, else DHCP)
 - `fpgaupdate.*` — GW5AT JTAG flash writer (reuses `a2fpga_jtag` bit-bang;
   GW5A IDCODE/opcodes to verify at bring-up)
 
