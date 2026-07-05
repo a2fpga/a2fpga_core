@@ -18,6 +18,9 @@ module bl616_spi_connector #(
     input  wire clk,
     input  wire rst_n,
 
+    // 6551 control reg (baud in [3:0]) for reg 0x2F (SSC bridge)
+    input  wire [7:0] ssc_ctl_i,
+
     // SPI pins
     input  wire spi_cs_n,
     input  wire spi_sclk,
@@ -774,6 +777,7 @@ module bl616_spi_connector #(
             7'h2B: reg_rdata = hdd_volumes[1].lba[7:0];
             7'h2C: reg_rdata = hdd_volumes[1].lba[15:8];
             7'h2E: reg_rdata = {7'b0, a2_rst_release_r};
+            7'h2F: reg_rdata = ssc_ctl_i;   // SSC 6551 CTL (baud in [3:0])
 
             // Page 3: A2 bus control
             7'h30: reg_rdata = {7'b0, a2bus_ready_r};

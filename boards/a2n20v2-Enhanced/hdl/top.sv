@@ -570,6 +570,7 @@ module top #(
         .CLOCK_SPEED_HZ(CLOCK_SPEED_HZ),
         .VERSION_STR(`BUILD_DATETIME)
     ) bl616_spi (
+        .ssc_ctl_i(ssc_ctl_w),
         .clk(clk_logic_w),
         .rst_n(device_reset_n_w),
         .spi_cs_n(spi_cs_n),
@@ -1079,6 +1080,7 @@ module top #(
 
     wire ssc_uart_rx;
     wire ssc_uart_tx;
+    wire [7:0] ssc_ctl_w;
     assign uart_tx = ssc_uart_tx;
     assign ssc_uart_rx = uart_rx;
 
@@ -1098,7 +1100,8 @@ module top #(
 
         .rom_en_o(ssc_rom_en),
         .uart_rx_i(ssc_uart_rx),
-        .uart_tx_o(ssc_uart_tx)
+        .uart_tx_o(ssc_uart_tx),
+        .ssc_ctl_o(ssc_ctl_w)
     );
 
     // Uthernet II (W5100) Ethernet card

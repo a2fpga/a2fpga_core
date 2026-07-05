@@ -41,7 +41,8 @@
 #include "osd_console.h"    /* shared boot/status console */
 #include "settings.h"       /* persisted preferences (flash) */
 #include "menu.h"
-#include "telnetd.h"           /* gamepad menu system */
+#include "telnetd.h"
+#include "sscbridge.h"           /* gamepad menu system */
 
 struct netif;
 static void net_apply_static(struct netif *nif);   /* defined below */
@@ -1213,6 +1214,9 @@ int main(void)
 
     /* Remote console/menu mirror on TCP port 23. */
     telnetd_init();
+
+    /* Super Serial Card bridge: 6551 wire <-> Hayes modem / TCP. */
+    sscbridge_init();
 
     dbg_stage(STG_SCHED);
     dbg_set(F_THREAD_UP);

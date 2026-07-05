@@ -331,6 +331,27 @@ This works with no gamepad attached, and it is the best way to include
 diagnostics in a problem report: copy the console text instead of
 photographing the screen.
 
+## Modem on the Super Serial Card (dial the Internet)
+
+The virtual Super Serial Card (slot 2 by default) is wired to a
+Hayes-compatible modem emulation with TCP behind it. Any period comm
+program (ProTERM, Z-Link, ...) configured for a Hayes modem on slot 2
+works — any baud rate, since the bridge follows the 6551's programmed
+speed. Leave hardware flow control off.
+
+```
+AT                      OK
+ATI                     bridge info + the board's IP
+ATDT bbs.example.com    connect (port defaults to 23)
+ATDT 192.168.1.50:6502  explicit port
++++  then ATH           escape (1 s guard) and hang up
+```
+
+When the destination port is 23 the bridge speaks just enough telnet to
+keep servers happy. Party trick: `ATDT <the board's own IP>` connects the
+Apple II to the board's remote console (previous section) — a IIgs as a
+terminal on its own coprocessor.
+
 ## DIP switches
 
 The A2N20v2 card's 4-position DIP switch:
