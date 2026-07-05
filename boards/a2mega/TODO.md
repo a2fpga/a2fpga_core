@@ -27,37 +27,32 @@ clean), OSPI link (at 2 MHz + workarounds below), OSD console rendering,
 SD disk serving — **ProDOS 8 boots from a .dsk over the link**, WiFi
 joins + DHCP, boot-time slot config, reset policy.
 
-Open issues from the session, in priority order:
+Fixed later the same day (commit 3ed97d1): proto-proc stale-read + OSPI
+sync-skew flashed (link clean at 4 MHz, shim removed), CLI mutexed,
+fpgaupdate takes .bin, flash.sh hardened (--verify/retries/procedure).
 
-- [ ] Flash the esp32_ospi_proto_proc live-reg_rdata build (built 07-05
-      11:58, timing-clean, never flashed — needs IIgs powered off), then
-      remove the double-read shim in a2fpga_ospi_link.c
-- [ ] Fabric: fix the OSPI sync-skew (feed the proto proc raw esp_sclk —
-      it has its own 2FF; cdc_denoise on top skews the sample point
-      55-110ns) and re-tune the SPI clock upward from 2 MHz
+Open issues, in priority order:
+
+- [ ] XFER payload reads outrun the proto's 1-byte read pipeline above
+      ~4 MHz (FF fill; reg path is clean at 8 MHz) — add a small
+      fabric-side read prefetch to raise the link clock
 - [ ] Runtime slot remapping breaks the moved card's I/O (boot-time map
       works; after SLOT_SELECT/CARD/RECONFIG the card's ROM reads work
       but the drive never serves data — repro: remap DiskII to slot 4/6,
       PR#n hangs with motor on, zero sectors)
-- [ ] CLI SPI commands bypass the fpga_link mutex — races the disk/menu/
-      w5100 tasks and can crash the firmware; also spir len 4096 crashes
-      outright (cap + route through fpga_link)
 - [ ] DOS 3.3 master image (dos_3.3.dsk) crashes deterministically at
       00/1FBA with RAMRD/ALTZP flipped in Q — ProDOS boots fine, track
       content verified byte-identical to reference GCR, sector 0 + 7 more
       sectors load correctly; likely image/IIgs interplay (try
       dos33_fixed.dsk); park unless it reproduces with known-good images
-- [ ] SD 4-bit mount fails, 1-bit works — audit PIN_SD_D1/D2/D3 against
-      the board (D2=IO35 was inferred, not confirmed)
+- [ ] SD 4-bit mount fails ("corrupted data after increasing clock
+      frequency"), 1-bit works — audit PIN_SD_D1/D2/D3 against the board
+      (D2=IO35 was inferred, not confirmed)
 - [ ] SD mount is boot-time-only — retry on card-detect (IO46)
-- [ ] fpgaupdate: target impl/pnr/a2mega.bin (2.6 MB binary), not the
-      20 MB ASCII .fs; fix the menu picker extension filter
-- [ ] tools/flash.sh (a2mega): add --verify + bounded retries; document
-      "power the host machine off before flashing" (verified failure
-      mode) and "openFPGALoader flash writes are flaky — heartbeat after
-      power cycle is the real verifier (config CRC)"
 - [ ] Arduino/IDF logging: ESP_LOGI is compiled out by the precompiled
       core — use printf (or Serial) for anything that must be visible
+- [ ] Restore the per-track serve-log dedup in disk.c once boot serving
+      is settled (currently logs every serve for bring-up)
 
 ## DDR3 / BSRAM roadmap (from the 2026-07 fresh-eyes review)
 
