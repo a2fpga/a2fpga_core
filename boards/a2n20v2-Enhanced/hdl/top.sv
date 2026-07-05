@@ -24,6 +24,13 @@
 `define ENSONIQ
 `define BL616_SPI
 
+// DUAL_RATE_SDRAM: run the SDRAM controller at 108 MHz (GS-style split clock,
+// PLL 27->108 + CLKDIV2 for the 54 MHz logic clock, mem_port_cdc on every
+// port). Prerequisite for the beam-accurate framebuffer. Leave undefined for
+// the shipping single 54 MHz domain; the a2n20v2_enhanced_dualrate.gprj
+// project defines it via top_dualrate.sv and uses the matching .sdc.
+//`define DUAL_RATE_SDRAM
+
 `include "datetime.svh"
 
 module top #(
@@ -146,7 +153,6 @@ module top #(
     // Clocks
 
     wire clk_logic_w;
-    wire clk_logic_p_w;
     wire clk_logic_lock_w;
     wire clk_pixel_w;
     wire clk_hdmi_w;
@@ -154,8 +160,33 @@ module top #(
     wire hdmi_rst_n_w;
     wire a2_2M;
 
-    // PLL - 54hz from 27
+    wire clk_sdram_w;      // SDRAM controller clock (== clk_logic_w single-rate)
+    wire clk_sdram_p_w;    // phase-shifted SDRAM output clock
     wire clk_pixel_pll_w;  // raw clkoutd from PLL
+
+`ifdef DUAL_RATE_SDRAM
+    // PLL - 108 MHz from 27 (split clock: SDRAM at 108, logic at 54)
+    clk_logic_108 clk_logic_inst (
+        .clkout(clk_sdram_w),  //output clkout (108 MHz)
+        .lock(clk_logic_lock_w),  //output lock
+        .clkoutp(clk_sdram_p_w),  //output clkoutp (108 MHz phase-shifted)
+        .clkoutd(clk_pixel_pll_w),  //output clkoutd (27 MHz)
+        .reset(~rst_n),  //input reset
+        .clkin(clk)  //input clkin
+    );
+
+    // 108 MHz -> 54 MHz logic clock
+    CLKDIV clkdiv2_inst(
+        .CLKOUT(clk_logic_w),
+        .HCLKIN(clk_sdram_w),
+        .RESETN(rst_n),
+        .CALIB(1'b0)
+    );
+    defparam clkdiv2_inst.DIV_MODE = "2";
+    defparam clkdiv2_inst.GSREN = "false";
+`else
+    // PLL - 54hz from 27
+    wire clk_logic_p_w;
     clk_logic clk_logic_inst (
         .clkout(clk_logic_w),  //output clkout
         .lock(clk_logic_lock_w),  //output lock
@@ -164,6 +195,10 @@ module top #(
         .reset(~rst_n),  //input reset
         .clkin(clk)  //input clkin
     );
+
+    assign clk_sdram_w = clk_logic_w;
+    assign clk_sdram_p_w = clk_logic_p_w;
+`endif
 
     // Force pixel clock onto global clock network via BUFG.
     // Pin 13 (spi_sclk) is a clock-capable pin whose routing conflicts with
@@ -212,6 +247,12 @@ module top #(
     // SDRAM Controller signals
     wire sdram_init_complete;
 
+`ifdef DUAL_RATE_SDRAM
+    localparam int MEM_CLOCK_MHZ = 108;
+`else
+    localparam int MEM_CLOCK_MHZ = MEM_MHZ;
+`endif
+
     // SDRAM ports, lower number is higher priority
     localparam VIDEO_MEM_PORT = 0;
     localparam MAIN_MEM_PORT = 1;
@@ -255,7 +296,7 @@ module top #(
     // SPACE 1; unit u's window is byte 0x204000 + u*0x200.
     localparam [PORT_ADDR_WIDTH-1:0] HDD_WORD_BASE     = 21'h081000;  // byte 0x204000
 
-    // Signals for the multiple ports
+    // Signals for the multiple ports (client side, 54 MHz logic domain)
     mem_port_if #(
         .PORT_ADDR_WIDTH(PORT_ADDR_WIDTH),
         .DATA_WIDTH(DATA_WIDTH),
@@ -263,8 +304,20 @@ module top #(
         .PORT_OUTPUT_WIDTH(PORT_OUTPUT_WIDTH)
     ) mem_ports[NUM_PORTS-1:0]();
 
+`ifdef DUAL_RATE_SDRAM
+    // SDRAM-side port interfaces (108 MHz domain)
+    mem_port_if #(
+        .PORT_ADDR_WIDTH(PORT_ADDR_WIDTH),
+        .DATA_WIDTH(DATA_WIDTH),
+        .DQM_WIDTH(DQM_WIDTH),
+        .PORT_OUTPUT_WIDTH(PORT_OUTPUT_WIDTH)
+    ) mem_ports_sdram[NUM_PORTS-1:0]();
+
+    wire sdram_init_complete_raw;  // from sdram_ports (108 MHz domain)
+`endif
+
     sdram_ports #(
-        .CLOCK_SPEED_MHZ(MEM_MHZ),
+        .CLOCK_SPEED_MHZ(MEM_CLOCK_MHZ),
         .NUM_PORTS(NUM_PORTS),
         .PORT_ADDR_WIDTH(PORT_ADDR_WIDTH),
         .PORT_OUTPUT_WIDTH(PORT_OUTPUT_WIDTH),
@@ -289,7 +342,13 @@ module top #(
         .CAS_LATENCY(2),
         .SETTING_REFRESH_TIMER_NANO_SEC(15000),
         .SETTING_T_WR_MIN_WRITE_AUTO_PRECHARGE_RECOVERY_NANO_SEC(16),
+`ifdef DUAL_RATE_SDRAM
+        .SETTING_USE_FAST_INPUT_REGISTER(1),
+        .BURST_LENGTH(2),
+        .READ_BURST_LENGTH(8),
+`else
         .BURST_LENGTH(1),
+`endif
         .PORT_BURST_LENGTH(1),
         .DATA_WIDTH(DATA_WIDTH),
         .ROW_WIDTH(11),
@@ -297,12 +356,18 @@ module top #(
         .PRECHARGE_BIT(10),
         .DQM_WIDTH(DQM_WIDTH)
     ) sdram_ports (
-        .clk(clk_logic_w),
-        .sdram_clk(clk_logic_p_w),
+        .clk(clk_sdram_w),
+        .sdram_clk(clk_sdram_p_w),
         .reset(!device_reset_n_w),
+`ifdef DUAL_RATE_SDRAM
+        .init_complete(sdram_init_complete_raw),
+
+        .ports(mem_ports_sdram),
+`else
         .init_complete(sdram_init_complete),
 
         .ports(mem_ports),
+`endif
 
         .SDRAM_DQ(IO_sdram_dq),
         .SDRAM_A(O_sdram_addr),
@@ -315,6 +380,38 @@ module top #(
         .SDRAM_CKE(O_sdram_cke),
         .SDRAM_CLK(O_sdram_clk)
     );
+
+`ifdef DUAL_RATE_SDRAM
+    // CDC wrappers: 54 MHz clients <-> 108 MHz SDRAM
+    generate
+        for (genvar mem_cdc_i = 0; mem_cdc_i < NUM_PORTS; mem_cdc_i++) begin : mem_cdc
+            mem_port_cdc #(
+                .PORT_ADDR_WIDTH(PORT_ADDR_WIDTH),
+                .DATA_WIDTH(DATA_WIDTH),
+                .DQM_WIDTH(DQM_WIDTH),
+                .PORT_OUTPUT_WIDTH(PORT_OUTPUT_WIDTH)
+            ) cdc_inst (
+                .clk_client(clk_logic_w),   // 54 MHz
+                .clk_sdram(clk_sdram_w),    // 108 MHz
+                .rst_n(device_reset_n_w),
+                .client(mem_ports[mem_cdc_i]),
+                .sdram(mem_ports_sdram[mem_cdc_i])
+            );
+        end
+    endgenerate
+
+    // Sync sdram_init_complete from 108 MHz -> 54 MHz (2FF synchronizer)
+    reg sdram_init_sync1, sdram_init_sync2;
+    always @(posedge clk_logic_w or negedge device_reset_n_w) begin
+        if (!device_reset_n_w) begin
+            {sdram_init_sync1, sdram_init_sync2} <= 2'b0;
+        end else begin
+            sdram_init_sync1 <= sdram_init_complete_raw;
+            sdram_init_sync2 <= sdram_init_sync1;
+        end
+    end
+    assign sdram_init_complete = sdram_init_sync2;
+`endif
 
     // Interface to Apple II
 
@@ -1175,8 +1272,42 @@ module top #(
     assign core_audio_l_w = sg_audio_l + ssp_audio_ext_w + mb_audio_l_ext_w + speaker_audio_ext_w;
     assign core_audio_r_w = sg_audio_r + ssp_audio_ext_w + mb_audio_r_ext_w + speaker_audio_ext_w;
 
-    // CDC FIFO to shift audio to the pixel clock domain from the logic clock domain
+    // CDC to shift audio to the pixel clock domain from the logic clock domain
 
+`ifdef DUAL_RATE_SDRAM
+    // Audio CDC: 54 MHz (CLKDIV2) -> 108 MHz (PLL CLKOUT) -> 27 MHz (PLL CLKOUTD)
+    //
+    // Stage 1: 54->108 MHz is safe because CLKDIV2 guarantees every 54 MHz edge
+    //          IS a 108 MHz edge. The 108 MHz register captures stable data.
+    // Stage 2: 108->27 MHz is safe because both come from the same PLL
+    //          (CLKOUT and CLKOUTD), with PLL-guaranteed phase alignment.
+    //
+    // A direct 54->27 MHz cdc_sampling would be broken here because CLKDIV2
+    // output (54 MHz) and PLL CLKOUTD (27 MHz) don't have a PLL-guaranteed
+    // phase relationship — their alignment depends on the asynchronous
+    // CLKDIV2 RESETN timing. (See the identical structure in the GS board.)
+
+    // Register the 4-input adder result to break the timing path
+    reg signed [15:0] core_audio_l_r, core_audio_r_r;
+    always @(posedge clk_logic_w) begin
+        core_audio_l_r <= core_audio_l_w;
+        core_audio_r_r <= core_audio_r_w;
+    end
+
+    // Stage 1: 54 MHz -> 108 MHz (CLKDIV2 alignment guarantee)
+    reg signed [15:0] audio_l_sdram_r, audio_r_sdram_r;
+    always @(posedge clk_sdram_w) begin
+        audio_l_sdram_r <= core_audio_l_r;
+        audio_r_sdram_r <= core_audio_r_r;
+    end
+
+    // Stage 2: 108 MHz -> 27 MHz (PLL CLKOUT/CLKOUTD phase guarantee)
+    reg [15:0] cdc_audio_l, cdc_audio_r;
+    always @(posedge clk_pixel_w) begin
+        cdc_audio_l <= audio_l_sdram_r;
+        cdc_audio_r <= audio_r_sdram_r;
+    end
+`else
     wire [15:0] cdc_audio_l;
     wire [15:0] cdc_audio_r;
 
@@ -1199,6 +1330,7 @@ module top #(
         .data_in(core_audio_r_w),
         .data_out(cdc_audio_r)
     );
+`endif
 
     localparam [31:0] aflt_rate = 7_056_000;
     localparam [39:0] acx  = 4258969;
