@@ -137,6 +137,18 @@ static bool has_ext(const char *name, const char *ext)
     return true;
 }
 
+/* Case-insensitive name compare for the directory listing sort. */
+static int name_cmp(const char *a, const char *b)
+{
+    while (*a && *b) {
+        int ca = *a | 0x20, cb = *b | 0x20;
+        if (ca != cb)
+            return ca - cb;
+        a++; b++;
+    }
+    return (*a & 0xff) - (*b & 0xff);
+}
+
 /* Format + sector order from the filename extension. .2mg is resolved from its
  * header at mount time (see mount_drive). */
 static disk_fmt_t detect_format(const char *name, gcr_order_t *order)
@@ -911,6 +923,19 @@ void disk_poll(void)
                 e->is_dir = is_dir;
             }
             f_closedir(&dir);
+        }
+        /* Alphabetize within each group (the two passes already put
+         * directories first). FAT returns creation order, which makes big
+         * game folders unnavigable. Insertion sort: n <= DISK_LIST_MAX. */
+        for (int i = 1; i < g_list_count; i++) {
+            disk_list_ent_t tmp = g_list_ents[i];
+            int j = i;
+            while (j > 0 && g_list_ents[j - 1].is_dir == tmp.is_dir &&
+                   name_cmp(g_list_ents[j - 1].name, tmp.name) > 0) {
+                g_list_ents[j] = g_list_ents[j - 1];
+                j--;
+            }
+            g_list_ents[j] = tmp;
         }
         g_list_req  = false;
         g_list_done = true;

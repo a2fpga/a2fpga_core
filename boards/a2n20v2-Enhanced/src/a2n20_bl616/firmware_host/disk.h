@@ -52,10 +52,10 @@ bool disk_remount_pending(void);
  * returns -1 while pending, else the number of entries filled. Directories
  * are always included (is_dir set); files are filtered by exts, a
  * NULL-terminated list of extensions (no dot, case-insensitive).
- * Directories sort before files. */
-#define DISK_LIST_MAX 24
+ * Directories sort before files; each group is sorted alphabetically. */
+#define DISK_LIST_MAX 64
 typedef struct {
-    char name[64];   /* entry name within the directory (LFN; longer skipped) */
+    char name[80];   /* entry name within the directory (LFN; longer skipped) */
     bool is_dir;
 } disk_list_ent_t;
 void disk_list_begin(const char *path, const char *const *exts);
