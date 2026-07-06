@@ -302,19 +302,23 @@ static void mount_drive(int v)
                 bytes = paylen;
             else if (bytes > base)
                 bytes -= base;
-            /* Only floppy-size payloads are Disk II volumes; larger 2mg images
-             * are block devices and belong to the hard-disk path. */
-            if (fmt == FMT_DSK && bytes != DSK_TRACK_BYTES * 35u) {
-                osd_log("DISK II: D%d %s not a 5.25 floppy (%lu B) - skip",
-                        v + 1, name + 3, (unsigned long)bytes);
-                fmt = FMT_NONE;
-            }
         } else {
             fmt = detect_format(name, &order);
             /* Bare .dsk is ambiguous: sniff the actual sector order (.do and
              * .po stay explicit). */
             if (fmt == FMT_DSK && has_ext(name, "dsk"))
                 order = sniff_dsk_order(&g_img[v]);
+        }
+
+        /* Only floppy-size payloads are Disk II volumes. Anything larger
+         * (e.g. an 800K ProDOS .po) is a block device and belongs to the
+         * hard-disk path — serving it here would nibblize garbage geometry
+         * and hang the Apple's boot. */
+        if ((fmt == FMT_DSK && bytes != DSK_TRACK_BYTES * 35u) ||
+            (fmt == FMT_NIB && bytes != MAX_TRACK_BYTES * 35u)) {
+            osd_log("DISK II: D%d %s not a 5.25 floppy (%lu B) - use HDD slot",
+                    v + 1, name + 3, (unsigned long)bytes);
+            fmt = FMT_NONE;
         }
 
         if (fmt == FMT_NONE) {
