@@ -451,16 +451,14 @@ module apple_memory #(
     reg [31:0] video_data_r;
     reg [31:0] vgc_data_r;
 
-    // Format conversion: extract {main_odd, aux_odd, main_even, aux_even}
-    // from cached words 0 (main) and 2 (aux_2000)
-    function automatic [31:0] format_hires_data(input [14:0] offset, input [31:0] w_main, input [31:0] w_aux);
-        logic [31:0] result;
-        if (offset[1] == 1'b0)  // addresses off+0, off+1
-            result = {w_main[15:8], w_aux[15:8], w_main[7:0], w_aux[7:0]};
-        else                     // addresses off+2, off+3
-            result = {w_main[31:24], w_aux[31:24], w_main[23:16], w_aux[23:16]};
-        return result;
-    endfunction
+    // Hires read data uses the same interleave contract as the BSRAM boards
+    // (hdl/memory/apple_memory.sv): interleave_mux(offset[1], main, aux) =
+    // {aux_odd, MAIN_odd, aux_even, MAIN_even} — main bytes land in [23:16]
+    // and [7:0], which is where apple_video_gen reads them (expandHires40
+    // takes the delay bits from vd[23]/vd[7]). A local formatter here used
+    // the opposite pair order ({main,aux,main,aux}), which fed the renderer
+    // aux-bank bytes in every main slot: stable, deterministic scrambling of
+    // hires while text stayed clean.
 
     always @(posedge a2bus_if.clk_logic or negedge a2bus_if.system_reset_n) begin
         if (!a2bus_if.system_reset_n) begin
@@ -602,8 +600,8 @@ module apple_memory #(
                                                           cache_r[2], cache_r[3]);
                             vgc_ready_r <= 1'b1;
                         end else begin
-                            video_data_r  <= format_hires_data(rd_hires_offset_r,
-                                                               cache_r[0], cache_r[2]);
+                            video_data_r  <= interleave_mux(rd_hires_offset_r[1],
+                                                            cache_r[0], cache_r[2]);
                             video_ready_r <= 1'b1;
                         end
                         rd_state_r <= RD_IDLE;

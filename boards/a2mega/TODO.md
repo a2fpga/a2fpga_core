@@ -37,10 +37,14 @@ Open issues, in priority order:
       recovers; regression vs pre-port builds) — instrumented via OSPI
       debug regs 0x70-0x77 + `viddbg` CLI: read C029 write count/last +
       SHRG/use_vgc while stuck to localize (missed bus write vs display mux)
-- [ ] SHR and hires rendering scrambled (text clean → scanout OK; suspect
-      shadow-read burst path / REG-mode IP under load) — check `viddbg`
-      stickies while scrambled: shadow-write drops, vgc missed-hsync,
-      per-port resp-FIFO overflow, shadow-read FSM wedge
+- [ ] SHR and hires rendering scrambled (text clean → scanout OK).
+      HIRES root cause FOUND + FIXED: format_hires_data assembled
+      {main,aux,main,aux} but the shared apple_video_gen contract is
+      interleave_mux = {aux,MAIN,aux,MAIN} — every hires fetch fed the
+      renderer aux-bank bytes (stable scramble, matches symptom). SHR
+      mapping verified byte-identical to the working GS board; if SHR is
+      still scrambled after the fix, suspect m2b0/E1 write routing or
+      LINEARIZE-vs-write ordering — read `viddbg` stickies live
 - [ ] XFER payload reads outrun the proto's 1-byte read pipeline above
       ~4 MHz (FF fill; reg path is clean at 8 MHz) — add a small
       fabric-side read prefetch to raise the link clock
