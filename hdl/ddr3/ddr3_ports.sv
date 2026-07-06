@@ -99,6 +99,8 @@ module ddr3_ports #(
     // Debug (clk_ddr domain) — forces optimizer to preserve CDC FIFO logic
     output wire [NUM_PORTS-1:0]        dbg_req_pending,
     output wire [7:0]                  dbg_arb_state,
+    // Per-port sticky response-FIFO overflow (clk_ddr domain)
+    output wire [NUM_PORTS-1:0]        dbg_resp_overflow,
 
     // DDR3 loopback test result (clk_ddr domain)
     // After init_complete, writes 0xA5..A5 to addr 0, reads back, XOR with expected.
@@ -190,7 +192,8 @@ module ddr3_ports #(
                 .req_done         (cdc_req_done[gi]),
                 .resp_valid       (cdc_resp_valid[gi]),
                 .resp_data        (cdc_resp_data),
-                .init_complete    (init_complete)
+                .init_complete    (init_complete),
+                .dbg_resp_overflow(dbg_resp_overflow[gi])
             );
 
             assign ports[gi].available = cdc_client_available[gi];

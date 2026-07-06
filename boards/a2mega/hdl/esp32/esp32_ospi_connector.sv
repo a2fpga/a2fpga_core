@@ -60,6 +60,18 @@ module esp32_ospi_connector #(
     input  wire [7:0]  pad_btns0_i,      // {Y,X,B,A,R,L,D,U}
     input  wire [7:0]  pad_btns1_i,      // {extra[3:0],2'b0,START,SELECT}
     input  wire [7:0]  key_mod_i,
+
+    // Video-pipeline debug readback (regs 0x70-0x77). Quasi-static bytes,
+    // sampled asynchronously — good enough for CLI inspection, not for
+    // control flow.
+    input  wire [7:0]  dbg_video_ss_i,      // soft-switch/mux snapshot
+    input  wire [7:0]  dbg_c029_cnt_i,      // count of $C029 writes seen
+    input  wire [7:0]  dbg_c029_last_i,     // last data written to $C029
+    input  wire [7:0]  dbg_vgc_hsync_i,     // vgc_gen missed-hsync (per frame)
+    input  wire [7:0]  dbg_shadow_drop_i,   // shadow write FIFO drops (sticky)
+    input  wire [7:0]  dbg_fb_flags_i,      // framebuffer live status flags
+    input  wire [7:0]  dbg_resp_ovfl_i,     // per-port CDC resp overflow (sticky)
+    input  wire [7:0]  dbg_shadow_rd_i,     // apple_memory read FSM snapshot
     input  wire [7:0]  key0_i,
     input  wire [7:0]  key1_i,
 
@@ -199,6 +211,16 @@ module esp32_ospi_connector #(
     localparam REG_GPU_GSTATUS  = 7'h6F;
 
     // Uthernet2 (0x7A)
+    // Video-pipeline debug readback (read-only)
+    localparam REG_DBG_VIDEO_SS   = 7'h70;  // {use_vgc,SHRG,LINEAR,STORE80,PAGE2,MIXED,HIRES,TEXT}
+    localparam REG_DBG_C029_CNT   = 7'h71;
+    localparam REG_DBG_C029_LAST  = 7'h72;
+    localparam REG_DBG_VGC_HSYNC  = 7'h73;
+    localparam REG_DBG_SHADOW_DROP= 7'h74;
+    localparam REG_DBG_FB_FLAGS   = 7'h75;
+    localparam REG_DBG_RESP_OVFL  = 7'h76;  // bit n = DDR3 port n resp-FIFO overflow
+    localparam REG_DBG_SHADOW_RD  = 7'h77;  // {pending,is_vgc,cache_valid,2'b0,rd_state}
+
     localparam REG_U2_DOORBELL  = 7'h7A;
 
     // Memory spaces (XFER via reg 0x7F)
@@ -472,6 +494,16 @@ module esp32_ospi_connector #(
             REG_KEY_MOD:      reg_rdata = key_mod_i;
             REG_KEY_0:        reg_rdata = key0_i;
             REG_KEY_1:        reg_rdata = key1_i;
+
+            // Video-pipeline debug readback
+            REG_DBG_VIDEO_SS:   reg_rdata = dbg_video_ss_i;
+            REG_DBG_C029_CNT:   reg_rdata = dbg_c029_cnt_i;
+            REG_DBG_C029_LAST:  reg_rdata = dbg_c029_last_i;
+            REG_DBG_VGC_HSYNC:  reg_rdata = dbg_vgc_hsync_i;
+            REG_DBG_SHADOW_DROP:reg_rdata = dbg_shadow_drop_i;
+            REG_DBG_FB_FLAGS:   reg_rdata = dbg_fb_flags_i;
+            REG_DBG_RESP_OVFL:  reg_rdata = dbg_resp_ovfl_i;
+            REG_DBG_SHADOW_RD:  reg_rdata = dbg_shadow_rd_i;
 
             // ProDOS HDD compact bank
             REG_HDD0_REQ_CTL: reg_rdata = {6'b0, hdd_volumes[0].wr, hdd_volumes[0].rd};

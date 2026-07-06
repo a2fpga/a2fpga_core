@@ -256,6 +256,33 @@ static void cmd_process(String cmd) {
             }
         }
 
+    } else if (cmd == "viddbg") {
+        // Dump the video-pipeline debug registers (FPGA regs 0x70-0x77)
+        if (!a2spi_is_ready()) {
+            esp_err_t err = a2spi_init_once(SPI2_HOST, &OSPI_PINS, SPI_HZ);
+            if (err != ESP_OK) {
+                Serial.printf("viddbg: init error: %s\n", esp_err_to_name(err));
+                return;
+            }
+        }
+        uint8_t v[8];
+        for (int i = 0; i < 8; i++) {
+            uint8_t st = 0;
+            esp_err_t err = a2spi_reg_read_status((uint8_t)(0x70 + i), &v[i], &st);
+            if (err != ESP_OK) {
+                Serial.printf("viddbg: read 0x%02X error: %s\n", 0x70 + i, esp_err_to_name(err));
+                return;
+            }
+        }
+        Serial.printf("mode 0x%02X: use_vgc=%d SHRG=%d LINEAR=%d STORE80=%d PAGE2=%d MIXED=%d HIRES=%d TEXT=%d\n",
+                      v[0], !!(v[0] & 0x80), !!(v[0] & 0x40), !!(v[0] & 0x20), !!(v[0] & 0x10),
+                      !!(v[0] & 0x08), !!(v[0] & 0x04), !!(v[0] & 0x02), !!(v[0] & 0x01));
+        Serial.printf("C029 writes=%u last=0x%02X\n", v[1], v[2]);
+        Serial.printf("vgc missed hsync/frame=%u  shadow-write drops=%u (sticky)\n", v[3], v[4]);
+        Serial.printf("fb flags=0x%02X  ddr3 resp-fifo overflow=0x%02X (bit=port, sticky)\n", v[5], v[6]);
+        Serial.printf("shadow rd fsm=0x%02X: pending=%d is_vgc=%d cache_valid=%d state=%d\n",
+                      v[7], !!(v[7] & 0x80), !!(v[7] & 0x40), !!(v[7] & 0x20), v[7] & 0x07);
+
     } else if (cmd.startsWith("spir ")) {
         String toks[16];
         int nt = split_ws(cmd, toks, 16);
@@ -403,6 +430,7 @@ static void cmd_process(String cmd) {
         Serial.println("  spiinit   - Initialize Octal SPI");
         Serial.println("  spitest   - Run SPI loopback test");
         Serial.println("  spireg <reg> [val]  - Read/write SPI register (0..126)");
+        Serial.println("  viddbg              - Dump video-pipeline debug regs (0x70-0x77)");
         Serial.println("  spir <space> <addr> <len> [inc=1]  - Read from FPGA");
         Serial.println("  spiw <space> <addr> <inc> <b0> [b1 ...]  - Write to FPGA");
         Serial.println("  meminfo   - Show memory usage");

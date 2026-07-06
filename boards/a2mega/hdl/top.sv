@@ -393,8 +393,11 @@ module top #(
         .vgc_data_o(vgc_data_w),
         .vgc_ready_o(vgc_ready_w),
 
-        .dbg_shadow_drop_o(shadow_dbg_drop_w)
+        .dbg_shadow_drop_o(shadow_dbg_drop_w),
+        .dbg_rd_state_o(shadow_dbg_rd_state_w)
     );
+
+    wire [7:0] shadow_dbg_rd_state_w;
 
     // Slots
 
@@ -1118,10 +1121,12 @@ module top #(
 
         .dbg_req_pending  (ddr3_dbg_req_pending_w),
         .dbg_arb_state    (ddr3_dbg_arb_state_w),
+        .dbg_resp_overflow(ddr3_dbg_resp_ovfl_w),
         .dbg_test_result  (ddr3_dbg_test_result_w),
         .dbg_test_done    (ddr3_dbg_test_done_w)
     );
 
+    wire [NUM_DDR3_PORTS-1:0] ddr3_dbg_resp_ovfl_w;
     wire [NUM_DDR3_PORTS-1:0] ddr3_dbg_req_pending_w;
     wire [7:0] ddr3_dbg_arb_state_w;
     wire [31:0] ddr3_dbg_test_result_w;
@@ -1613,6 +1618,36 @@ module top #(
     // gates the OSD text overlay.
     f18a_gpu_if esp_f18a_gpu_if();
 
+    // =========================================================================
+    // Video-pipeline debug readback (OSPI regs 0x70-0x77)
+    // =========================================================================
+    // $C029 (NEWVIDEO) write tap — counts every write the FPGA's bus decode
+    // sees and keeps the last data byte. Distinguishes "the SHR-clear write
+    // never reached us" from "captured but the display didn't follow" when
+    // the screen sticks in SHR after the TransWarp GS splash.
+    reg [7:0] dbg_c029_cnt_r  = 8'd0;
+    reg [7:0] dbg_c029_last_r = 8'd0;
+    always @(posedge clk_logic_w) begin
+        if (!a2bus_if.rw_n && a2bus_if.data_in_strobe && (a2bus_if.addr == 16'hC029)) begin
+            dbg_c029_cnt_r  <= dbg_c029_cnt_r + 8'd1;
+            dbg_c029_last_r <= a2bus_if.data;
+        end
+    end
+
+    // Live mode snapshot: captured soft switches + the actual framebuffer mux
+    wire [7:0] dbg_video_ss_w = {use_vgc_r, a2mem_if.SHRG_MODE,
+                                 a2mem_if.LINEARIZE_MODE, a2mem_if.STORE80,
+                                 a2mem_if.PAGE2, a2mem_if.MIXED_MODE,
+                                 a2mem_if.HIRES_MODE, a2mem_if.TEXT_MODE};
+
+    // Per-port CDC response-FIFO overflow stickies (clk_ddr → clk_logic 2FF;
+    // sticky, so multi-bit skew is harmless)
+    reg [7:0] dbg_resp_ovfl_sync0, dbg_resp_ovfl_sync1;
+    always @(posedge clk_logic_w) begin
+        dbg_resp_ovfl_sync0 <= {2'b00, ddr3_dbg_resp_ovfl_w};
+        dbg_resp_ovfl_sync1 <= dbg_resp_ovfl_sync0;
+    end
+
     // Octal SPI connector instance
     esp32_ospi_connector #(
         .USE_SYNC(1),
@@ -1648,6 +1683,15 @@ module top #(
         .key_mod_i(key_mod_sync1),
         .key0_i(key0_sync1),
         .key1_i(key1_sync1),
+
+        .dbg_video_ss_i(dbg_video_ss_w),
+        .dbg_c029_cnt_i(dbg_c029_cnt_r),
+        .dbg_c029_last_i(dbg_c029_last_r),
+        .dbg_vgc_hsync_i(vgc_dbg_missed_hsync_w),
+        .dbg_shadow_drop_i(shadow_dbg_drop_w),
+        .dbg_fb_flags_i(fb_dbg_flags_w),
+        .dbg_resp_ovfl_i(dbg_resp_ovfl_sync1),
+        .dbg_shadow_rd_i(shadow_dbg_rd_state_w),
 
         .w5100_host_wr(u2_host_wr_w),
         .w5100_host_addr(u2_host_addr_w),

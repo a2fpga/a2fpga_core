@@ -102,7 +102,11 @@ module ddr3_port_cdc #(
     input  wire [DATA_WIDTH-1:0]       resp_data,    // Response data word
 
     // Status (clk_ddr domain)
-    input  wire                        init_complete  // DDR3 calibration done
+    input  wire                        init_complete, // DDR3 calibration done
+
+    // Debug (clk_ddr domain): sticky response-FIFO overflow — a beat arrived
+    // while the FIFO was full and was dropped instead of wrapping the ring
+    output wire                        dbg_resp_overflow
 );
 
     // Response FIFO parameters
@@ -370,6 +374,7 @@ module ddr3_port_cdc #(
     wire resp_push_w = resp_valid && !resp_fifo_full_ddr;
 
     (* syn_preserve=1 *) reg resp_overflow_sticky_r;
+    assign dbg_resp_overflow = resp_overflow_sticky_r;
     always @(posedge clk_ddr or posedge rst) begin
         if (rst)
             resp_overflow_sticky_r <= 1'b0;

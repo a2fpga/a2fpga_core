@@ -33,6 +33,14 @@ fpgaupdate takes .bin, flash.sh hardened (--verify/retries/procedure).
 
 Open issues, in priority order:
 
+- [ ] Display sticks in SHR after the TransWarp GS power-up splash (reset
+      recovers; regression vs pre-port builds) — instrumented via OSPI
+      debug regs 0x70-0x77 + `viddbg` CLI: read C029 write count/last +
+      SHRG/use_vgc while stuck to localize (missed bus write vs display mux)
+- [ ] SHR and hires rendering scrambled (text clean → scanout OK; suspect
+      shadow-read burst path / REG-mode IP under load) — check `viddbg`
+      stickies while scrambled: shadow-write drops, vgc missed-hsync,
+      per-port resp-FIFO overflow, shadow-read FSM wedge
 - [ ] XFER payload reads outrun the proto's 1-byte read pipeline above
       ~4 MHz (FF fill; reg path is clean at 8 MHz) — add a small
       fabric-side read prefetch to raise the link clock

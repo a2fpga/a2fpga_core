@@ -45,7 +45,10 @@ module apple_memory #(
     output vgc_ready_o,
 
     // Debug: CPU shadow writes lost to a full shadow FIFO (sticky)
-    output [7:0] dbg_shadow_drop_o
+    output [7:0] dbg_shadow_drop_o,
+
+    // Debug: read FSM snapshot {rd_pending, rd_is_vgc, cache_valid, 2'b0, rd_state}
+    output [7:0] dbg_rd_state_o
 );
 
     wire write_strobe = !a2bus_if.rw_n && a2bus_if.data_in_strobe;
@@ -632,5 +635,7 @@ module apple_memory #(
     assign video_ready_o = video_ready_r;
     assign vgc_data_o    = vgc_data_r;
     assign vgc_ready_o   = vgc_ready_r;
+
+    assign dbg_rd_state_o = {rd_pending_r, rd_is_vgc_r, cache_valid_r, 2'b00, rd_state_r};
 
 endmodule
