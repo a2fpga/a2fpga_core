@@ -31,6 +31,14 @@
 // project defines it via top_dualrate.sv and uses the matching .sdc.
 //`define DUAL_RATE_SDRAM
 
+// VIDEO_FRAMEBUFFER: render Apple/SHR video in Apple II native timing
+// (scan_timer) into an SDRAM framebuffer read out at HDMI rate — the GS
+// board's beam-accurate architecture. Fetch jitter lands in the buffer,
+// never on glass, and beam-racing software displays correctly. Requires
+// DUAL_RATE_SDRAM; used by a2n20v2_enhanced_fb.gprj via top_fb.sv (whose
+// file list also selects the f18a `_fb` VHDL variants).
+//`define VIDEO_FRAMEBUFFER
+
 `include "datetime.svh"
 
 module top #(
@@ -254,25 +262,40 @@ module top #(
 `endif
 
     // SDRAM ports, lower number is higher priority
+`ifdef VIDEO_FRAMEBUFFER
+    // Framebuffer config (requires ENSONIQ + BL616_SPI). sdram_ports'
+    // arbitration cone fails 108 MHz above 7 ports, so the three storage
+    // clients (MCU XFER, Disk II window, HDD window) share one port through
+    // mem_port_arb.
+    localparam FB_READ_PORT      = 0;   // framebuffer line reads (display)
+    localparam FB_WRITE_PORT     = 1;   // framebuffer pixel writes
+    localparam VIDEO_MEM_PORT    = 2;   // shadow reads (apple_video_gen + VGC via arbiter)
+    localparam MAIN_MEM_PORT     = 3;   // CPU shadow/aux writes
+    localparam DOC_MEM_PORT      = 4;
+    localparam GLU_MEM_PORT      = 5;
+    localparam STORAGE_MEM_PORT  = 6;   // MCU + Disk II + HDD via mem_port_arb
+    localparam NUM_PORTS         = 7;
+`else
     localparam VIDEO_MEM_PORT = 0;
     localparam MAIN_MEM_PORT = 1;
-`ifdef ENSONIQ
+    `ifdef ENSONIQ
     localparam GLU_MEM_PORT = 3;
     localparam DOC_MEM_PORT = 2;
-    `ifdef BL616_SPI
+        `ifdef BL616_SPI
     localparam MCU_MEM_PORT = 4;
     localparam DISK_MEM_PORT = 5;   // Disk II track-on-demand window (read)
     localparam HDD_MEM_PORT = 6;    // ProDOS HDD block window (read/write)
     localparam NUM_PORTS = 7;
-    `else
+        `else
     localparam NUM_PORTS = 4;
-    `endif
-`else
-    `ifdef BL616_SPI
+        `endif
+    `else
+        `ifdef BL616_SPI
     localparam MCU_MEM_PORT = 2;
     localparam NUM_PORTS = 3;
-    `else
+        `else
     localparam NUM_PORTS = 2;
+        `endif
     `endif
 `endif
 
@@ -295,6 +318,9 @@ module top #(
     // after the Disk II track windows. The MCU streams a block here via XFER
     // SPACE 1; unit u's window is byte 0x204000 + u*0x200.
     localparam [PORT_ADDR_WIDTH-1:0] HDD_WORD_BASE     = 21'h081000;  // byte 0x204000
+    // Framebuffer pixel storage (VIDEO_FRAMEBUFFER config): 1.5MB in, well
+    // above every other region.
+    localparam [PORT_ADDR_WIDTH-1:0] FB_WORD_BASE      = 21'h180000;  // byte 0x600000
 
     // Signals for the multiple ports (client side, 54 MHz logic domain)
     mem_port_if #(
@@ -321,7 +347,12 @@ module top #(
         .NUM_PORTS(NUM_PORTS),
         .PORT_ADDR_WIDTH(PORT_ADDR_WIDTH),
         .PORT_OUTPUT_WIDTH(PORT_OUTPUT_WIDTH),
-`ifdef ENSONIQ
+`ifdef VIDEO_FRAMEBUFFER
+        .PORT_BASE_ADDR('{FB_WORD_BASE, FB_WORD_BASE,
+                          SHADOW_WORD_BASE, SHADOW_WORD_BASE,
+                          ENSONIQ_WORD_BASE, ENSONIQ_WORD_BASE,
+                          SHADOW_WORD_BASE}),
+`elsif ENSONIQ
     `ifdef BL616_SPI
         .PORT_BASE_ADDR('{SHADOW_WORD_BASE, SHADOW_WORD_BASE,
                           ENSONIQ_WORD_BASE, ENSONIQ_WORD_BASE,
@@ -590,6 +621,33 @@ module top #(
     assign f18a_gpu_if.raddr = 13'b0;
     assign f18a_gpu_if.gstatus = 7'b0;
 
+`ifdef VIDEO_FRAMEBUFFER
+    // Storage clients (MCU XFER, Disk II window, HDD window) share one
+    // controller port — see the port map note. MCU first (it streams whole
+    // tracks/blocks and the others wait on its acks anyway).
+    mem_port_if #(
+        .PORT_ADDR_WIDTH(PORT_ADDR_WIDTH),
+        .DATA_WIDTH(DATA_WIDTH),
+        .DQM_WIDTH(DQM_WIDTH),
+        .PORT_OUTPUT_WIDTH(PORT_OUTPUT_WIDTH)
+    ) storage_ports[2:0] ();
+
+    mem_port_arb #(
+        .NUM_CLIENTS(3),
+        .PORT_ADDR_WIDTH(PORT_ADDR_WIDTH),
+        .DATA_WIDTH(DATA_WIDTH),
+        .DQM_WIDTH(DQM_WIDTH),
+        .PORT_OUTPUT_WIDTH(PORT_OUTPUT_WIDTH),
+        // Replaces the PORT_BASE_ADDR each client's dedicated port had
+        .CLIENT_BASE_ADDR('{SHADOW_WORD_BASE, DISK_WORD_BASE, HDD_WORD_BASE})
+    ) storage_arb (
+        .clk_i(clk_logic_w),
+        .rst_n_i(device_reset_n_w),
+        .clients(storage_ports),
+        .controller(mem_ports[STORAGE_MEM_PORT])
+    );
+`endif
+
     drive_volume_if volumes[2]();
 
     wire [7:0] diskii_d_w;
@@ -607,7 +665,11 @@ module top #(
         .slot_if(slot_if),
         .data_o(diskii_d_w),
         .rd_en_o(diskii_rd),
+`ifdef VIDEO_FRAMEBUFFER
+        .ram_disk_if(storage_ports[1]),
+`else
         .ram_disk_if(mem_ports[DISK_MEM_PORT]),
+`endif
         .volumes(volumes)
     );
 
@@ -629,7 +691,11 @@ module top #(
         .slot_if(slot_if),
         .data_o(hdd_d_w),
         .rd_en_o(hdd_rd),
+`ifdef VIDEO_FRAMEBUFFER
+        .ram_hdd_if(storage_ports[2]),
+`else
         .ram_hdd_if(mem_ports[HDD_MEM_PORT]),
+`endif
         .volumes(hdd_volumes)
     );
 
@@ -691,7 +757,11 @@ module top #(
         .slotmaker_config_if(slotmaker_config_if),
         .volumes(volumes),
         .hdd_volumes(hdd_volumes),
+`ifdef VIDEO_FRAMEBUFFER
+        .mem_if(storage_ports[0]),
+`else
         .mem_if(mem_ports[MCU_MEM_PORT]),
+`endif
         .sdram_init_complete_i(sdram_init_complete),
         .mcu_ready_o(mcu_ready_w),
         .standalone_o(standalone_w),
@@ -799,12 +869,247 @@ module top #(
     wire [9:0] hdmi_y;
 
     // Apple-side RGB + active that feed the SuperSprite compositor. Driven by
-    // either the legacy raster-locked generators (USE_PIXEL_STREAM=0) or the
-    // pixel_stream / direct_display generators (USE_PIXEL_STREAM=1).
+    // the legacy raster-locked generators (USE_PIXEL_STREAM=0), the
+    // pixel_stream / direct_display generators (USE_PIXEL_STREAM=1), or the
+    // framebuffer writers (VIDEO_FRAMEBUFFER).
     wire [7:0] ssp_apple_r_w;
     wire [7:0] ssp_apple_g_w;
     wire [7:0] ssp_apple_b_w;
     wire       ssp_apple_active_w;
+
+    // SuperSprite composited output + scanline flag (hoisted above the video
+    // pipeline: the framebuffer writers consume rgb_*_w, which the SSP
+    // produces further down)
+    wire [7:0] rgb_r_w;
+    wire [7:0] rgb_g_w;
+    wire [7:0] rgb_b_w;
+    wire scanlines_w;
+
+`ifdef VIDEO_FRAMEBUFFER
+
+    // =====================================================================
+    // Framebuffer path (the GS board's architecture): generators run in
+    // Apple II native timing from scan_timer, SuperSprite composites in the
+    // clk_logic domain inside the write path, and the SDRAM framebuffer is
+    // read out at HDMI rate. Beam-racing software displays correctly, and
+    // SDRAM fetch jitter lands in the buffer instead of on glass.
+    // =====================================================================
+
+    wire [8:0] scanline_w;
+    wire       hsync_w;
+    wire       vsync_w;
+
+    scan_timer #(
+        .VGC_VERTCNT_LOCK(1),
+        .VGC_VBL_LOCK(1),
+        .RESYNC_THRESHOLD(2)
+    ) scan_timer (
+        .a2bus_if(a2bus_if),
+        .scanline_o(scanline_w),
+        .hsync_o(hsync_w),
+        .vsync_o(vsync_w),
+        .pixel_o()
+    );
+
+    // Border color: 4-bit palette index to RGB666, VDP backdrop override
+    wire [3:0] vdp_border_r_w, vdp_border_g_w, vdp_border_b_w;
+    wire vdp_border_active_w;
+
+    wire border_gsp_w = a2bus_if.sw_gs;
+    wire [4:0] border_idx_w = {border_gsp_w, a2mem_if.BORDER_COLOR};
+    wire [11:0] border_palette_w [0:31];
+    assign border_palette_w = '{
+        12'h000, 12'h924, 12'h42a, 12'hd4e,   // Apple II  0-3
+        12'h064, 12'h888, 12'h39e, 12'hcbf,   //           4-7
+        12'h450, 12'hc73, 12'h888, 12'hfac,   //           8-11
+        12'h3c2, 12'hcd6, 12'h7ec, 12'hfff,   //          12-15
+        12'h000, 12'hd03, 12'h009, 12'hd2d,   // IIgs      0-3
+        12'h072, 12'h555, 12'h22f, 12'h6af,   //           4-7
+        12'h850, 12'hf60, 12'haaa, 12'hf98,   //           8-11
+        12'h1d0, 12'hff0, 12'h4f9, 12'hfff    //          12-15
+    };
+    wire [11:0] border_rgb444_w = border_palette_w[border_idx_w];
+    wire [17:0] apple_border_rgb666_w = {
+        border_rgb444_w[11:8], 2'b00,
+        border_rgb444_w[7:4],  2'b00,
+        border_rgb444_w[3:0],  2'b00
+    };
+    wire [17:0] vdp_border_rgb666_w = {vdp_border_r_w, 2'b00,
+                                       vdp_border_g_w, 2'b00,
+                                       vdp_border_b_w, 2'b00};
+    wire [17:0] border_rgb666_w = vdp_border_active_w ? vdp_border_rgb666_w
+                                                      : apple_border_rgb666_w;
+
+    // --- Apple II generator -> framebuffer writer (SSP composited in) ---
+    wire        fb_we_w;
+    wire [17:0] fb_data_w;
+    wire        fb_vsync_w;
+    wire        vgc_fb_we_w;
+    wire [17:0] vgc_fb_data_w;
+    wire        vgc_fb_vsync_w;
+
+    pixel_stream_if apple_ps();
+
+    apple_video_gen #(
+        .VRAM_READ_LATENCY(16),      // SDRAM via mem_port_cdc
+        .PIXEL_START_TICK(10)        // fixed start for deterministic SSP overlay
+    ) apple_video_gen (
+        .clk_i(clk_logic_w),
+        .reset_n_i(system_reset_n_w),
+
+        .a2mem_if(a2mem_if),
+        .video_control_if(video_control_if),
+        .sw_gs_i(sw_gs_w),
+
+        .pixel_stream(apple_ps),
+
+        .video_address_o(video_address_w),
+        .video_bank_o(video_bank_w),
+        .video_rd_o(video_rd_w),
+        .video_data_i(video_data_w),
+        .video_ready_i(video_ready_w)
+    );
+
+    framebuffer_writer #(
+        .GAP_CYCLES(4)
+    ) apple_fb_writer (
+        .clk_i(clk_logic_w),
+        .reset_n_i(system_reset_n_w),
+
+        .pixel_stream(apple_ps),
+
+        .scanline_i(scanline_w),
+        .hsync_i(hsync_w),
+        .vsync_i(vsync_w),
+
+        .fb_we_o(fb_we_w),
+        .fb_data_o(fb_data_w),
+        .fb_vsync_o(fb_vsync_w),
+
+        .apple_r_o(ssp_apple_r_w),
+        .apple_g_o(ssp_apple_g_w),
+        .apple_b_o(ssp_apple_b_w),
+        .apple_active_o(ssp_apple_active_w),
+
+        .ssp_r_i(rgb_r_w),
+        .ssp_g_i(rgb_g_w),
+        .ssp_b_i(rgb_b_w),
+        .ssp_active_i(1'b1)
+    );
+
+    // --- VGC (SHR) generator -> its own framebuffer writer ---
+    pixel_stream_if vgc_ps();
+
+    vgc_gen vgc_gen (
+        .clk_i(clk_logic_w),
+        .reset_n_i(system_reset_n_w),
+
+        .a2mem_if(a2mem_if),
+        .video_control_if(video_control_if),
+
+        .pixel_stream(vgc_ps),
+
+        .vgc_active_o(vgc_active_w),
+        .vgc_address_o(vgc_address_w),
+        .vgc_rd_o(vgc_rd_w),
+        .vgc_data_i(vgc_data_w),
+        .vgc_ready_i(vgc_ready_w),
+        .dbg_missed_hsync_o()
+    );
+
+    framebuffer_writer #(
+        .GAP_CYCLES(4)
+    ) vgc_fb_writer (
+        .clk_i(clk_logic_w),
+        .reset_n_i(system_reset_n_w),
+
+        .pixel_stream(vgc_ps),
+
+        .scanline_i(scanline_w),
+        .hsync_i(hsync_w),
+        .vsync_i(vsync_w),
+
+        .fb_we_o(vgc_fb_we_w),
+        .fb_data_o(vgc_fb_data_w),
+        .fb_vsync_o(vgc_fb_vsync_w),
+
+        .apple_r_o(),
+        .apple_g_o(),
+        .apple_b_o(),
+        .apple_active_o(),
+        .ssp_r_i(8'd0),
+        .ssp_g_i(8'd0),
+        .ssp_b_i(8'd0),
+        .ssp_active_i(1'b0)
+    );
+
+    // Framebuffer source mux — apple or SHR, latched at the frame boundary
+    reg use_vgc_r;
+    always @(posedge clk_logic_w) begin
+        if (vsync_w) use_vgc_r <= a2mem_if.SHRG_MODE;
+    end
+
+    wire fb_we_mux_w          = use_vgc_r ? vgc_fb_we_w    : fb_we_w;
+    wire [17:0] fb_data_mux_w = use_vgc_r ? vgc_fb_data_w  : fb_data_w;
+    wire fb_vsync_mux_w       = use_vgc_r ? vgc_fb_vsync_w : fb_vsync_w;
+
+    wire [10:0] fb_width_w  = use_vgc_r ? 11'd640 : 11'd560;
+    wire [9:0]  fb_height_w = use_vgc_r ? 10'd200 : 10'd192;
+
+    // VDP raster counter for SuperSprite — synced to scan_timer; the f18a
+    // `_fb` VHDL variants (selected by this config's file list) take this
+    // external raster instead of free-running. HMAX matches f18a_vga_cont_fb.
+    localparam VDP_HMAX = 10'd856;
+
+    reg [9:0] vdp_cx;
+    reg [1:0] vdp_div;
+
+    always @(posedge clk_logic_w) begin
+        if (hsync_w) begin
+            vdp_cx <= 10'd0;
+            vdp_div <= 2'd0;
+        end else begin
+            vdp_div <= vdp_div + 2'd1;
+            if (vdp_div == 2'd3 && vdp_cx < VDP_HMAX) begin
+                vdp_cx <= vdp_cx + 10'd1;
+            end
+        end
+    end
+
+    // SDRAM framebuffer: write accumulate (clk_logic) + line-fetch readout
+    // at HDMI rate (clk_pixel)
+    wire [7:0] fb_r_w, fb_g_w, fb_b_w;
+
+    sdram_framebuffer #(
+        .TEST_PATTERN(0),
+        .THRESHOLD_DIAG(0)
+    ) sdram_framebuffer (
+        .clk(clk_logic_w),
+        .clk_pixel(clk_pixel_w),
+        .rst_n(device_reset_n_w),
+
+        .fb_vsync(fb_vsync_mux_w),
+        .fb_we(fb_we_mux_w),
+        .fb_data(fb_data_mux_w),
+        .fb_width(fb_width_w),
+        .fb_height(fb_height_w),
+
+        .fb_write_port(mem_ports[FB_WRITE_PORT]),
+        .fb_read_port(mem_ports[FB_READ_PORT]),
+
+        .hdmi_cx({1'b0, hdmi_x}),
+        .hdmi_cy(hdmi_y),
+
+        .r_o(fb_r_w),
+        .g_o(fb_g_w),
+        .b_o(fb_b_w),
+
+        .border_color(border_rgb666_w),
+        .scanline_en(scanlines_w),
+        .sleep_i(sleep_w)
+    );
+
+`else
 
     generate if (!USE_PIXEL_STREAM) begin : gen_legacy_video
 
@@ -1055,6 +1360,8 @@ module top #(
 
     end endgenerate
 
+`endif  // !VIDEO_FRAMEBUFFER
+
     wire [15:0] sg_audio_l;
     wire [15:0] sg_audio_r;
 `ifdef ENSONIQ
@@ -1103,11 +1410,7 @@ module top #(
     wire [9:0] ssp_audio_w;
     wire vdp_unlocked_w;
     wire [3:0] vdp_gmode_w;
-    wire scanlines_w;
-
-    wire [7:0] rgb_r_w;
-    wire [7:0] rgb_g_w;
-    wire [7:0] rgb_b_w;
+    // (rgb_*_w and scanlines_w are declared above the video pipeline)
 
     SuperSprite #(
         .ENABLE(SUPERSPRITE_ENABLE),
@@ -1121,8 +1424,14 @@ module top #(
         .rd_en_o(ssp_rd),
         .irq_n_o(vdp_irq_n),
 
+`ifdef VIDEO_FRAMEBUFFER
+        // clk_logic domain, raster from scan_timer (f18a _fb variants)
+        .screen_x_i(vdp_cx),
+        .screen_y_i({1'b0, scanline_w}),
+`else
         .screen_x_i(hdmi_x),
         .screen_y_i(hdmi_y),
+`endif
         .apple_vga_r_i(ssp_apple_r_w),
         .apple_vga_g_i(ssp_apple_g_w),
         .apple_vga_b_i(ssp_apple_b_w),
@@ -1139,6 +1448,13 @@ module top #(
         .vdp_ext_video_o(vdp_ext_video),
         .vdp_unlocked_o(vdp_unlocked_w),
         .vdp_gmode_o(vdp_gmode_w),
+
+`ifdef VIDEO_FRAMEBUFFER
+        .vdp_border_r_o(vdp_border_r_w),
+        .vdp_border_g_o(vdp_border_g_w),
+        .vdp_border_b_o(vdp_border_b_w),
+        .vdp_border_active_o(vdp_border_active_w),
+`endif
 
         .f18a_gpu_if(f18a_gpu_if),
 
@@ -1422,9 +1738,17 @@ module top #(
         .screen_x_i     (hdmi_x),
         .screen_y_i     (hdmi_y),
 
+`ifdef VIDEO_FRAMEBUFFER
+        // Framebuffer readout (clk_pixel); the scanline effect is applied
+        // inside sdram_framebuffer via its scanline_en input.
+        .r_i            (fb_r_w),
+        .g_i            (fb_g_w),
+        .b_i            (fb_b_w),
+`else
         .r_i            (scanline_en ? {1'b0, rgb_r_w[7:1]} : rgb_r_w),
         .g_i            (scanline_en ? {1'b0, rgb_g_w[7:1]} : rgb_g_w),
         .b_i            (scanline_en ? {1'b0, rgb_b_w[7:1]} : rgb_b_w),
+`endif
 
         .r_o            (debug_r_w),
         .g_o            (debug_g_w),
