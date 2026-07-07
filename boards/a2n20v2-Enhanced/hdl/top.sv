@@ -899,6 +899,9 @@ module top #(
     wire       hsync_w;
     wire       vsync_w;
 
+    wire [7:0] scan_dbg_vbl_correct_w;
+    wire [7:0] scan_dbg_vertcnt_correct_w;
+
     scan_timer #(
         .VGC_VERTCNT_LOCK(1),
         .VGC_VBL_LOCK(1),
@@ -908,7 +911,9 @@ module top #(
         .scanline_o(scanline_w),
         .hsync_o(hsync_w),
         .vsync_o(vsync_w),
-        .pixel_o()
+        .pixel_o(),
+        .dbg_vbl_correct_o(scan_dbg_vbl_correct_w),
+        .dbg_vertcnt_correct_o(scan_dbg_vertcnt_correct_w)
     );
 
     // Border color: 4-bit palette index to RGB666, VDP backdrop override
@@ -1079,6 +1084,10 @@ module top #(
     // SDRAM framebuffer: write accumulate (clk_logic) + line-fetch readout
     // at HDMI rate (clk_pixel)
     wire [7:0] fb_r_w, fb_g_w, fb_b_w;
+    wire [7:0] fb_dbg_fifo_overflow_w;
+    wire [7:0] fb_dbg_late_line_w;
+    wire [7:0] fb_dbg_line_not_ready_w;
+    wire [7:0] fb_dbg_line_lag_max_w;
 
     sdram_framebuffer #(
         .TEST_PATTERN(0),
@@ -1106,7 +1115,12 @@ module top #(
 
         .border_color(border_rgb666_w),
         .scanline_en(scanlines_w),
-        .sleep_i(sleep_w)
+        .sleep_i(sleep_w),
+
+        .dbg_fifo_overflow_o(fb_dbg_fifo_overflow_w),
+        .dbg_late_line_o(fb_dbg_late_line_w),
+        .dbg_line_not_ready_o(fb_dbg_line_not_ready_w),
+        .dbg_line_lag_max_o(fb_dbg_line_lag_max_w)
     );
 
 `else
@@ -1717,6 +1731,22 @@ module top #(
         // MCU/BL616 debug instrumentation: 5 scratch regs (0x07,0x0C-0x0F) the
         // firmware writes over SPI. hex[0]=stage, [1]=btn-lo, [2]=btn-hi,
         // [3]=event counter (heartbeat), [4]=status flags.
+`ifdef VIDEO_FRAMEBUFFER
+        // Framebuffer diagnostics: overlay shows the glitch counters live.
+        // hex[0]=fw stage, [1]=heartbeat, [2]=fb fifo overflow, [3]=late
+        // line, [4]=line not ready, [5]=max line lag, [6]=scan_timer VBL
+        // resyncs, [7]=scan_timer VERTCNT resyncs.
+        .hex_values ({
+            mcu_scratch_w[7:0],
+            mcu_scratch_w[31:24],
+            fb_dbg_fifo_overflow_w,
+            fb_dbg_late_line_w,
+            fb_dbg_line_not_ready_w,
+            fb_dbg_line_lag_max_w,
+            scan_dbg_vbl_correct_w,
+            scan_dbg_vertcnt_correct_w
+        }),
+`else
         .hex_values ({
             mcu_scratch_w[7:0],     // scratch0: firmware stage code
             mcu_scratch_w[15:8],    // scratch1: XInput button low byte
@@ -1727,6 +1757,7 @@ module top #(
             8'h0,
             8'h0
         }),
+`endif
 
         // Bit row 0 = what the FPGA + firmware think the MCU is doing:
         //   bit0 = mcu_ready (FPGA saw MCU read STATUS 0x06), bit1 = standalone
