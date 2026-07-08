@@ -38,7 +38,9 @@ module sound_glu #(
     output [7:0] debug_osc_halt_o, // Debug output for oscillator halt register
 
     mem_port_if.client glu_mem_if,
-    mem_port_if.client doc_mem_if
+    mem_port_if.client doc_mem_if,
+
+    output [7:0] glu_wq_drops_o   // sound-RAM write-queue overflow drops (diagnostics)
     
 );
 
@@ -93,6 +95,7 @@ module sound_glu #(
     // GLU mem_if driven to DDR3 when USE_BSRAM=0, idle when USE_BSRAM=1
     generate
         if (USE_BSRAM) begin : gen_glu_idle
+            assign glu_wq_drops_o = 8'd0;
             assign glu_mem_if.rd = '0;
             assign glu_mem_if.wr = '0;
             assign glu_mem_if.addr = '0;
@@ -108,14 +111,18 @@ module sound_glu #(
             // audible as corrupted waveforms. Queue write jobs in a small
             // FIFO and drain one at a time instead. This also latches the
             // write data, which was previously combinational off the bus.
-            localparam GQ_DEPTH = 4;
+            localparam GQ_DEPTH = 8;
             reg [20:0] gq_addr_r [GQ_DEPTH-1:0];
             reg [31:0] gq_data_r [GQ_DEPTH-1:0];
             reg [3:0]  gq_be_r   [GQ_DEPTH-1:0];
             reg [$clog2(GQ_DEPTH)-1:0] gq_wp_r, gq_rp_r;
             reg [$clog2(GQ_DEPTH):0]   gq_cnt_r;
             reg gq_wr_r;
+            reg [7:0] gq_drop_cnt_r;
+            assign glu_wq_drops_o = gq_drop_cnt_r;
 
+            wire gq_room_w = (gq_cnt_r < ($clog2(GQ_DEPTH)+1)'(GQ_DEPTH));
+            wire gq_push_w = glu_mem_wr_r && gq_room_w;
             wire gq_pop_w = gq_wr_r && glu_mem_if.ready;
 
             always_ff @(posedge a2bus_if.clk_logic) begin
@@ -124,15 +131,18 @@ module sound_glu #(
                     gq_rp_r  <= '0;
                     gq_cnt_r <= '0;
                     gq_wr_r  <= 1'b0;
+                    gq_drop_cnt_r <= 8'd0;
                 end else begin
-                    if (glu_mem_wr_r) begin
+                    if (gq_push_w) begin
                         gq_addr_r[gq_wp_r] <= glu_mem_addr_r;
                         gq_data_r[gq_wp_r] <= {a2bus_if.data, a2bus_if.data,
                                                a2bus_if.data, a2bus_if.data};
                         gq_be_r[gq_wp_r]   <= glu_mem_byte_en_r;
                         gq_wp_r            <= gq_wp_r + 1'b1;
                     end
-                    gq_cnt_r <= gq_cnt_r + ($clog2(GQ_DEPTH)+1)'(glu_mem_wr_r)
+                    if (glu_mem_wr_r && !gq_room_w)
+                        gq_drop_cnt_r <= gq_drop_cnt_r + 8'd1;
+                    gq_cnt_r <= gq_cnt_r + ($clog2(GQ_DEPTH)+1)'(gq_push_w)
                                          - ($clog2(GQ_DEPTH)+1)'(gq_pop_w);
 
                     // Hold wr until the completion pulse; one dead cycle

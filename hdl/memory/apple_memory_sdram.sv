@@ -50,8 +50,9 @@ module apple_memory_sdram #(
     input [12:0] vgc_address_i,
     input vgc_rd_i,
     output [31:0] vgc_data_o,
-    output vgc_ready_o                 // read-data beat for vgc_gen (BSRAM mode: fixed
+    output vgc_ready_o,                // read-data beat for vgc_gen (BSRAM mode: fixed
                                        // 2-cycle sdpram32 latency; SDRAM mode: port ready)
+    output [7:0] wq_drops_o            // shadow write-queue overflow drops (diagnostics)
 
 );
 
@@ -468,16 +469,23 @@ module apple_memory_sdram #(
         // seen on hardware as stable wrong pixels in loaded screens.
         // Depth 8 rides out worst-case bursts; jobs arrive at most 2 per
         // ~53 cycles and drain in ~15-30 each.
-        localparam WQ_DEPTH = 8;   // power of two
+        localparam WQ_DEPTH = 16;  // power of two — sized for worst-case
+                                   // framebuffer-burst stalls of the main
+                                   // port; overflow drops are counted
         reg [20:0] wq_addr_r [WQ_DEPTH-1:0];
         reg [31:0] wq_data_r [WQ_DEPTH-1:0];
         reg [3:0]  wq_be_r   [WQ_DEPTH-1:0];
         reg [$clog2(WQ_DEPTH)-1:0] wq_wp_r, wq_rp_r;
         reg [$clog2(WQ_DEPTH):0]   wq_cnt_r;
         reg wr_r;
+        reg [7:0] wq_drop_cnt_r;
+        assign wq_drops_o = wq_drop_cnt_r;
 
-        wire wq_push_main_w = write_en;
-        wire wq_push_aux_w  = aux_wr_w;
+        // Overflow guard: dropping is still corruption, but SILENT
+        // corruption is worse — count drops for the debug overlay.
+        wire wq_room2_w = (wq_cnt_r <= ($clog2(WQ_DEPTH)+1)'(WQ_DEPTH - 2));
+        wire wq_push_main_w = write_en && wq_room2_w;
+        wire wq_push_aux_w  = aux_wr_w && wq_room2_w;
         wire [1:0] wq_push_n_w = {1'b0, wq_push_main_w} + {1'b0, wq_push_aux_w};
         wire wq_pop_w = wr_r && main_mem_if.ready;
 
@@ -487,6 +495,7 @@ module apple_memory_sdram #(
                 wq_rp_r  <= '0;
                 wq_cnt_r <= '0;
                 wr_r     <= 1'b0;
+                wq_drop_cnt_r <= 8'd0;
             end else begin
                 // Enqueue this bus write's job(s). Both fit: the FIFO never
                 // approaches full at bus write rates.
@@ -506,6 +515,9 @@ module apple_memory_sdram #(
 
                 // Drain: hold wr high until ready, one dead cycle between
                 // jobs so the controller's edge detector sees a fresh edge.
+                if ((write_en || aux_wr_w) && !wq_room2_w)
+                    wq_drop_cnt_r <= wq_drop_cnt_r + 8'd1;
+
                 if (wr_r) begin
                     if (main_mem_if.ready) begin
                         wr_r    <= 1'b0;
@@ -524,6 +536,7 @@ module apple_memory_sdram #(
         assign main_mem_if.byte_en = wq_be_r[wq_rp_r];
         assign main_mem_if.burst = 1'b0;
     end else begin : wr_comb
+        assign wq_drops_o = 8'd0;
         assign main_mem_if.rd = 1'b0;
         assign main_mem_if.wr = write_en;
         assign main_mem_if.addr = {6'b0, a2bus_if.addr[15:1]};

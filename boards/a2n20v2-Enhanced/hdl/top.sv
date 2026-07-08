@@ -535,6 +535,7 @@ module top #(
     wire vgc_rd_w;
     wire [31:0] vgc_data_w;
     wire vgc_ready_w;
+    wire [7:0] wq_drops_w;      // shadow write-queue drops (diagnostics)
 
     apple_memory_sdram #(
         .VGC_MEMORY(1),
@@ -561,7 +562,8 @@ module top #(
         .vgc_address_i(vgc_address_w),
         .vgc_rd_i(vgc_rd_w),
         .vgc_data_o(vgc_data_w),
-        .vgc_ready_o(vgc_ready_w)
+        .vgc_ready_o(vgc_ready_w),
+        .wq_drops_o(wq_drops_w)
     );
 
     // Slots
@@ -1099,6 +1101,20 @@ module top #(
     wire [7:0] fb_dbg_line_not_ready_w;
     wire [7:0] fb_dbg_line_lag_max_w;
 
+    // Blank the display until the first rendered frame has been written:
+    // the framebuffer region of SDRAM powers up as noise, and HDMI starts
+    // long before the Apple II (or even the MCU console) draws anything.
+    reg fb_seen_frame_r;
+    always @(posedge clk_logic_w) begin
+        if (!device_reset_n_w) fb_seen_frame_r <= 1'b0;
+        else if (fb_vsync_mux_w) fb_seen_frame_r <= 1'b1;
+    end
+    reg fb_seen_frame_p1_r, fb_seen_frame_pix_r;
+    always @(posedge clk_pixel_w) begin
+        fb_seen_frame_p1_r  <= fb_seen_frame_r;
+        fb_seen_frame_pix_r <= fb_seen_frame_p1_r;
+    end
+
     sdram_framebuffer #(
         .TEST_PATTERN(0),
         .THRESHOLD_DIAG(0)
@@ -1391,6 +1407,7 @@ module top #(
 
     wire [15:0] sg_audio_l;
     wire [15:0] sg_audio_r;
+    wire [7:0] glu_drops_w;     // GLU write-queue drops (diagnostics)
 `ifdef ENSONIQ
     wire [7:0] sg_d_w;
     wire sg_rd_w;
@@ -1414,9 +1431,11 @@ module top #(
         .debug_osc_halt_o(doc_osc_halt_w), // Capture oscillator halt register value
     
         .glu_mem_if(mem_ports[GLU_MEM_PORT]),
-        .doc_mem_if(mem_ports[DOC_MEM_PORT])
+        .doc_mem_if(mem_ports[DOC_MEM_PORT]),
+        .glu_wq_drops_o(glu_drops_w)
     );
 `else
+    assign glu_drops_w = 8'd0;
     assign sg_audio_l = 16'b0;
     assign sg_audio_r = 16'b0;
     wire [7:0] doc_osc_en_w = 8'h00; // Default value when ENSONIQ is disabled
@@ -1747,8 +1766,8 @@ module top #(
 `ifdef VIDEO_FRAMEBUFFER
         // Framebuffer diagnostics: overlay shows the glitch counters live.
         // hex[0]=fw stage, [1]=heartbeat, [2]=fb fifo overflow, [3]=late
-        // line, [4]=line not ready, [5]=max line lag, [6]=scan_timer VBL
-        // resyncs, [7]=scan_timer VERTCNT resyncs.
+        // line, [4]=line not ready, [5]=max line lag, [6]=shadow write-
+        // queue drops, [7]=GLU write-queue drops.
         .hex_values ({
             mcu_scratch_w[7:0],
             mcu_scratch_w[31:24],
@@ -1756,8 +1775,8 @@ module top #(
             fb_dbg_late_line_w,
             fb_dbg_line_not_ready_w,
             fb_dbg_line_lag_max_w,
-            scan_dbg_vbl_correct_w,
-            scan_dbg_vertcnt_correct_w
+            wq_drops_w,
+            glu_drops_w
         }),
 `else
         .hex_values ({
@@ -1785,9 +1804,9 @@ module top #(
 `ifdef VIDEO_FRAMEBUFFER
         // Framebuffer readout (clk_pixel); the scanline effect is applied
         // inside sdram_framebuffer via its scanline_en input.
-        .r_i            (fb_r_w),
-        .g_i            (fb_g_w),
-        .b_i            (fb_b_w),
+        .r_i            (fb_seen_frame_pix_r ? fb_r_w : 8'h00),
+        .g_i            (fb_seen_frame_pix_r ? fb_g_w : 8'h00),
+        .b_i            (fb_seen_frame_pix_r ? fb_b_w : 8'h00),
 `else
         .r_i            (scanline_en ? {1'b0, rgb_r_w[7:1]} : rgb_r_w),
         .g_i            (scanline_en ? {1'b0, rgb_g_w[7:1]} : rgb_g_w),
