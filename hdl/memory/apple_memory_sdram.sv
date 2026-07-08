@@ -52,7 +52,11 @@ module apple_memory_sdram #(
     output [31:0] vgc_data_o,
     output vgc_ready_o,                // read-data beat for vgc_gen (BSRAM mode: fixed
                                        // 2-cycle sdpram32 latency; SDRAM mode: port ready)
-    output [7:0] wq_drops_o            // shadow write-queue overflow drops (diagnostics)
+    output [7:0] wq_drops_o,           // shadow write-queue overflow drops (diagnostics)
+    output [7:0] wq_txt_hits_o         // main-port writes landing in text-page words
+                                       // 0x200-0x3FF (diagnostics: with an SHR game
+                                       // running these should be ~zero; ticks = a
+                                       // misdirected write caught in the act)
 
 );
 
@@ -480,6 +484,8 @@ module apple_memory_sdram #(
         reg wr_r;
         reg [7:0] wq_drop_cnt_r;
         assign wq_drops_o = wq_drop_cnt_r;
+        reg [7:0] wq_txt_hit_cnt_r;
+        assign wq_txt_hits_o = wq_txt_hit_cnt_r;
 
         // Overflow guard: dropping is still corruption, but SILENT
         // corruption is worse — count drops for the debug overlay.
@@ -496,6 +502,7 @@ module apple_memory_sdram #(
                 wq_cnt_r <= '0;
                 wr_r     <= 1'b0;
                 wq_drop_cnt_r <= 8'd0;
+                wq_txt_hit_cnt_r <= 8'd0;
             end else begin
                 // Enqueue this bus write's job(s). Both fit: the FIFO never
                 // approaches full at bus write rates.
@@ -522,6 +529,10 @@ module apple_memory_sdram #(
                     if (main_mem_if.ready) begin
                         wr_r    <= 1'b0;
                         wq_rp_r <= wq_rp_r + 1'b1;
+                        // Trap: count completed writes into text page 1
+                        // (words 0x200-0x3FF)
+                        if (wq_addr_r[wq_rp_r][20:9] == 12'h001)
+                            wq_txt_hit_cnt_r <= wq_txt_hit_cnt_r + 8'd1;
                     end
                 end else if (wq_cnt_r != 0) begin
                     wr_r <= 1'b1;
@@ -537,6 +548,7 @@ module apple_memory_sdram #(
         assign main_mem_if.burst = 1'b0;
     end else begin : wr_comb
         assign wq_drops_o = 8'd0;
+        assign wq_txt_hits_o = 8'd0;
         assign main_mem_if.rd = 1'b0;
         assign main_mem_if.wr = write_en;
         assign main_mem_if.addr = {6'b0, a2bus_if.addr[15:1]};

@@ -536,6 +536,7 @@ module top #(
     wire [31:0] vgc_data_w;
     wire vgc_ready_w;
     wire [7:0] wq_drops_w;      // shadow write-queue drops (diagnostics)
+    wire [7:0] wq_txt_hits_w;   // misdirected-write trap (text-page hits)
 
     apple_memory_sdram #(
         .VGC_MEMORY(1),
@@ -563,7 +564,8 @@ module top #(
         .vgc_rd_i(vgc_rd_w),
         .vgc_data_o(vgc_data_w),
         .vgc_ready_o(vgc_ready_w),
-        .wq_drops_o(wq_drops_w)
+        .wq_drops_o(wq_drops_w),
+        .wq_txt_hits_o(wq_txt_hits_w)
     );
 
     // Slots
@@ -1765,13 +1767,14 @@ module top #(
         // [3]=event counter (heartbeat), [4]=status flags.
 `ifdef VIDEO_FRAMEBUFFER
         // Framebuffer diagnostics: overlay shows the glitch counters live.
-        // hex[0]=fw stage, [1]=heartbeat, [2]=fb fifo overflow, [3]=late
-        // line, [4]=line not ready, [5]=max line lag, [6]=shadow write-
-        // queue drops, [7]=GLU write-queue drops.
+        // hex[0]=fw stage, [1]=heartbeat, [2]=TEXT-PAGE WRITE TRAP (main
+        // port writes into words 0x200-0x3FF; should not tick with an SHR
+        // game under the menu), [3]=late line, [4]=line not ready,
+        // [5]=max line lag, [6]=shadow write-queue drops, [7]=GLU drops.
         .hex_values ({
             mcu_scratch_w[7:0],
             mcu_scratch_w[31:24],
-            fb_dbg_fifo_overflow_w,
+            wq_txt_hits_w,
             fb_dbg_late_line_w,
             fb_dbg_line_not_ready_w,
             fb_dbg_line_lag_max_w,
