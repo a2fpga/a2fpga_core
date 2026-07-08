@@ -267,12 +267,17 @@ module top #(
     // arbitration cone fails 108 MHz above 7 ports, so the three storage
     // clients (MCU XFER, Disk II window, HDD window) share one port through
     // mem_port_arb.
+    // The DOC has the hardest real-time deadline in the system (missed
+    // oscillator fetches are audible pops), so it sits directly behind the
+    // framebuffer ports. Video reads and CPU writes are latency-tolerant
+    // here: the framebuffer absorbs late line priming (active-keyed writer)
+    // and the shadow write path queues through a FIFO.
     localparam FB_READ_PORT      = 0;   // framebuffer line reads (display)
     localparam FB_WRITE_PORT     = 1;   // framebuffer pixel writes
-    localparam VIDEO_MEM_PORT    = 2;   // shadow reads (apple_video_gen + VGC via arbiter)
-    localparam MAIN_MEM_PORT     = 3;   // CPU shadow/aux writes
-    localparam DOC_MEM_PORT      = 4;
-    localparam GLU_MEM_PORT      = 5;
+    localparam DOC_MEM_PORT      = 2;
+    localparam GLU_MEM_PORT      = 3;
+    localparam VIDEO_MEM_PORT    = 4;   // shadow reads (apple_video_gen + VGC via arbiter)
+    localparam MAIN_MEM_PORT     = 5;   // CPU shadow/aux writes
     localparam STORAGE_MEM_PORT  = 6;   // MCU + Disk II + HDD via mem_port_arb
     localparam NUM_PORTS         = 7;
 `else
@@ -349,8 +354,8 @@ module top #(
         .PORT_OUTPUT_WIDTH(PORT_OUTPUT_WIDTH),
 `ifdef VIDEO_FRAMEBUFFER
         .PORT_BASE_ADDR('{FB_WORD_BASE, FB_WORD_BASE,
-                          SHADOW_WORD_BASE, SHADOW_WORD_BASE,
                           ENSONIQ_WORD_BASE, ENSONIQ_WORD_BASE,
+                          SHADOW_WORD_BASE, SHADOW_WORD_BASE,
                           SHADOW_WORD_BASE}),
 `elsif ENSONIQ
     `ifdef BL616_SPI
