@@ -1053,10 +1053,15 @@ module top #(
         .ssp_active_i(1'b0)
     );
 
-    // Framebuffer source mux — apple or SHR, latched at the frame boundary
+    // Framebuffer source mux — apple or SHR, latched at the frame boundary.
+    // Must go through the video_control_if override: when the MCU takeover
+    // (boot console / menu) forces text mode while the machine is in SHR
+    // (GS/OS flips SHRG during boot), the console renders into the APPLE
+    // plane — latching raw SHRG here kept displaying the stale VGC plane
+    // as garbage.
     reg use_vgc_r;
     always @(posedge clk_logic_w) begin
-        if (vsync_w) use_vgc_r <= a2mem_if.SHRG_MODE;
+        if (vsync_w) use_vgc_r <= video_control_if.shrg_mode(a2mem_if.SHRG_MODE);
     end
 
     wire fb_we_mux_w          = use_vgc_r ? vgc_fb_we_w    : fb_we_w;
@@ -1335,10 +1340,13 @@ module top #(
             .video_b_o(dd_vgc_b_w)
         );
 
-        // Select Apple II vs Super Hi-Res, latched once per frame.
+        // Select Apple II vs Super Hi-Res, latched once per frame. Goes
+        // through the video_control_if override so the MCU takeover shows
+        // the Apple plane (where the console/menu renders) even when the
+        // machine itself is in SHR mode.
         reg use_vgc_r;
         always @(posedge clk_logic_w) begin
-            if (apple_ps.vsync) use_vgc_r <= a2mem_if.SHRG_MODE;
+            if (apple_ps.vsync) use_vgc_r <= video_control_if.shrg_mode(a2mem_if.SHRG_MODE);
         end
 
         wire [7:0] ps_r_w      = use_vgc_r ? dd_vgc_r_w : dd_apple_r_w;
