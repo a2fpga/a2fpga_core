@@ -385,6 +385,16 @@ static void mount_hdd(int u)
         else
             continue;
 
+        /* CONTAINMENT: serve HDD volumes read-only for now. The Apple ->
+         * SDRAM window -> SPI XFER -> file write-back chain corrupts data
+         * at 32-bit-word granularity (observed on hardware: a game's
+         * high-score save destroyed the volume directory blocks with
+         * shifted/interleaved words). Until that path is fixed and
+         * verified, protect the images: reads are proven byte-faithful,
+         * writes are not. GS/OS boots and games run fine read-only; saves
+         * are rejected by the card's write-protect status. */
+        rw = false;
+
         uint32_t base  = 0;
         uint32_t bytes = (uint32_t)f_size(&g_hdd_img[u]);
 
