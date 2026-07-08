@@ -60,6 +60,8 @@
 #define HDD_CTL_MOUNTED   0x02u
 #define HDD_CTL_READONLY  0x04u
 
+#define REG_CARDROM_REL   0x31u   /* W: release the CardROM INH overlay */
+
 /* ---- SDRAM track windows (must match top.sv DISK_WORD_BASE + d*0x2000) ----
  * DISK_WORD_BASE = word 0x080000 = byte 0x200000; per-drive stride = 8KB.
  * HDD block windows follow at byte 0x204000, 512 bytes per unit. */
@@ -897,6 +899,12 @@ void disk_poll(void)
                         fpga_spi_reg_read(0x66), fpga_spi_reg_read(0x67));
 
                 fpga_spi_reg_write(0x2E, 1);   /* A2_RST_RELEASE */
+                /* Release the CardROM INH overlay immediately: with the
+                 * mcu_ready latch fixed, standalone no longer suppresses the
+                 * CardROM, and its keyboard-poll stub would otherwise hold
+                 * $F8xx and hang a IIe boot. Release until the keyboard-
+                 * snoop bootstrap is actually implemented end-to-end. */
+                fpga_spi_reg_write(REG_CARDROM_REL, 1);
                 s_released = true;
                 osd_log("A2: RESET RELEASED%s", any ? "" : " (NO MEDIA)");
             }
