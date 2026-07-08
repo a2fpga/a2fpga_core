@@ -392,17 +392,32 @@ module bl616_spi_connector #(
     reg [WF_AW:0] wf_wptr_r, wf_rptr_r; // extra MSB distinguishes full vs empty
     wire          wf_empty = (wf_wptr_r == wf_rptr_r);
 
-    // Read cache: serve sequential byte reads of a word from one SDRAM read
-    reg [31:0] rdc_word_r;
-    reg [20:0] rdc_waddr_r;
-    reg        rdc_valid_r;
+    // Read cache, two slots: slot 0 = current word, slot 1 = prefetched
+    // next word. XFER reads stream sequential bytes against a hard SPI
+    // byte deadline (~2us at 4 MHz); a single-word cache made byte 0 of
+    // every word a full SDRAM round trip against that deadline, and under
+    // port contention (framebuffer line fetches, storage arbitration) a
+    // late response made the protocol FSM emit a stale byte and shift the
+    // rest of the stream — seen on hardware as corrupted HDD write-backs.
+    // Prefetching word+1 while bytes 1-3 of the current word stream out
+    // turns the deadline into ~6us and makes sequential reads all-hit.
+    reg [31:0] rdc_word_r  [1:0];
+    reg [20:0] rdc_waddr_r [1:0];
+    reg        rdc_valid_r [1:0];
 
-    // Pending / in-flight read (held until the port is available, never dropped)
+    // Pending / in-flight demand read (held until served, never dropped)
     reg        rd_pending_r;
     reg [20:0] rd_waddr_r;
     reg [1:0]  rd_bsel_r;
     reg        rd_inflight_r;       // SDRAM read issued, awaiting mem_if.ready
     reg [1:0]  rd_inflight_bsel_r;
+    reg        rd_inflight_pf_r;    // in-flight read is a prefetch (no SPI response)
+    reg        rd_inflight_slot_r;  // cache slot the completion fills
+
+    // Prefetch request (speculative next word for sequential XFER streams)
+    reg        pf_pending_r;
+    reg [20:0] pf_waddr_r;
+    reg        pf_slot_r;
 
     // SDRAM read response byte (to the read mux)
     reg        sdram_rd_resp_valid_r;
@@ -435,14 +450,22 @@ module bl616_spi_connector #(
             acc_idle_r  <= 8'd0;
             wf_wptr_r   <= '0;
             wf_rptr_r   <= '0;
-            rdc_word_r  <= 32'd0;
-            rdc_waddr_r <= 21'd0;
-            rdc_valid_r <= 1'b0;
+            rdc_word_r[0]  <= 32'd0;
+            rdc_word_r[1]  <= 32'd0;
+            rdc_waddr_r[0] <= 21'd0;
+            rdc_waddr_r[1] <= 21'd0;
+            rdc_valid_r[0] <= 1'b0;
+            rdc_valid_r[1] <= 1'b0;
             rd_pending_r  <= 1'b0;
             rd_waddr_r    <= 21'd0;
             rd_bsel_r     <= 2'd0;
             rd_inflight_r <= 1'b0;
             rd_inflight_bsel_r <= 2'd0;
+            rd_inflight_pf_r   <= 1'b0;
+            rd_inflight_slot_r <= 1'b0;
+            pf_pending_r <= 1'b0;
+            pf_waddr_r   <= 21'd0;
+            pf_slot_r    <= 1'b0;
             sdram_rd_resp_valid_r <= 1'b0;
             sdram_rd_resp_data_r  <= 8'h00;
             mem_if_wr_r <= 1'b0;
@@ -456,19 +479,21 @@ module bl616_spi_connector #(
             mem_if_rd_r <= 1'b0;
             sdram_rd_resp_valid_r <= 1'b0;
 
-            // ---- 1) Capture SDRAM read completion ----
+            // ---- 1) Capture SDRAM read completion (demand or prefetch) ----
             if (mem_if.ready && rd_inflight_r) begin
-                rdc_word_r    <= mem_if.q[31:0];
-                rdc_waddr_r   <= rd_waddr_r;
-                rdc_valid_r   <= 1'b1;
+                rdc_word_r[rd_inflight_slot_r]  <= mem_if.q[31:0];
+                rdc_waddr_r[rd_inflight_slot_r] <= mem_if_addr_r;
+                rdc_valid_r[rd_inflight_slot_r] <= 1'b1;
                 rd_inflight_r <= 1'b0;
-                case (rd_inflight_bsel_r)
-                    2'd0: sdram_rd_resp_data_r <= mem_if.q[7:0];
-                    2'd1: sdram_rd_resp_data_r <= mem_if.q[15:8];
-                    2'd2: sdram_rd_resp_data_r <= mem_if.q[23:16];
-                    2'd3: sdram_rd_resp_data_r <= mem_if.q[31:24];
-                endcase
-                sdram_rd_resp_valid_r <= 1'b1;
+                if (!rd_inflight_pf_r) begin
+                    case (rd_inflight_bsel_r)
+                        2'd0: sdram_rd_resp_data_r <= mem_if.q[7:0];
+                        2'd1: sdram_rd_resp_data_r <= mem_if.q[15:8];
+                        2'd2: sdram_rd_resp_data_r <= mem_if.q[23:16];
+                        2'd3: sdram_rd_resp_data_r <= mem_if.q[31:24];
+                    endcase
+                    sdram_rd_resp_valid_r <= 1'b1;
+                end
             end
 
             // ---- 2) Accept XFER writes (never stalls: accumulator + FIFO) ----
@@ -511,9 +536,11 @@ module bl616_spi_connector #(
                         acc_word_r  <= 32'd0;
                     end
                 end
-                // Invalidate read cache on write to the cached word
-                if (rdc_valid_r && (mem_wr_addr[23:2] == rdc_waddr_r))
-                    rdc_valid_r <= 1'b0;
+                // Invalidate read cache on write to a cached word
+                if (rdc_valid_r[0] && (mem_wr_addr[23:2] == rdc_waddr_r[0]))
+                    rdc_valid_r[0] <= 1'b0;
+                if (rdc_valid_r[1] && (mem_wr_addr[23:2] == rdc_waddr_r[1]))
+                    rdc_valid_r[1] <= 1'b0;
             end else if (acc_valid_r && (acc_idle_r >= ACC_IDLE_FLUSH || rd_pending_r)) begin
                 // Flush the final partial word: end-of-burst, or to order before a
                 // pending read (write-before-read). Single accumulator-flush site,
@@ -529,24 +556,52 @@ module bl616_spi_connector #(
                 acc_idle_r <= acc_idle_r + 8'd1;
             end
 
-            // ---- 3) Accept a read request: cache hit serves now, else mark pending ----
+            // ---- 3) Accept a read request: cache hit serves now, else mark pending.
+            //         Sequential streams also trigger a speculative prefetch of the
+            //         next word into the other slot. ----
             if (mem_rd_req && (mem_rd_space == 3'd1)) begin
-                if (rdc_valid_r && (mem_rd_addr[23:2] == rdc_waddr_r)) begin
+                if (rdc_valid_r[0] && (mem_rd_addr[23:2] == rdc_waddr_r[0])) begin
                     case (mem_rd_addr[1:0])
-                        2'd0: sdram_rd_resp_data_r <= rdc_word_r[7:0];
-                        2'd1: sdram_rd_resp_data_r <= rdc_word_r[15:8];
-                        2'd2: sdram_rd_resp_data_r <= rdc_word_r[23:16];
-                        2'd3: sdram_rd_resp_data_r <= rdc_word_r[31:24];
+                        2'd0: sdram_rd_resp_data_r <= rdc_word_r[0][7:0];
+                        2'd1: sdram_rd_resp_data_r <= rdc_word_r[0][15:8];
+                        2'd2: sdram_rd_resp_data_r <= rdc_word_r[0][23:16];
+                        2'd3: sdram_rd_resp_data_r <= rdc_word_r[0][31:24];
                     endcase
                     sdram_rd_resp_valid_r <= 1'b1;
+                    // Past the first byte of this word and the next word is not
+                    // cached: prefetch it into the other slot.
+                    if (mem_rd_addr[1:0] != 2'd0 &&
+                        !(rdc_valid_r[1] && rdc_waddr_r[1] == (mem_rd_addr[23:2] + 21'd1)))
+                    begin
+                        pf_pending_r <= 1'b1;
+                        pf_waddr_r   <= mem_rd_addr[23:2] + 21'd1;
+                        pf_slot_r    <= 1'b1;
+                    end
+                end else if (rdc_valid_r[1] && (mem_rd_addr[23:2] == rdc_waddr_r[1])) begin
+                    case (mem_rd_addr[1:0])
+                        2'd0: sdram_rd_resp_data_r <= rdc_word_r[1][7:0];
+                        2'd1: sdram_rd_resp_data_r <= rdc_word_r[1][15:8];
+                        2'd2: sdram_rd_resp_data_r <= rdc_word_r[1][23:16];
+                        2'd3: sdram_rd_resp_data_r <= rdc_word_r[1][31:24];
+                    endcase
+                    sdram_rd_resp_valid_r <= 1'b1;
+                    if (mem_rd_addr[1:0] != 2'd0 &&
+                        !(rdc_valid_r[0] && rdc_waddr_r[0] == (mem_rd_addr[23:2] + 21'd1)))
+                    begin
+                        pf_pending_r <= 1'b1;
+                        pf_waddr_r   <= mem_rd_addr[23:2] + 21'd1;
+                        pf_slot_r    <= 1'b0;
+                    end
                 end else begin
                     rd_pending_r <= 1'b1;
                     rd_waddr_r   <= mem_rd_addr[23:2];
                     rd_bsel_r    <= mem_rd_addr[1:0];
+                    pf_pending_r <= 1'b0;   // demand read supersedes any stale prefetch
                 end
             end
 
-            // ---- 4) SDRAM arbiter: writes drain before reads (preserves ordering) ----
+            // ---- 4) SDRAM arbiter: writes drain before reads (preserves
+            //         ordering); demand reads before prefetches ----
             if (mem_if.available && !mem_if_wr_r && !mem_if_rd_r && !rd_inflight_r) begin
                 if (!wf_empty) begin
                     // Pop one queued word -> SDRAM write
@@ -561,7 +616,17 @@ module bl616_spi_connector #(
                     mem_if_rd_r   <= 1'b1;
                     rd_inflight_r <= 1'b1;
                     rd_inflight_bsel_r <= rd_bsel_r;
+                    rd_inflight_pf_r   <= 1'b0;
+                    rd_inflight_slot_r <= 1'b0;
                     rd_pending_r  <= 1'b0;
+                end else if (pf_pending_r && !acc_valid_r) begin
+                    // Idle -> speculative prefetch of the next stream word
+                    mem_if_addr_r <= pf_waddr_r;
+                    mem_if_rd_r   <= 1'b1;
+                    rd_inflight_r <= 1'b1;
+                    rd_inflight_pf_r   <= 1'b1;
+                    rd_inflight_slot_r <= pf_slot_r;
+                    pf_pending_r  <= 1'b0;
                 end
             end
         end
