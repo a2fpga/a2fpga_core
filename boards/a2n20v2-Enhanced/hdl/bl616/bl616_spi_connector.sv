@@ -139,12 +139,20 @@ module bl616_spi_connector #(
     // -------------------------------------------------------
     // MCU ready detection -- latches on first STATUS register read
     // -------------------------------------------------------
+    // MCU-alive latch. Historically this required a read of STATUS (0x06),
+    // but the protocol processor answers status reads from its internal
+    // fast path without pulsing reg_rd_req — so the latch never fired, the
+    // standalone fallback engaged on every boot, and (critically) the
+    // "MCU absent" reset escape released the Apple II at 3 s regardless of
+    // whether storage was mounted — the cold-boot half-booted-garbage bug.
+    // Any register transaction proves the MCU is alive (the firmware
+    // writes debug scratch registers within milliseconds of boot).
     reg mcu_ready_r;
     assign mcu_ready_o = mcu_ready_r;
     always @(posedge clk or negedge rst_n) begin
         if (!rst_n)
             mcu_ready_r <= 1'b0;
-        else if (reg_rd_req && reg_idx == 7'h06)
+        else if (reg_rd_req || reg_wr_req)
             mcu_ready_r <= 1'b1;
     end
 
@@ -299,7 +307,12 @@ module bl616_spi_connector #(
     // -------------------------------------------------------
     // Interface assignments -- A2 bus control
     // -------------------------------------------------------
-    assign a2bus_control_if.ready = a2bus_ready_r || standalone_r;
+    // Bus-ready: normally the firmware's explicit reg 0x30 write (or the
+    // standalone fallback when no MCU exists). The reset-hold backstop also
+    // forces it so a crashed MCU that latched mcu_ready can never leave the
+    // Apple bus interface parked in IO_INIT forever.
+    assign a2bus_control_if.ready = a2bus_ready_r || standalone_r ||
+                                    (rst_hold_cnt_r >= RST_HOLD_BACKSTOP[RST_CW-1:0]);
     assign cardrom_release_o = cardrom_release_r;
 
     // -------------------------------------------------------
