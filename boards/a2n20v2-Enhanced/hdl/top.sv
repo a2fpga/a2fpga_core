@@ -311,6 +311,11 @@ module top #(
 
     // SDRAM memory map — word address offsets (32-bit word addressing)
     // Applied per-port inside sdram_ports via PORT_BASE_ADDR parameter.
+    // NOTE: the video/main shadow port address is {bank, a2_addr[15:1]}.
+    // Bank 0 = Apple shadow (words 0x0000-0x7FFF); bank 1 = the MCU's
+    // private display space (words 0x8000-0xFFFF; OSD text page at word
+    // 0x8200 = byte 0x20800, see firmware fpga_screen.c). Do NOT allocate
+    // SDRAM regions in words 0x8000-0xFFFF.
     localparam [PORT_ADDR_WIDTH-1:0] SHADOW_WORD_BASE  = 21'h000000;  // 0MB
 `ifdef ENSONIQ
     localparam [PORT_ADDR_WIDTH-1:0] ENSONIQ_WORD_BASE = 21'h010000;  // 128KB

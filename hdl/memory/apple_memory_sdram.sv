@@ -60,10 +60,14 @@ module apple_memory_sdram #(
 
 );
 
-    // Pre-interleaved aux region (VGC_IN_SDRAM): word addresses 0x8000-0x9FFF,
-    // above the flat shadow (words 0x0000-0x7FFF = full 64K x {main,aux} via
-    // byte lanes) and below the Ensoniq region at word 0x10000.
-    localparam [20:0] VGC_AUX_WORD_OFFSET = 21'h008000;
+    // Pre-interleaved aux region (VGC_IN_SDRAM): word addresses
+    // 0x18000-0x19FFF, above the Ensoniq sound RAM and below the disk
+    // windows. NOTE the video-port address space is {bank, addr[15:1]}:
+    // bank 0 = Apple shadow (words 0x0000-0x7FFF) and bank 1 = the MCU's
+    // PRIVATE display space (words 0x8000-0xFFFF, OSD text page at 0x8200)
+    // — this region originally sat at 0x8000 and corrupted the MCU menu /
+    // was corrupted by it whenever an SHR game ran under the takeover.
+    localparam [20:0] VGC_AUX_WORD_OFFSET = 21'h018000;
 
     wire write_strobe = !a2bus_if.rw_n && a2bus_if.data_in_strobe;
     wire read_strobe = a2bus_if.rw_n && a2bus_if.data_in_strobe;
