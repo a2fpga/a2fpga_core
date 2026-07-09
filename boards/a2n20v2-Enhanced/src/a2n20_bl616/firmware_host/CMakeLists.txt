@@ -28,6 +28,7 @@ sdk_add_compile_definitions(-DFATFS_EXTERNAL_DISKIO)
 
 target_sources(app PRIVATE
     usbh_xinput.c
+    usbh_hidinput.c
     w5100.c
     disk.c
     diskio_host.c

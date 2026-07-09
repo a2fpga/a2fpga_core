@@ -20,6 +20,7 @@
 #include "task.h"
 #include "usbh_core.h"
 #include "usbh_xinput.h"
+#include "usbh_hidinput.h"  /* USB keyboard / remote-control menu input */
 #include "board.h"
 #include "bflb_mtimer.h"
 
@@ -319,11 +320,12 @@ static void xinput_thread(void *arg)
             }
             g_dev = NULL;
             g_prev_buttons = 0;
-            /* No pad: still tick the menu at 20 ms so remote input (the
-             * telnet mirror's menu_inject pulses) works headless. The
-             * 500 ms device-scan cadence is preserved by the loop count. */
+            /* No pad: still tick the menu at 20 ms so remote input (HID
+             * keyboards/remotes, the telnet mirror's menu_inject pulses)
+             * works padless. The 500 ms device-scan cadence is preserved
+             * by the loop count. */
             for (int t = 0; t < 25; t++) {
-                menu_input(0);
+                menu_input(usbh_hidinput_buttons());
                 usb_osal_msleep(20);
             }
             continue;
@@ -362,8 +364,9 @@ static void xinput_thread(void *arg)
             g_prev_buttons = g_btn_latest;
         }
         /* Menu system: edge detection + hold-repeat live inside; feed the
-         * current state every tick (repeat needs a time base, not events). */
-        menu_input(g_btn_latest);
+         * current state every tick (repeat needs a time base, not events).
+         * HID keyboard/remote buttons ride along in the same word. */
+        menu_input(g_btn_latest | usbh_hidinput_buttons());
         dbg_tick();                  /* heartbeat (thread context) */
         usb_osal_msleep(20);
     }
