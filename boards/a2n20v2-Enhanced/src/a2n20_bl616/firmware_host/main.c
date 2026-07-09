@@ -1183,6 +1183,14 @@ int main(void)
     dbg_stage(STG_FPGA_READY);
     if (ready) dbg_set(F_FPGA_READY);
 
+    /* Assert bus-ready NOW, as early as possible: this lets apple_bus run
+     * its bridge init and grab the Apple II's RESET (hold-until-mounted).
+     * With the mcu_ready latch fixed on the FPGA side, the standalone
+     * fallback no longer asserts this for us — an MCU that never writes
+     * 0x30 would leave the Apple bus interface parked. Ready means "grab
+     * the bus now"; the mount-gated 0x2E release means "boot for real". */
+    fpga_spi_reg_write(REG_A2BUS_READY, 1);
+
     /* Persisted preferences, then the gamepad menu that edits them. */
     settings_init();
     menu_init();

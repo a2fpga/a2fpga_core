@@ -50,15 +50,20 @@ module apple_memory_sdram #(
     input [12:0] vgc_address_i,
     input vgc_rd_i,
     output [31:0] vgc_data_o,
-    output vgc_ready_o                 // read-data beat for vgc_gen (BSRAM mode: fixed
+    output vgc_ready_o,                // read-data beat for vgc_gen (BSRAM mode: fixed
                                        // 2-cycle sdpram32 latency; SDRAM mode: port ready)
+    output [7:0] wq_drops_o            // shadow write-queue overflow drops (diagnostics)
 
 );
 
-    // Pre-interleaved aux region (VGC_IN_SDRAM): word addresses 0x8000-0x9FFF,
-    // above the flat shadow (words 0x0000-0x7FFF = full 64K x {main,aux} via
-    // byte lanes) and below the Ensoniq region at word 0x10000.
-    localparam [20:0] VGC_AUX_WORD_OFFSET = 21'h008000;
+    // Pre-interleaved aux region (VGC_IN_SDRAM): word addresses
+    // 0x18000-0x19FFF, above the Ensoniq sound RAM and below the disk
+    // windows. NOTE the video-port address space is {bank, addr[15:1]}:
+    // bank 0 = Apple shadow (words 0x0000-0x7FFF) and bank 1 = the MCU's
+    // PRIVATE display space (words 0x8000-0xFFFF, OSD text page at 0x8200)
+    // — this region originally sat at 0x8000 and corrupted the MCU menu /
+    // was corrupted by it whenever an SHR game ran under the takeover.
+    localparam [20:0] VGC_AUX_WORD_OFFSET = 21'h018000;
 
     wire write_strobe = !a2bus_if.rw_n && a2bus_if.data_in_strobe;
     wire read_strobe = a2bus_if.rw_n && a2bus_if.data_in_strobe;
@@ -460,59 +465,82 @@ module apple_memory_sdram #(
 
         // A single bus write can need two SDRAM writes: the flat shadow copy
         // (for apple_video_gen) and the pre-interleaved aux copy (for the
-        // VGC). The port queues one request at a time, so sequence them —
-        // bus writes are ~1 us apart, the pair completes in well under that.
-        reg wr_busy_r, wr_aux_pend_r, wr_r;
-        reg [20:0] wr_addr_r;
-        reg [31:0] wr_data_r;
-        reg [3:0]  wr_be_r;
-        reg [20:0] aux_addr_r;
-        reg [3:0]  aux_be_r;
+        // VGC). Jobs go through a small FIFO rather than a blocking
+        // two-step: under port contention (MCU track streaming, and the
+        // framebuffer ports outrank this one in the FB config) a pair of
+        // ready-waits can exceed one bus-write period (~53 logic cycles),
+        // and a blocking sequencer silently dropped the next CPU write —
+        // seen on hardware as stable wrong pixels in loaded screens.
+        // Depth 8 rides out worst-case bursts; jobs arrive at most 2 per
+        // ~53 cycles and drain in ~15-30 each.
+        localparam WQ_DEPTH = 16;  // power of two — sized for worst-case
+                                   // framebuffer-burst stalls of the main
+                                   // port; overflow drops are counted
+        reg [20:0] wq_addr_r [WQ_DEPTH-1:0];
+        reg [31:0] wq_data_r [WQ_DEPTH-1:0];
+        reg [3:0]  wq_be_r   [WQ_DEPTH-1:0];
+        reg [$clog2(WQ_DEPTH)-1:0] wq_wp_r, wq_rp_r;
+        reg [$clog2(WQ_DEPTH):0]   wq_cnt_r;
+        reg wr_r;
+        reg [7:0] wq_drop_cnt_r;
+        assign wq_drops_o = wq_drop_cnt_r;
+
+        // Overflow guard: dropping is still corruption, but SILENT
+        // corruption is worse — count drops for the debug overlay.
+        wire wq_room2_w = (wq_cnt_r <= ($clog2(WQ_DEPTH)+1)'(WQ_DEPTH - 2));
+        wire wq_push_main_w = write_en && wq_room2_w;
+        wire wq_push_aux_w  = aux_wr_w && wq_room2_w;
+        wire [1:0] wq_push_n_w = {1'b0, wq_push_main_w} + {1'b0, wq_push_aux_w};
+        wire wq_pop_w = wr_r && main_mem_if.ready;
+
         always @(posedge a2bus_if.clk_logic) begin
             if (!a2bus_if.system_reset_n) begin
-                wr_busy_r     <= 1'b0;
-                wr_aux_pend_r <= 1'b0;
-                wr_r          <= 1'b0;
-            end else if (!wr_busy_r) begin
-                if (write_en || aux_wr_w) begin
-                    wr_busy_r <= 1'b1;
-                    wr_r      <= 1'b1;
-                    wr_data_r <= write_word;
-                    if (write_en) begin
-                        wr_addr_r     <= {6'b0, a2bus_if.addr[15:1]};
-                        wr_be_r       <= 4'(1'b1 << {a2bus_if.addr[0], aux_mem_r || a2bus_if.m2b0});
-                        wr_aux_pend_r <= aux_wr_w;
-                        aux_addr_r    <= aux_word_addr_w;
-                        aux_be_r      <= aux_byte_en_w;
-                    end else begin
-                        wr_addr_r     <= aux_word_addr_w;
-                        wr_be_r       <= aux_byte_en_w;
-                        wr_aux_pend_r <= 1'b0;
-                    end
-                end
-            end else if (wr_r) begin
-                if (main_mem_if.ready) begin
-                    wr_r <= 1'b0;
-                    if (!wr_aux_pend_r) wr_busy_r <= 1'b0;
-                end
-            end else if (wr_aux_pend_r) begin
-                // wr was low for one cycle — issue the aux copy (new edge)
-                wr_addr_r     <= aux_addr_r;
-                wr_be_r       <= aux_be_r;
-                wr_aux_pend_r <= 1'b0;
-                wr_r          <= 1'b1;
+                wq_wp_r  <= '0;
+                wq_rp_r  <= '0;
+                wq_cnt_r <= '0;
+                wr_r     <= 1'b0;
+                wq_drop_cnt_r <= 8'd0;
             end else begin
-                wr_busy_r <= 1'b0;
+                // Enqueue this bus write's job(s). Both fit: the FIFO never
+                // approaches full at bus write rates.
+                if (wq_push_main_w) begin
+                    wq_addr_r[wq_wp_r] <= {6'b0, a2bus_if.addr[15:1]};
+                    wq_data_r[wq_wp_r] <= write_word;
+                    wq_be_r[wq_wp_r]   <= 4'(1'b1 << {a2bus_if.addr[0], aux_mem_r || a2bus_if.m2b0});
+                end
+                if (wq_push_aux_w) begin
+                    wq_addr_r[wq_wp_r + ($clog2(WQ_DEPTH))'(wq_push_main_w)] <= aux_word_addr_w;
+                    wq_data_r[wq_wp_r + ($clog2(WQ_DEPTH))'(wq_push_main_w)] <= write_word;
+                    wq_be_r[wq_wp_r + ($clog2(WQ_DEPTH))'(wq_push_main_w)]   <= aux_byte_en_w;
+                end
+                wq_wp_r  <= wq_wp_r + ($clog2(WQ_DEPTH))'(wq_push_n_w);
+                wq_cnt_r <= wq_cnt_r + ($clog2(WQ_DEPTH)+1)'(wq_push_n_w)
+                                     - ($clog2(WQ_DEPTH)+1)'(wq_pop_w);
+
+                // Drain: hold wr high until ready, one dead cycle between
+                // jobs so the controller's edge detector sees a fresh edge.
+                if ((write_en || aux_wr_w) && !wq_room2_w)
+                    wq_drop_cnt_r <= wq_drop_cnt_r + 8'd1;
+
+                if (wr_r) begin
+                    if (main_mem_if.ready) begin
+                        wr_r    <= 1'b0;
+                        wq_rp_r <= wq_rp_r + 1'b1;
+                    end
+                end else if (wq_cnt_r != 0) begin
+                    wr_r <= 1'b1;
+                end
             end
         end
 
         assign main_mem_if.rd = 1'b0;
         assign main_mem_if.wr = wr_r;
-        assign main_mem_if.addr = wr_addr_r;
-        assign main_mem_if.data = wr_data_r;
-        assign main_mem_if.byte_en = wr_be_r;
+        assign main_mem_if.addr = wq_addr_r[wq_rp_r];
+        assign main_mem_if.data = wq_data_r[wq_rp_r];
+        assign main_mem_if.byte_en = wq_be_r[wq_rp_r];
         assign main_mem_if.burst = 1'b0;
     end else begin : wr_comb
+        assign wq_drops_o = 8'd0;
         assign main_mem_if.rd = 1'b0;
         assign main_mem_if.wr = write_en;
         assign main_mem_if.addr = {6'b0, a2bus_if.addr[15:1]};

@@ -60,6 +60,8 @@
 #define HDD_CTL_MOUNTED   0x02u
 #define HDD_CTL_READONLY  0x04u
 
+#define REG_CARDROM_REL   0x31u   /* W: release the CardROM INH overlay */
+
 /* ---- SDRAM track windows (must match top.sv DISK_WORD_BASE + d*0x2000) ----
  * DISK_WORD_BASE = word 0x080000 = byte 0x200000; per-drive stride = 8KB.
  * HDD block windows follow at byte 0x204000, 512 bytes per unit. */
@@ -135,6 +137,18 @@ static bool has_ext(const char *name, const char *ext)
         if ((name[n - x + i] | 0x20) != (ext[i] | 0x20))
             return false;
     return true;
+}
+
+/* Case-insensitive name compare for the directory listing sort. */
+static int name_cmp(const char *a, const char *b)
+{
+    while (*a && *b) {
+        int ca = *a | 0x20, cb = *b | 0x20;
+        if (ca != cb)
+            return ca - cb;
+        a++; b++;
+    }
+    return (*a & 0xff) - (*b & 0xff);
 }
 
 /* Format + sector order from the filename extension. .2mg is resolved from its
@@ -290,19 +304,23 @@ static void mount_drive(int v)
                 bytes = paylen;
             else if (bytes > base)
                 bytes -= base;
-            /* Only floppy-size payloads are Disk II volumes; larger 2mg images
-             * are block devices and belong to the hard-disk path. */
-            if (fmt == FMT_DSK && bytes != DSK_TRACK_BYTES * 35u) {
-                osd_log("DISK II: D%d %s not a 5.25 floppy (%lu B) - skip",
-                        v + 1, name + 3, (unsigned long)bytes);
-                fmt = FMT_NONE;
-            }
         } else {
             fmt = detect_format(name, &order);
             /* Bare .dsk is ambiguous: sniff the actual sector order (.do and
              * .po stay explicit). */
             if (fmt == FMT_DSK && has_ext(name, "dsk"))
                 order = sniff_dsk_order(&g_img[v]);
+        }
+
+        /* Only floppy-size payloads are Disk II volumes. Anything larger
+         * (e.g. an 800K ProDOS .po) is a block device and belongs to the
+         * hard-disk path — serving it here would nibblize garbage geometry
+         * and hang the Apple's boot. */
+        if ((fmt == FMT_DSK && bytes != DSK_TRACK_BYTES * 35u) ||
+            (fmt == FMT_NIB && bytes != MAX_TRACK_BYTES * 35u)) {
+            osd_log("DISK II: D%d %s not a 5.25 floppy (%lu B) - use HDD slot",
+                    v + 1, name + 3, (unsigned long)bytes);
+            fmt = FMT_NONE;
         }
 
         if (fmt == FMT_NONE) {
@@ -368,6 +386,16 @@ static void mount_hdd(int u)
             rw = false;
         else
             continue;
+
+        /* CONTAINMENT: serve HDD volumes read-only for now. The Apple ->
+         * SDRAM window -> SPI XFER -> file write-back chain corrupts data
+         * at 32-bit-word granularity (observed on hardware: a game's
+         * high-score save destroyed the volume directory blocks with
+         * shifted/interleaved words). Until that path is fixed and
+         * verified, protect the images: reads are proven byte-faithful,
+         * writes are not. GS/OS boots and games run fine read-only; saves
+         * are rejected by the card's write-protect status. */
+        rw = false;
 
         uint32_t base  = 0;
         uint32_t bytes = (uint32_t)f_size(&g_hdd_img[u]);
@@ -871,6 +899,12 @@ void disk_poll(void)
                         fpga_spi_reg_read(0x66), fpga_spi_reg_read(0x67));
 
                 fpga_spi_reg_write(0x2E, 1);   /* A2_RST_RELEASE */
+                /* Release the CardROM INH overlay immediately: with the
+                 * mcu_ready latch fixed, standalone no longer suppresses the
+                 * CardROM, and its keyboard-poll stub would otherwise hold
+                 * $F8xx and hang a IIe boot. Release until the keyboard-
+                 * snoop bootstrap is actually implemented end-to-end. */
+                fpga_spi_reg_write(REG_CARDROM_REL, 1);
                 s_released = true;
                 osd_log("A2: RESET RELEASED%s", any ? "" : " (NO MEDIA)");
             }
@@ -911,6 +945,19 @@ void disk_poll(void)
                 e->is_dir = is_dir;
             }
             f_closedir(&dir);
+        }
+        /* Alphabetize within each group (the two passes already put
+         * directories first). FAT returns creation order, which makes big
+         * game folders unnavigable. Insertion sort: n <= DISK_LIST_MAX. */
+        for (int i = 1; i < g_list_count; i++) {
+            disk_list_ent_t tmp = g_list_ents[i];
+            int j = i;
+            while (j > 0 && g_list_ents[j - 1].is_dir == tmp.is_dir &&
+                   name_cmp(g_list_ents[j - 1].name, tmp.name) > 0) {
+                g_list_ents[j] = g_list_ents[j - 1];
+                j--;
+            }
+            g_list_ents[j] = tmp;
         }
         g_list_req  = false;
         g_list_done = true;
