@@ -12,7 +12,7 @@
   <Part Number>: GW2AR-LV18QN88C8/I7
   <Device>: GW2AR-18
   <Device Version>: C
-  <Created Time>:Wed Jul  8 17:48:16 2026
+  <Created Time>:Wed Jul  8 20:11:11 2026
 
 
 2. PnR Details
@@ -20,19 +20,19 @@
   Running placement:
     Placement Phase 0: CPU time = 0h 0m 6s, Elapsed time = 0h 0m 7s
     Placement Phase 1: CPU time = 0h 0m 2s, Elapsed time = 0h 0m 3s
-    Placement Phase 2: CPU time = 0h 0m 24s, Elapsed time = 0h 0m 28s
-    Placement Phase 3: CPU time = 0h 1m 7s, Elapsed time = 0h 1m 23s
-    Total Placement: CPU time = 0h 1m 39s, Elapsed time = 0h 2m 0s
+    Placement Phase 2: CPU time = 0h 0m 22s, Elapsed time = 0h 0m 26s
+    Placement Phase 3: CPU time = 0h 1m 15s, Elapsed time = 0h 1m 34s
+    Total Placement: CPU time = 0h 1m 45s, Elapsed time = 0h 2m 10s
  Running routing:
-    Routing Phase 0: CPU time = 0h 0m 0.017s, Elapsed time = 0h 0m 0.024s
+    Routing Phase 0: CPU time = 0h 0m 0.016s, Elapsed time = 0h 0m 0.018s
     Routing Phase 1: CPU time = 0h 0m 1s, Elapsed time = 0h 0m 1s
-    Routing Phase 2: CPU time = 0h 3m 0s, Elapsed time = 0h 3m 41s
+    Routing Phase 2: CPU time = 0h 1m 18s, Elapsed time = 0h 1m 38s
     Routing Phase 3: CPU time = 0h 0m 0s, Elapsed time = 0h 0m 0s
-    Total Routing: CPU time = 0h 3m 1s, Elapsed time = 0h 3m 42s
+    Total Routing: CPU time = 0h 1m 19s, Elapsed time = 0h 1m 39s
  Generate output files:
     CPU time = 0h 0m 4s, Elapsed time = 0h 0m 5s
 
- Total Time and Memory Usage: CPU time = 0h 4m 44s, Elapsed time = 0h 5m 47s, Peak memory usage = 632MB
+ Total Time and Memory Usage: CPU time = 0h 3m 9s, Elapsed time = 0h 3m 55s, Peak memory usage = 629MB
 
 
 3. Resource Usage Summary
@@ -40,15 +40,15 @@
   --------------------------------------------------------------------------------
   Resources                   | Usage                               | Utilization
   --------------------------------------------------------------------------------
-  Logic                       | 14451/20736                         |  70%
-    --LUT,ALU,ROM16           | 12999(11154 LUT, 1821 ALU, 24 ROM16)| -
+  Logic                       | 14623/20736                         |  71%
+    --LUT,ALU,ROM16           | 13171(11317 LUT, 1830 ALU, 24 ROM16)| -
     --SSRAM(RAM16)            | 242                                 | -
-  Register                    | 8022/15915                          |  51%
+  Register                    | 8030/15915                          |  51%
     --Logic Register as Latch | 0/15552                             |  0%
-    --Logic Register as FF    | 7949/15552                          |  52%
+    --Logic Register as FF    | 7957/15552                          |  52%
     --I/O Register as Latch   | 0/363                               |  0%
     --I/O Register as FF      | 73/363                              |  21%
-  CLS                         | 8939/10368                          |  87%
+  CLS                         | 8904/10368                          |  86%
   I/O Port                    | 45/66                               |  69%
   I/O Buf                     | 41                                  | -
     --Input Buf               | 11                                  | -
@@ -56,13 +56,12 @@
     --Inout Buf               | 8                                   | -
   IOLOGIC                     | 6/121                               | 5%
     --OSER10                  | 3
-  BSRAM                       | 33/46                               | 72%
+  BSRAM                       | 32/46                               | 70%
     --SDPB                    | 6
     --SDPX9B                  | 2
     --DPB                     | 18
     --DPX9B                   | 2
     --pROM                    | 4
-    --pROMX9                  | 1
   DSP                         | 14.75/24                            | 62%
     --MULT9X9                 | 7
     --MULT18X18               | 4
@@ -106,15 +105,15 @@
   Signal         | Global Clock   | Location
   -------------------------------------------
   clk_d          | PRIMARY        |  BL
-  spi_sclk_d     | PRIMARY        |  TR
+  spi_sclk_d     | PRIMARY        |  TR BR BL
   a2bus_if.clk_logic| PRIMARY        |  TR TL BR BL
   clk_sdram_w    | PRIMARY        |  TR TL BR BL
   O_sdram_clk_d  | PRIMARY        |  TR
-  clk_pixel_pll_w| PRIMARY        |  TL BR BL
-  a2bus_if.system_reset_n| LW             |  -
+  clk_pixel_pll_w| PRIMARY        |  TR TL BR BL
   n29_11         | LW             |  -
   slot_card_r[0]_ER_init| LW             |  -
   sdram_ports/sdram_inst/n3889_5| LW             |  -
+  apple_memory/wr_seq.seed_push_w| LW             |  -
   supersprite/vdp/f18a_core/inst_cpu/n931_6| LW             |  -
   mockingboard/pb_l_o[2]| LW             |  -
   mockingboard/pb_r_o[2]| LW             |  -

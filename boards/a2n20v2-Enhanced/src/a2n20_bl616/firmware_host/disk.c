@@ -898,13 +898,14 @@ void disk_poll(void)
                         fpga_spi_reg_read(0x64), fpga_spi_reg_read(0x65),
                         fpga_spi_reg_read(0x66), fpga_spi_reg_read(0x67));
 
-                fpga_spi_reg_write(0x2E, 1);   /* A2_RST_RELEASE */
-                /* Release the CardROM INH overlay immediately: with the
-                 * mcu_ready latch fixed, standalone no longer suppresses the
-                 * CardROM, and its keyboard-poll stub would otherwise hold
-                 * $F8xx and hang a IIe boot. Release until the keyboard-
-                 * snoop bootstrap is actually implemented end-to-end. */
+                /* Release the CardROM INH overlay BEFORE the Apple II
+                 * starts: releasing after opens a race where the CPU's
+                 * first $FFFC fetch reads the CardROM stub vector and the
+                 * machine strands in the keyboard stub until a manual
+                 * reset. (The CardROM is also parameter-disabled in HDL
+                 * until the keyboard-snoop bootstrap is finished.) */
                 fpga_spi_reg_write(REG_CARDROM_REL, 1);
+                fpga_spi_reg_write(0x2E, 1);   /* A2_RST_RELEASE */
                 s_released = true;
                 osd_log("A2: RESET RELEASED%s", any ? "" : " (NO MEDIA)");
             }
