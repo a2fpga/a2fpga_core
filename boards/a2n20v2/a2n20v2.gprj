@@ -6,6 +6,7 @@
     <Device name="GW2AR-18C" pn="GW2AR-LV18QN88C8/I7">gw2ar18c-000</Device>
     <FileList>
         <File path="../../hdl/bus/a2bus_if.sv" type="file.verilog" enable="1"/>
+        <File path="../../hdl/bus/a2bus_control_if.sv" type="file.verilog" enable="1"/>
         <File path="../../hdl/bus/a2bus_timing.sv" type="file.verilog" enable="1"/>
         <File path="../../hdl/debug/debugoverlay.sv" type="file.verilog" enable="1"/>
         <File path="../../hdl/f18a/f18a_color.vhd" type="file.vhdl" enable="1"/>
@@ -66,7 +67,7 @@
         <File path="../../hdl/video/video.hex" type="file.other" enable="1"/>
         <File path="hdl/a2n20v2.cst" type="file.cst" enable="1"/>
         <File path="hdl/a2n20v2.sdc" type="file.sdc" enable="1"/>
-        <File path="hdl/bus/apple_bus.sv" type="file.verilog" enable="1"/>
+        <File path="../../hdl/bus/apple_bus.sv" type="file.verilog" enable="1"/>
         <File path="hdl/gowin/clk_hdmi/clk_hdmi.v" type="file.verilog" enable="1"/>
         <File path="hdl/gowin/clk_logic/clk_logic.v" type="file.verilog" enable="1"/>
         <File path="hdl/top.sv" type="file.verilog" enable="1"/>

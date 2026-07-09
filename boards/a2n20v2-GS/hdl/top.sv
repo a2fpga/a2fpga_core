@@ -378,7 +378,8 @@ module top #(
         .vgc_active_i(vgc_active_w),
         .vgc_address_i(vgc_address_w),
         .vgc_rd_i(vgc_rd_w),
-        .vgc_data_o(vgc_data_w)
+        .vgc_data_o(vgc_data_w),
+        .vgc_ready_o()
     );
 
     // Slots
