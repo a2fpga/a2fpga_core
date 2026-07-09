@@ -52,7 +52,9 @@ module apple_memory_sdram #(
     output [31:0] vgc_data_o,
     output vgc_ready_o,                // read-data beat for vgc_gen (BSRAM mode: fixed
                                        // 2-cycle sdpram32 latency; SDRAM mode: port ready)
-    output [7:0] wq_drops_o            // shadow write-queue overflow drops (diagnostics)
+    output [7:0] wq_drops_o,           // shadow write-queue overflow drops (diagnostics)
+    output [7:0] aux_wr_cnt_o,         // captured aux-region (SHR) writes (diagnostics)
+    output [7:0] m2b0_wr_cnt_o         // captured writes with m2b0 asserted (diagnostics)
 
 );
 
@@ -244,6 +246,27 @@ module apple_memory_sdram #(
 
     wire [31:0] hires_data_aux_6000_9FFF;
 
+    // Diagnostics: are the machine's SHR/aux writes reaching us at all?
+    // aux_wr_cnt ticks on every captured aux-region write; m2b0_wr_cnt on
+    // every captured write cycle with M2B0 asserted (IIgs bank-E1 style).
+    reg [7:0] aux_wr_cnt_r, m2b0_wr_cnt_r;
+    assign aux_wr_cnt_o  = aux_wr_cnt_r;
+    assign m2b0_wr_cnt_o = m2b0_wr_cnt_r;
+    wire aux_wr_seen_w =
+        (write_enable_aux_2000_5FFF && (hires_byte_enable_aux_2000_5FFF != 4'b0)) ||
+        (write_enable_aux_6000_9FFF && (hires_byte_enable_aux_6000_9FFF != 4'b0));
+    always @(posedge a2bus_if.clk_logic) begin
+        if (!a2bus_if.system_reset_n) begin
+            aux_wr_cnt_r  <= 8'd0;
+            m2b0_wr_cnt_r <= 8'd0;
+        end else begin
+            if (aux_wr_seen_w)
+                aux_wr_cnt_r <= aux_wr_cnt_r + 8'd1;
+            if (write_strobe && a2bus_if.m2b0)
+                m2b0_wr_cnt_r <= m2b0_wr_cnt_r + 8'd1;
+        end
+    end
+
     // VGC read offset into the BSRAM aux banks (unused when VGC_IN_SDRAM)
     logic [11:0] hires_aux_read_offset;
 
@@ -273,7 +296,13 @@ module apple_memory_sdram #(
         reg [20:0] addr_r;
 
         wire vid_req_w = video_rd_i;
-        wire vgc_req_w = vgc_rd_i && vgc_active_i;
+        // Never gate the request on vgc_active_i: it is raw SHRG_MODE and
+        // falls combinationally on a $C029 write, while vgc_gen's FSM runs
+        // on a frame-latched copy and keeps fetching until the next vsync.
+        // A swallowed request leaves vgc_gen waiting on vgc_ready_i forever
+        // (stale-framebuffer garbage until the next Apple reset). A request
+        // once issued must always complete.
+        wire vgc_req_w = vgc_rd_i;
 
         always @(posedge a2bus_if.clk_logic) begin
             if (!a2bus_if.system_reset_n) begin
@@ -332,10 +361,12 @@ module apple_memory_sdram #(
         // vgc_data_o comes from BSRAM via interleave_mux (unchanged)
         assign vgc_data_o = vgc_active_i ? interleave_mux(vgc_address_i[0], hires_data_aux, hires_data_aux_6000_9FFF) : 32'b0;
 
-        // Ready = fixed 2-cycle sdpram32 read latency after the read strobe
+        // Ready = fixed 2-cycle sdpram32 read latency after the read strobe.
+        // Not gated on vgc_active_i — see vgc_req_w above: a fetch issued
+        // just as SHRG falls must still get its ready or vgc_gen wedges.
         reg vgc_rd_d1_r, vgc_rd_d2_r;
         always @(posedge a2bus_if.clk_logic) begin
-            vgc_rd_d1_r <= vgc_rd_i && vgc_active_i;
+            vgc_rd_d1_r <= vgc_rd_i;
             vgc_rd_d2_r <= vgc_rd_d1_r;
         end
         assign vgc_ready_o = vgc_rd_d2_r;
@@ -415,7 +446,7 @@ module apple_memory_sdram #(
             .write_enable(write_enable_aux_2000_5FFF),
             .byte_enable(hires_byte_enable_aux_2000_5FFF),
             .read_addr(hires_aux_read_offset),
-            .read_enable(vgc_rd_i && vgc_active_i),
+            .read_enable(vgc_rd_i),
             .read_data(hires_data_aux)
         );
 
@@ -429,7 +460,7 @@ module apple_memory_sdram #(
                 .write_enable(write_enable_aux_6000_9FFF),
                 .byte_enable(hires_byte_enable_aux_6000_9FFF),
                 .read_addr(hires_aux_read_offset),
-                .read_enable(vgc_rd_i && vgc_active_i),
+                .read_enable(vgc_rd_i),
                 .read_data(hires_data_aux_6000_9FFF)
             );
         end else begin
@@ -490,7 +521,29 @@ module apple_memory_sdram #(
         wire wq_room2_w = (wq_cnt_r <= ($clog2(WQ_DEPTH)+1)'(WQ_DEPTH - 2));
         wire wq_push_main_w = write_en && wq_room2_w;
         wire wq_push_aux_w  = aux_wr_w && wq_room2_w;
-        wire [1:0] wq_push_n_w = {1'b0, wq_push_main_w} + {1'b0, wq_push_aux_w};
+
+        // Power-up seed: the shadow text page is SDRAM noise until the ROM
+        // clears $0400, and the reset-hold makes that flash prominent. Fill
+        // words 0x0200-0x03FF (main+aux text page 1, all four byte lanes)
+        // with 0xA0 spaces once, starting at the first Apple reset release.
+        // 512 word writes drain in ~200us — well inside the first frame.
+        // Runs once per power-up (device-reset domain), not on Apple resets.
+        reg seed_done_r;
+        reg [9:0] seed_idx_r;
+        wire seed_push_w = !seed_done_r && a2bus_if.system_reset_n &&
+                           !wq_push_main_w && !wq_push_aux_w && wq_room2_w;
+        always @(posedge a2bus_if.clk_logic or negedge a2bus_if.device_reset_n) begin
+            if (!a2bus_if.device_reset_n) begin
+                seed_done_r <= 1'b0;
+                seed_idx_r  <= 10'd0;
+            end else if (seed_push_w) begin
+                seed_idx_r <= seed_idx_r + 10'd1;
+                if (seed_idx_r == 10'd511) seed_done_r <= 1'b1;
+            end
+        end
+
+        wire [1:0] wq_push_n_w = {1'b0, wq_push_main_w} + {1'b0, wq_push_aux_w}
+                               + {1'b0, seed_push_w};
         wire wq_pop_w = wr_r && main_mem_if.ready;
 
         always @(posedge a2bus_if.clk_logic) begin
@@ -512,6 +565,11 @@ module apple_memory_sdram #(
                     wq_addr_r[wq_wp_r + ($clog2(WQ_DEPTH))'(wq_push_main_w)] <= aux_word_addr_w;
                     wq_data_r[wq_wp_r + ($clog2(WQ_DEPTH))'(wq_push_main_w)] <= write_word;
                     wq_be_r[wq_wp_r + ($clog2(WQ_DEPTH))'(wq_push_main_w)]   <= aux_byte_en_w;
+                end
+                if (seed_push_w) begin  // mutually exclusive with main/aux
+                    wq_addr_r[wq_wp_r] <= 21'h000200 + {11'b0, seed_idx_r};
+                    wq_data_r[wq_wp_r] <= 32'hA0A0A0A0;
+                    wq_be_r[wq_wp_r]   <= 4'b1111;
                 end
                 wq_wp_r  <= wq_wp_r + ($clog2(WQ_DEPTH))'(wq_push_n_w);
                 wq_cnt_r <= wq_cnt_r + ($clog2(WQ_DEPTH)+1)'(wq_push_n_w)

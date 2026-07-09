@@ -541,6 +541,8 @@ module top #(
     wire [31:0] vgc_data_w;
     wire vgc_ready_w;
     wire [7:0] wq_drops_w;      // shadow write-queue drops (diagnostics)
+    wire [7:0] aux_wr_cnt_w;    // captured aux/SHR writes (diagnostics)
+    wire [7:0] m2b0_wr_cnt_w;   // captured m2b0 writes (diagnostics)
 
     apple_memory_sdram #(
         .VGC_MEMORY(1),
@@ -568,7 +570,9 @@ module top #(
         .vgc_rd_i(vgc_rd_w),
         .vgc_data_o(vgc_data_w),
         .vgc_ready_o(vgc_ready_w),
-        .wq_drops_o(wq_drops_w)
+        .wq_drops_o(wq_drops_w),
+        .aux_wr_cnt_o(aux_wr_cnt_w),
+        .m2b0_wr_cnt_o(m2b0_wr_cnt_w)
     );
 
     // Slots
@@ -599,7 +603,15 @@ module top #(
     wire cardrom_inh_n_raw_w;
     wire standalone_w;   // from bl616_spi_connector: no BL616 detected
 
-    CardROM cardrom (
+    // Disabled by default: the keyboard-snoop bootstrap is unfinished, and
+    // with mcu_ready now latching (standalone no longer suppressing it) the
+    // live CardROM has a cold-boot trap — its INH release handshake races
+    // the first $FFFC fetch, and losing the race strands the CPU in the
+    // keyboard stub until a manual reset. Re-enable only together with the
+    // full firmware handshake.
+    CardROM #(
+        .ENABLE(1'b0)
+    ) cardrom (
         .a2bus_if(a2bus_if),
         .data_o(cardrom_d_w),
         .rd_en_o(cardrom_rd_raw_w),
@@ -1106,14 +1118,29 @@ module top #(
     wire [7:0] fb_dbg_line_not_ready_w;
     wire [7:0] fb_dbg_line_lag_max_w;
 
-    // Blank the display until the first rendered frame has been written:
-    // the framebuffer region of SDRAM powers up as noise, and HDMI starts
-    // long before the Apple II (or even the MCU console) draws anything.
-    reg fb_seen_frame_r;
+    // Blank the display until there is meaningful content. The first frame
+    // is rendered immediately from power-up SDRAM noise, so gating on the
+    // first frame alone still flashed garbage; hold dark until the MCU
+    // takeover asserts (console cleared and shown) or the Apple II has been
+    // released from reset — whichever comes first — and a frame has been
+    // written since.
+    reg fb_display_live_r;
     always @(posedge clk_logic_w) begin
-        if (!device_reset_n_w) fb_seen_frame_r <= 1'b0;
-        else if (fb_vsync_mux_w) fb_seen_frame_r <= 1'b1;
+        if (!device_reset_n_w)
+            fb_display_live_r <= 1'b0;
+        else if (video_control_if.enable || !a2bus_control_if.reset_hold)
+            fb_display_live_r <= 1'b1;
     end
+    // Two vsyncs after going live = one COMPLETE frame painted in between.
+    // Gating on the first vsync alone still flashed raw SDRAM noise: a
+    // vsync is a frame boundary, not proof the writer has painted anything.
+    reg [1:0] fb_seen_frame_cnt_r;
+    always @(posedge clk_logic_w) begin
+        if (!device_reset_n_w) fb_seen_frame_cnt_r <= 2'd0;
+        else if (fb_display_live_r && fb_vsync_mux_w && fb_seen_frame_cnt_r != 2'd2)
+            fb_seen_frame_cnt_r <= fb_seen_frame_cnt_r + 2'd1;
+    end
+    wire fb_seen_frame_r = (fb_seen_frame_cnt_r == 2'd2);
     reg fb_seen_frame_p1_r, fb_seen_frame_pix_r;
     always @(posedge clk_pixel_w) begin
         fb_seen_frame_p1_r  <= fb_seen_frame_r;
@@ -1770,14 +1797,16 @@ module top #(
         // [3]=event counter (heartbeat), [4]=status flags.
 `ifdef VIDEO_FRAMEBUFFER
         // Framebuffer diagnostics: overlay shows the glitch counters live.
-        // hex[0]=fw stage, [1]=heartbeat, [2]=fb fifo overflow, [3]=late
-        // line, [4]=line not ready, [5]=max line lag, [6]=shadow write-
-        // queue drops, [7]=GLU write-queue drops.
+        // hex[0]=fw stage, [1]=heartbeat, [2]=CAPTURED AUX/SHR WRITES
+        // (rolling; frozen while an SHR game draws = writes not reaching
+        // the bus capture), [3]=CAPTURED M2B0 WRITES (IIgs bank-E1 style),
+        // [4]=line not ready, [5]=max line lag, [6]=shadow write-queue
+        // drops, [7]=GLU write-queue drops.
         .hex_values ({
             mcu_scratch_w[7:0],
             mcu_scratch_w[31:24],
-            fb_dbg_fifo_overflow_w,
-            fb_dbg_late_line_w,
+            aux_wr_cnt_w,
+            m2b0_wr_cnt_w,
             fb_dbg_line_not_ready_w,
             fb_dbg_line_lag_max_w,
             wq_drops_w,
@@ -1797,11 +1826,21 @@ module top #(
 `endif
 
         // Bit row 0 = what the FPGA + firmware think the MCU is doing:
-        //   bit0 = mcu_ready (FPGA saw MCU read STATUS 0x06), bit1 = standalone
+        //   bit0 = mcu_ready (FPGA saw MCU register traffic), bit1 = standalone
         //   (watchdog fired, no MCU), bits2-7 = firmware status flags (scratch4).
         .debug_bits_0_i ({mcu_scratch_w[37:32], standalone_w, mcu_ready_w}),
+`ifdef VIDEO_FRAMEBUFFER
+        // Bit row 1 = LIVE captured Apple II soft switches, MSB first:
+        // {TEXT, MIXED, HIRES, PAGE2, COL80, STORE80, SHRG, LINEARIZE} —
+        // lets a wrong-boot-state be compared against post-reset on glass.
+        .debug_bits_1_i ({a2mem_if.TEXT_MODE, a2mem_if.MIXED_MODE,
+                          a2mem_if.HIRES_MODE, a2mem_if.PAGE2,
+                          a2mem_if.COL80, a2mem_if.STORE80,
+                          a2mem_if.SHRG_MODE, a2mem_if.LINEARIZE_MODE}),
+`else
         // Bit row 1 = live XInput button low byte (each press lights a block).
         .debug_bits_1_i (mcu_scratch_w[15:8]),
+`endif
 
         .screen_x_i     (hdmi_x),
         .screen_y_i     (hdmi_y),
