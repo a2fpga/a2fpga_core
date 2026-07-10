@@ -749,6 +749,7 @@ module top #(
     wire [4:0] mcu_led_w;
     wire       mcu_ws2812_w;
     wire       mcu_ready_w;
+    wire       mcu_access_stb_w;  // any MCU SPI transaction (liveness watchdog feed)
     wire [39:0] mcu_scratch_w;   // 5 MCU scratch regs {s4,s3,s2,s1,s0} for debug overlay
 
     // Uthernet2 (W5100) backing-store host link (SPI SPACE 3 <-> card port B)
@@ -789,6 +790,7 @@ module top #(
         .sdram_init_complete_i(sdram_init_complete),
         .mcu_ready_o(mcu_ready_w),
         .standalone_o(standalone_w),
+        .mcu_access_stb_o(mcu_access_stb_w),
         .scratch_o(mcu_scratch_w),
         .cardrom_active_i(!inh_n_w),
         .cardrom_release_o(cardrom_release_w),
@@ -817,7 +819,32 @@ module top #(
         .w5100_dbg_last_wdata(u2_dbg_last_wdata_w)
     );
 
-    assign ws2812 = mcu_ws2812_w;
+    // WS2812 status LED: FPGA-side MCU liveness watchdog + boot-progression
+    // colors from the stage codes the firmware already writes to scratch reg
+    // 0x07. Replaces the raw reg-0x69 bit (mcu_ws2812_w), which no firmware
+    // ever wrote and which can't speak the WS2812 serial protocol anyway.
+    // Blinking red = MCU silent >10 s (wedged update / dead app region) — the
+    // user-visible failure signal that needs no DebugOverlay.
+    wire [23:0] mcu_led_rgb_w;
+
+    mcu_status_led #(
+        .CLK_HZ(CLOCK_SPEED_HZ)
+    ) mcu_status_led_inst (
+        .clk(clk_logic_w),
+        .rst_n(device_reset_n_w),
+        .mcu_access_stb_i(mcu_access_stb_w),
+        .standalone_i(standalone_w),
+        .stage_i(mcu_scratch_w[7:0]),
+        .rgb_o(mcu_led_rgb_w)
+    );
+
+    ws2812 #(
+        .CLK_FRE(CLOCK_SPEED_HZ)
+    ) ws2812_inst (
+        .clk(clk_logic_w),
+        .rgb(mcu_led_rgb_w),
+        .WS2812(ws2812)
+    );
 
 `else
 

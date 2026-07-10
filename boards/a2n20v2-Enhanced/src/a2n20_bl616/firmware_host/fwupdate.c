@@ -6,9 +6,11 @@
 #include <string.h>
 
 #include "ff.h"
+#include "bflb_core.h"
 #include "bflb_flash.h"
 #include "bflb_irq.h"
 #include "bflb_l1c.h"
+#include "bflb_spi.h"
 
 #include "usb_osal.h"
 #include "usbh_core.h"
@@ -59,6 +61,69 @@ static uint32_t s_file_crc;           /* CRC of the file         */
 static bool     s_dirty = true;
 static volatile bool s_restart_req;
 static uint8_t  s_buf[FWU_CHUNK];
+
+/* ---- commit-time visibility (all TCM) -----------------------------------
+ * The 2026-07-08 install wedge: the board froze silently inside the commit
+ * and power-cycling left the first app sector erased. A full audit of the
+ * .elf shows everything reachable from commit_tcm already lives in TCM or
+ * mask ROM, and every SDK/ROM busy-poll is bounded — but the TRAP VECTOR
+ * (freertos_risc_v_trap_handler) and the fault hooks in main.c are XIP
+ * flash-resident. Any synchronous exception during the commit therefore
+ * vectors into the region being erased and wedges the core with no trace.
+ * commit_tcm also ignored every bflb_flash_* error and, after a failed CRC,
+ * still jumped into the unverified region — executing garbage, which raises
+ * exactly such an exception.
+ *
+ * So: a TCM-resident DebugOverlay beacon (fpga_spi_reg_write_raw is flash-
+ * resident and unusable here), a TCM trap stub that paints mcause/mepc
+ * instead of wedging invisibly, per-chunk progress, and a halt-with-marker
+ * instead of a restart when the commit cannot be verified.
+ *
+ * Overlay encoding (byte0 @0x07 disambiguates):
+ *   0xF1/0xF2 copy/verify phase: 0x0C=chunk, 0x0D=total, 0x0E=flash-op
+ *             errors so far, 0x0F=attempt
+ *   0xF9      verified OK, jumping to the new image
+ *   0xEE      trap during commit: 0x0C=mcause, 0x0D:0E:0F=mepc[23:0]
+ *   0xED+0xE3 commit failed CRC twice; halted (recover via UPDATE-button
+ *             boot mode + a2n20-mcu-program --stage2, same as power loss)
+ */
+#define FWU_GLB_BASE      0x20000000u
+#define FWU_GPIO_SET_OFF  0xAECu   /* GLB_GPIO_CFG138: 1<<pin drives high */
+#define FWU_GPIO_CLR_OFF  0xAF4u   /* GLB_GPIO_CFG140: 1<<pin drives low  */
+#define FWU_SPI_CS_PIN    0u       /* fpga_spi.c SPI_CS_PIN (GPIO_PIN_0)  */
+
+static struct bflb_device_s *s_spi0;  /* cached before commit_tcm starts */
+
+/* Lock-free scratch-register write, same contract as fpga_spi_reg_write_raw
+ * (all other contexts stopped) but TCM-clean: CS by direct GLB poke, data
+ * via the TCM-resident bflb_spi_poll_exchange. */
+static void ATTR_TCM_SECTION fwu_beacon(uint8_t reg, uint8_t val)
+{
+    uint8_t tx[2] = { (uint8_t)(reg & 0x7F), val };
+    uint8_t rx[2];
+
+    if (!s_spi0)
+        return;
+    *(volatile uint32_t *)(FWU_GLB_BASE + FWU_GPIO_CLR_OFF) = 1u << FWU_SPI_CS_PIN;
+    bflb_spi_poll_exchange(s_spi0, tx, rx, 2);
+    *(volatile uint32_t *)(FWU_GLB_BASE + FWU_GPIO_SET_OFF) = 1u << FWU_SPI_CS_PIN;
+}
+
+/* Parked in mtvec for the duration of the commit. Never returns, so no
+ * context save is needed; alignment satisfies mtvec's base-field rules. */
+__attribute__((aligned(64), noreturn))
+static void ATTR_TCM_SECTION fwu_trap_tcm(void)
+{
+    unsigned long mcause, mepc;
+    __asm volatile ("csrr %0, mcause" : "=r"(mcause));
+    __asm volatile ("csrr %0, mepc"   : "=r"(mepc));
+    fwu_beacon(0x07, 0xEE);
+    fwu_beacon(0x0C, (uint8_t)mcause);
+    fwu_beacon(0x0D, (uint8_t)(mepc >> 16));
+    fwu_beacon(0x0E, (uint8_t)(mepc >> 8));
+    fwu_beacon(0x0F, (uint8_t)mepc);
+    while (1) { }
+}
 
 /* CRC-32 (IEEE), running form. Also compiled into TCM for the commit-time
  * verify, when no flash-resident code may execute. */
@@ -129,14 +194,34 @@ static void ATTR_TCM_SECTION commit_tcm(uint32_t app_base, uint32_t len,
 {
     uintptr_t flags = bflb_irq_save();
 
-    for (int attempt = 0; attempt < 2; attempt++) {
+    /* From here until the new image sets up its own trap handling, any
+     * exception must land in TCM, not in mid-rewrite XIP flash. */
+    __asm volatile ("csrw mtvec, %0" : : "r"((uintptr_t)&fwu_trap_tcm));
+
+    uint8_t nchunks = (uint8_t)((len + FWU_CHUNK - 1) / FWU_CHUNK);
+    uint8_t errors = 0;
+    bool ok = false;
+
+    for (int attempt = 0; attempt < 2 && !ok; attempt++) {
+        fwu_beacon(0x0F, (uint8_t)attempt);
+        fwu_beacon(0x0D, nchunks);
         for (uint32_t off = 0; off < len; off += FWU_CHUNK) {
             uint32_t n = len - off;
             if (n > FWU_CHUNK)
                 n = FWU_CHUNK;
-            bflb_flash_read(FWU_STAGE_ADDR + off, s_buf, n);
-            bflb_flash_erase(app_base + off, FWU_CHUNK);
-            bflb_flash_write(app_base + off, s_buf, n);
+            fwu_beacon(0x07, 0xF1);
+            fwu_beacon(0x0C, (uint8_t)(off / FWU_CHUNK));
+            /* The SDK ops time out (bounded) and return errors rather than
+             * spin; a chunk that failed once usually succeeds on retry. */
+            for (int try = 0; try < 3; try++) {
+                if (bflb_flash_read(FWU_STAGE_ADDR + off, s_buf, n) == 0 &&
+                    bflb_flash_erase(app_base + off, FWU_CHUNK) == 0 &&
+                    bflb_flash_write(app_base + off, s_buf, n) == 0)
+                    break;
+                if (errors != 0xFF)
+                    errors++;
+                fwu_beacon(0x0E, errors);
+            }
         }
         /* verify */
         uint32_t crc = 0xFFFFFFFFu;
@@ -144,17 +229,31 @@ static void ATTR_TCM_SECTION commit_tcm(uint32_t app_base, uint32_t len,
             uint32_t n = len - off;
             if (n > FWU_CHUNK)
                 n = FWU_CHUNK;
+            fwu_beacon(0x07, 0xF2);
+            fwu_beacon(0x0C, (uint8_t)(off / FWU_CHUNK));
             bflb_flash_read(app_base + off, s_buf, n);
             crc = crc32_step(crc, s_buf, n);
         }
-        if (~crc == want_crc)
-            break;
-        /* mismatch: one retry; after that reboot anyway — recovery is the
-         * UPDATE-button boot mode, same as a mid-commit power loss */
+        ok = (~crc == want_crc);
     }
 
     (void)flags;
-    fwupdate_restart_app();
+    if (ok) {
+        fwu_beacon(0x07, 0xF9);
+        fwupdate_restart_app();
+    }
+
+    /* Both passes failed CRC: the region does NOT hold the staged image.
+     * The old code rebooted into it anyway — executing garbage, which traps
+     * into an unfetchable handler and freezes with no trace. Halt visibly
+     * instead; recovery is the UPDATE-button boot mode + --stage2, exactly
+     * as for a mid-commit power loss. */
+    fwu_beacon(0x07, 0xED);
+    fwu_beacon(0x0C, 0xE3);
+    fwu_beacon(0x0D, 0xE3);
+    fwu_beacon(0x0E, errors);
+    fwu_beacon(0x0F, 0xED);
+    while (1) { }
 }
 
 /* ---- public API ---------------------------------------------------------- */
@@ -346,6 +445,7 @@ void fwupdate_poll(void)
         GLB_AHB_MCU_Software_Reset(GLB_AHB_MCU_SW_EXT_USB);
         PDS_Turn_Off_USB();
         HBN_Set_User_Boot_Config(0);
+        s_spi0 = bflb_device_get_by_name("spi0");   /* for fwu_beacon */
         s_state = FWU_IDLE;   /* moot — commit_tcm never returns */
         commit_tcm(fwupdate_app_base(), s_size, s_file_crc);
         break;

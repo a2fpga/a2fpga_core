@@ -47,6 +47,7 @@ module bl616_spi_connector #(
     input  wire        sdram_init_complete_i,
     output wire        mcu_ready_o,
     output wire        standalone_o,   // high once standalone fallback engages (no BL616)
+    output wire        mcu_access_stb_o, // pulses on any MCU register transaction (liveness watchdog feed)
     output wire [39:0] scratch_o,      // 5 MCU scratch regs packed {s4,s3,s2,s1,s0} (0x07,0x0C-0x0F)
 
     // CardROM
@@ -149,6 +150,12 @@ module bl616_spi_connector #(
     // writes debug scratch registers within milliseconds of boot).
     reg mcu_ready_r;
     assign mcu_ready_o = mcu_ready_r;
+    // Same "any transaction proves the MCU is alive" signal, but continuous:
+    // feeds the FPGA-side liveness watchdog (mcu_status_led) that turns the
+    // WS2812 blinking red when the firmware goes silent (wedged update, dead
+    // app region). Status fast-path reads don't pulse these (see above), but
+    // disk_poll's data-register reads every ~2 ms do.
+    assign mcu_access_stb_o = reg_rd_req || reg_wr_req;
     always @(posedge clk or negedge rst_n) begin
         if (!rst_n)
             mcu_ready_r <= 1'b0;

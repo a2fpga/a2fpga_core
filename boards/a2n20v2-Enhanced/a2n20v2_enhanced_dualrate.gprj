@@ -98,6 +98,7 @@
         <File path="../../hdl/memory/apple_memory_sdram.sv" type="file.verilog" enable="1"/>
         <File path="hdl/bl616/bl616_spi_proto_proc.sv" type="file.verilog" enable="1"/>
         <File path="hdl/bl616/bl616_spi_connector.sv" type="file.verilog" enable="1"/>
+        <File path="hdl/bl616/mcu_status_led.sv" type="file.verilog" enable="1"/>
         <File path="hdl/bl616/fpga_sd_spi.sv" type="file.verilog" enable="1"/>
         <File path="hdl/bl616/a2bus_event_fifo.sv" type="file.verilog" enable="1"/>
         <File path="hdl/top_dualrate.sv" type="file.verilog" enable="1"/>
