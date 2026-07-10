@@ -26,4 +26,7 @@ void osd_console_hide(void);          /* return the screen to the Apple II */
  * threads are ignored and osd_log() only buffers — the menu is never stomped. */
 void osd_console_set_lockout(bool lockout);
 
+/* Copy up to max backlog lines (each 40 chars + NUL) for a remote viewer. */
+int osd_console_snapshot(char dst[][41], int max);
+
 #endif

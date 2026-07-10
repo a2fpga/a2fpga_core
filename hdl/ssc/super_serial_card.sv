@@ -30,7 +30,9 @@ module SuperSerial #(
     output rom_en_o,
 
     input  uart_rx_i,
-    output uart_tx_o
+    output uart_tx_o,
+    // 6551 control register (baud in [3:0]) for the MCU-side bridge
+    output [7:0] ssc_ctl_o
 
 );
 
@@ -170,6 +172,7 @@ module SuperSerial #(
         .RS(a2bus_if.addr[1:0]),
         .TXDATA_OUT(uart_tx_o),
         .RXDATA_IN(uart_rx_i),
+        .CTL_OUT(ssc_ctl_o),
         .RTS(UART51_RTS),
         .CTS(UART51_RTS),
         .DCD(UART51_DTR),

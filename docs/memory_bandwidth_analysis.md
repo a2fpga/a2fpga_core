@@ -256,7 +256,7 @@ Shadow reads are only for `apple_video_gen` (20 reads/line). VGC stays in BSRAM 
 The Enhanced board (`boards/a2n20v2-Enhanced/`) already implements video reads from SDRAM,
 providing a proven reference for the GS board migration.
 
-**Enhanced board architecture** (`boards/a2n20v2-Enhanced/hdl/memory/apple_memory.sv`):
+**Enhanced board architecture** (`hdl/memory/apple_memory_sdram.sv`, shared with a2n20v2-GS):
 
 - **2 SDRAM ports** (vs GS's 4): VIDEO_MEM_PORT=0 (reads), MAIN_MEM_PORT=1 (writes)
 - **Single 54 MHz clock** (no CDC needed — simpler than GS's 108/54 split)

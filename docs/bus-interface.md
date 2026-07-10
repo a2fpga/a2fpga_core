@@ -12,9 +12,10 @@ Apple II bus  →  board bus-interface hardware  →  FPGA pins  →  apple_bus 
 - The **board bus-interface hardware** level-shifts the 5 V Apple II bus to the FPGA and (on the
   CPLD boards) multiplexes it onto a narrow 8-bit host bus. The mechanism differs per board (table
   below).
-- **`apple_bus`** is **per board** (`boards/<board>/hdl/bus/apple_bus.sv`) — it drives that
-  hardware, samples address/data at the right point in the Apple bus cycle, and produces the clean,
-  synchronized [`a2bus_if`](../hdl/bus/a2bus_if.sv). It also drives card data and the
+- **`apple_bus`** is **per board-family** (`boards/<board>/hdl/bus/apple_bus.sv`; the a2bridge-CPLD
+  boards a2n20v2-GS and a2n20v2-Enhanced share [`hdl/bus/apple_bus.sv`](../hdl/bus/apple_bus.sv)) —
+  it drives that hardware, samples address/data at the right point in the Apple bus cycle, and
+  produces the clean, synchronized [`a2bus_if`](../hdl/bus/a2bus_if.sv). It also drives card data and the
   interrupt/inhibit lines back out. Clock synchronization + edge detection is in
   [`a2bus_timing`](../hdl/bus/a2bus_timing.sv); bidirectional FPGA data pins go through a Gowin
   `IOBUF` in `top.sv`.

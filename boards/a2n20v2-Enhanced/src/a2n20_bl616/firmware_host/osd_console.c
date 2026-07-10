@@ -12,6 +12,7 @@
 #include "fpga_spi.h"
 #include "fpga_screen.h"
 #include "osd_console.h"
+#include "telnetd.h"
 
 #define REG_VIDEO_ENABLE  0x10u
 #define REG_TEXT_MODE     0x11u
@@ -60,6 +61,7 @@ void osd_log(const char *fmt, ...)
         if (*p >= 'a' && *p <= 'z')
             *p = (char)(*p - 32);
 
+    telnetd_console_tee(line);
     if (s_count < CON_ROWS) {
         strcpy(s_lines[s_count++], line);
     } else {
@@ -115,4 +117,17 @@ void osd_console_hide(void)
     if (!s_lockout)
         fpga_spi_reg_write(REG_VIDEO_ENABLE, 0);
     usb_osal_mutex_give(s_lock);
+}
+
+/* Copy the current backlog for a newly connected remote console. Returns
+ * the number of lines copied. */
+int osd_console_snapshot(char dst[][41], int max)
+{
+    ensure_lock();
+    usb_osal_mutex_take(s_lock);
+    int n = s_count < max ? s_count : max;
+    for (int i = 0; i < n; i++)
+        snprintf(dst[i], 41, "%s", s_lines[i]);
+    usb_osal_mutex_give(s_lock);
+    return n;
 }

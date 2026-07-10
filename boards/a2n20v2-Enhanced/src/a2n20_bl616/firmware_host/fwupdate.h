@@ -15,11 +15,15 @@
  *   COMMIT  (the point of no return, ~10 s): a TCM-resident loop with
  *           interrupts disabled copies the staged image over the app region
  *           (flash-read -> erase -> write per 4 KB; nothing executes from
- *           XIP), verifies by CRC with one retry, and issues a power-on
- *           reset. If power is lost in this window the app region is
- *           corrupt, but Sipeed's Stage-1 bootloader at 0x0 is untouched:
- *           the board still enumerates for PC recovery and the UPDATE-button
- *           boot mode always works.
+ *           XIP), verifies by CRC with one full retry, and jumps to the new
+ *           image only if the CRC passed; otherwise it halts with an error
+ *           marker on the DebugOverlay rather than boot a corrupt image.
+ *           Progress and any trap during the window are painted on the
+ *           overlay scratch regs (encoding documented in fwupdate.c). If
+ *           power is lost in this window the app region is corrupt, but
+ *           Sipeed's Stage-1 bootloader at 0x0 is untouched: the board still
+ *           enumerates for PC recovery and the UPDATE-button boot mode
+ *           always works.
  *
  * Driven by the menu (FIRMWARE UPDATE screen); fwupdate_poll() must be
  * called from the disk thread (FatFS owner).
@@ -58,6 +62,11 @@ bool fwupdate_dirty(void);
 
 /* Service the state machine. Call from the disk thread only. */
 void fwupdate_poll(void);
+
+/* Flash base the RUNNING image boots from (0x0 standalone, 0x40000
+ * chain-loaded), derived from the XIP image offset Stage 1 programmed.
+ * The self-update installs to this address. */
+uint32_t fwupdate_app_base(void);
 
 /* Request a firmware restart (jump to app entry). Executed by the disk
  * thread on its next poll — menu actions run in the USB poll context and

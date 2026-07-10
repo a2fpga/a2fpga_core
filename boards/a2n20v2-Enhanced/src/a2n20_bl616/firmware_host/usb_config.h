@@ -173,7 +173,14 @@
 #define CONFIG_USB_EHCI_HCOR_BASE       (0x20072000 + 0x10)
 #define CONFIG_USB_EHCI_HCCR_OFFSET     (0x0)
 #define CONFIG_USB_EHCI_FRAME_LIST_SIZE 1024
-#define CONFIG_USB_EHCI_QH_NUM          10
+/* A2FPGA: QH pool must cover every CONCURRENT pipe with headroom. Standing
+ * pipes with a full hub: hub int + Ethernet (int + 2 bulk) + MSC (2 bulk,
+ * during disk I/O) + HID remote (2 int) + XInput pad (int) = ~9, plus EP0
+ * control transfers during enumeration and TX bursts. At 10 the pool famines
+ * — and a single failed re-arm of the HUB's status pipe deafens hot-plug
+ * FOREVER (usbh_hub.c's completion callback only restarts its poll timer on
+ * success or NAK; any other error, including submit -NOMEM, just stops). */
+#define CONFIG_USB_EHCI_QH_NUM          20
 #define CONFIG_USB_EHCI_QTD_NUM         (CONFIG_USB_EHCI_QH_NUM * 3)
 #define CONFIG_USB_EHCI_ITD_NUM         10
 #define CONFIG_USB_EHCI_HCOR_RESERVED_DISABLE

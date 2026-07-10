@@ -10,6 +10,9 @@
 #
 # Environment:
 #   GW_SH     path to gw_sh (default: macOS GowinIDE location)
+#   GPRJ      project file name to use when a board dir has more than one
+#             .gprj (e.g. GPRJ=a2n20v2_enhanced_dualrate.gprj); default is
+#             the first one alphabetically
 #   DRY_RUN=1 print what would run without invoking gw_sh
 #
 # Notes:
@@ -35,8 +38,9 @@ fi
 bdir="$REPO/boards/$board"
 [[ -d "$bdir" ]] || { echo "No such board: '$board' (see boards/)"; exit 2; }
 
-gprj="$(cd "$bdir" && ls *.gprj 2>/dev/null | head -1)"
+gprj="${GPRJ:-$(cd "$bdir" && ls *.gprj 2>/dev/null | head -1)}"
 [[ -n "$gprj" ]] || { echo "No .gprj found in $bdir"; exit 2; }
+[[ -f "$bdir/$gprj" ]] || { echo "No such project file: $bdir/$gprj"; exit 2; }
 proj="${gprj%.gprj}"
 
 case "$stage" in

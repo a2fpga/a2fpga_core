@@ -28,6 +28,7 @@ sdk_add_compile_definitions(-DFATFS_EXTERNAL_DISKIO)
 
 target_sources(app PRIVATE
     usbh_xinput.c
+    usbh_hidinput.c
     w5100.c
     disk.c
     diskio_host.c
@@ -37,6 +38,9 @@ target_sources(app PRIVATE
     fwupdate.c
     fpga_jtag.c
     fpgaupdate.c
+    telnetd.c
+    sscbridge.c
+    ftpd.c
     ../firmware/gcr_dsk.c
     ../firmware/fpga_spi.c
     ../firmware/fpga_screen.c

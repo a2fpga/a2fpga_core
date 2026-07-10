@@ -78,6 +78,7 @@ module glb6551 #(
 	output TXDATA_OUT,
 	input RXDATA_IN,
 	output RTS,
+	output [7:0] CTL_OUT,
 	input CTS,
 	input DCD,
 	output DTR,
@@ -90,6 +91,7 @@ wire[7:0] RX_BUFFER;
 reg[7:0] RX_REG;
 wire[7:0] STATUS_REG;
 reg[7:0] CTL_REG;
+assign CTL_OUT = CTL_REG;
 reg[7:0] CMD_REG;
 
 wire TX_DONE;

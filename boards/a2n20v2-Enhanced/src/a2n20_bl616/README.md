@@ -66,6 +66,7 @@ firmware_host/       # USB-host build (the one users run)
 ├── main.c           # FreeRTOS init, xinput/net/disk threads, overlay
 ├── disk.c           # disk-image serving, remount, USB supervisor
 ├── usbh_xinput.c    # gamepad host driver
+├── usbh_hidinput.c  # USB keyboard / media-remote menu input (no VID/PID match)
 ├── w5100.c          # Uthernet II (W5100) MACRAW bridge
 ├── menu.c           # gamepad menu system (all screens)
 ├── settings.c       # persisted settings blob (last 4 KB of flash)

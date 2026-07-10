@@ -60,6 +60,8 @@
 #define HDD_CTL_MOUNTED   0x02u
 #define HDD_CTL_READONLY  0x04u
 
+#define REG_CARDROM_REL   0x31u   /* W: release the CardROM INH overlay */
+
 /* ---- SDRAM track windows (must match top.sv DISK_WORD_BASE + d*0x2000) ----
  * DISK_WORD_BASE = word 0x080000 = byte 0x200000; per-drive stride = 8KB.
  * HDD block windows follow at byte 0x204000, 512 bytes per unit. */
@@ -115,6 +117,8 @@ static uint32_t g_hdd_blocks[NHDD];     /* size in 512-byte blocks       */
 static char     g_hdd_name[NHDD][SETTINGS_NAME_LEN + 4];
 static uint8_t  g_blockbuf[SECTOR_BYTES];
 
+static void fs_service(void);   /* async FS proxy step (defined below) */
+
 /* Menu directory-listing request (see disk_list_begin/poll in disk.h). */
 static volatile bool          g_list_req;
 static volatile bool          g_list_done;
@@ -133,6 +137,18 @@ static bool has_ext(const char *name, const char *ext)
         if ((name[n - x + i] | 0x20) != (ext[i] | 0x20))
             return false;
     return true;
+}
+
+/* Case-insensitive name compare for the directory listing sort. */
+static int name_cmp(const char *a, const char *b)
+{
+    while (*a && *b) {
+        int ca = *a | 0x20, cb = *b | 0x20;
+        if (ca != cb)
+            return ca - cb;
+        a++; b++;
+    }
+    return (*a & 0xff) - (*b & 0xff);
 }
 
 /* Format + sector order from the filename extension. .2mg is resolved from its
@@ -288,19 +304,23 @@ static void mount_drive(int v)
                 bytes = paylen;
             else if (bytes > base)
                 bytes -= base;
-            /* Only floppy-size payloads are Disk II volumes; larger 2mg images
-             * are block devices and belong to the hard-disk path. */
-            if (fmt == FMT_DSK && bytes != DSK_TRACK_BYTES * 35u) {
-                osd_log("DISK II: D%d %s not a 5.25 floppy (%lu B) - skip",
-                        v + 1, name + 3, (unsigned long)bytes);
-                fmt = FMT_NONE;
-            }
         } else {
             fmt = detect_format(name, &order);
             /* Bare .dsk is ambiguous: sniff the actual sector order (.do and
              * .po stay explicit). */
             if (fmt == FMT_DSK && has_ext(name, "dsk"))
                 order = sniff_dsk_order(&g_img[v]);
+        }
+
+        /* Only floppy-size payloads are Disk II volumes. Anything larger
+         * (e.g. an 800K ProDOS .po) is a block device and belongs to the
+         * hard-disk path — serving it here would nibblize garbage geometry
+         * and hang the Apple's boot. */
+        if ((fmt == FMT_DSK && bytes != DSK_TRACK_BYTES * 35u) ||
+            (fmt == FMT_NIB && bytes != MAX_TRACK_BYTES * 35u)) {
+            osd_log("DISK II: D%d %s not a 5.25 floppy (%lu B) - use HDD slot",
+                    v + 1, name + 3, (unsigned long)bytes);
+            fmt = FMT_NONE;
         }
 
         if (fmt == FMT_NONE) {
@@ -366,6 +386,16 @@ static void mount_hdd(int u)
             rw = false;
         else
             continue;
+
+        /* CONTAINMENT: serve HDD volumes read-only for now. The Apple ->
+         * SDRAM window -> SPI XFER -> file write-back chain corrupts data
+         * at 32-bit-word granularity (observed on hardware: a game's
+         * high-score save destroyed the volume directory blocks with
+         * shifted/interleaved words). Until that path is fixed and
+         * verified, protect the images: reads are proven byte-faithful,
+         * writes are not. GS/OS boots and games run fine read-only; saves
+         * are rejected by the card's write-protect status. */
+        rw = false;
 
         uint32_t base  = 0;
         uint32_t bytes = (uint32_t)f_size(&g_hdd_img[u]);
@@ -868,6 +898,13 @@ void disk_poll(void)
                         fpga_spi_reg_read(0x64), fpga_spi_reg_read(0x65),
                         fpga_spi_reg_read(0x66), fpga_spi_reg_read(0x67));
 
+                /* Release the CardROM INH overlay BEFORE the Apple II
+                 * starts: releasing after opens a race where the CPU's
+                 * first $FFFC fetch reads the CardROM stub vector and the
+                 * machine strands in the keyboard stub until a manual
+                 * reset. (The CardROM is also parameter-disabled in HDL
+                 * until the keyboard-snoop bootstrap is finished.) */
+                fpga_spi_reg_write(REG_CARDROM_REL, 1);
                 fpga_spi_reg_write(0x2E, 1);   /* A2_RST_RELEASE */
                 s_released = true;
                 osd_log("A2: RESET RELEASED%s", any ? "" : " (NO MEDIA)");
@@ -878,6 +915,8 @@ void disk_poll(void)
     /* Async directory listing for the menu (FatFS is not re-entrant, so the
      * scan runs here, in the thread that owns the filesystem). Two passes so
      * directories sort before files. */
+    fs_service();
+
     if (g_list_req) {
         g_list_count = 0;
         for (int pass = 0; pass < 2; pass++) {
@@ -907,6 +946,19 @@ void disk_poll(void)
                 e->is_dir = is_dir;
             }
             f_closedir(&dir);
+        }
+        /* Alphabetize within each group (the two passes already put
+         * directories first). FAT returns creation order, which makes big
+         * game folders unnavigable. Insertion sort: n <= DISK_LIST_MAX. */
+        for (int i = 1; i < g_list_count; i++) {
+            disk_list_ent_t tmp = g_list_ents[i];
+            int j = i;
+            while (j > 0 && g_list_ents[j - 1].is_dir == tmp.is_dir &&
+                   name_cmp(g_list_ents[j - 1].name, tmp.name) > 0) {
+                g_list_ents[j] = g_list_ents[j - 1];
+                j--;
+            }
+            g_list_ents[j] = tmp;
         }
         g_list_req  = false;
         g_list_done = true;
@@ -1032,6 +1084,160 @@ bool disk_backend_is_usb(void)
 bool disk_remount_pending(void)
 {
     return g_remount_req || g_remounting;
+}
+
+/* ---- async FS proxy (see disk.h) ---------------------------------------- */
+#define FS_IDLE 0
+#define FS_PEND 1
+#define FS_DONE 2
+static fs_req_t *volatile g_fs_req;
+static volatile int       g_fs_state = FS_IDLE;
+static volatile int       g_fs_fr;
+static FIL                g_fs_fil;
+static DIR                g_fs_dir;
+static bool               g_fs_fil_open, g_fs_dir_open;
+
+int disk_fs_request(fs_req_t *r)
+{
+    /* single submitter (ftpd thread); serialize defensively anyway */
+    while (g_fs_state != FS_IDLE)
+        usb_osal_msleep(1);
+    r->out = 0;
+    g_fs_req = r;
+    g_fs_state = FS_PEND;
+    for (int waited = 0; g_fs_state != FS_DONE; waited++) {
+        if (waited > 30000)            /* 30 s: something is very wrong */
+            return -1;
+        usb_osal_msleep(1);
+    }
+    g_fs_state = FS_IDLE;
+    return g_fs_fr;
+}
+
+bool disk_path_mounted(const char *path)
+{
+    char full[SETTINGS_NAME_LEN + 4];
+    snprintf(full, sizeof(full), "0:/%s", path);
+    for (int v = 0; v < NDRV; v++)
+        if (g_fmt[v] != FMT_NONE && !strcasecmp(full, g_imgname[v]))
+            return true;
+    for (int u = 0; u < NHDD; u++)
+        if (g_hdd_name[u][0] && !strcasecmp(full, g_hdd_name[u]))
+            return true;
+    return false;
+}
+
+/* Execute one bounded step of the pending FS job (disk thread only). READ
+ * and WRITE move at most one r->len chunk (<=4 KB from ftpd) per poll so
+ * track serving keeps its cadence; everything else completes in one step. */
+static void fs_service(void)
+{
+    fs_req_t *r = g_fs_req;
+    if (g_fs_state != FS_PEND || !r)
+        return;
+    char full[SETTINGS_NAME_LEN + 4];
+    FRESULT fr = FR_OK;
+    UINT n = 0;
+
+    switch (r->op) {
+    case FSOP_OPEN_R:
+    case FSOP_OPEN_W:
+        if (g_fs_fil_open) {
+            f_close(&g_fs_fil);
+            g_fs_fil_open = false;
+        }
+        snprintf(full, sizeof(full), "0:/%s", r->path);
+        fr = f_open(&g_fs_fil, full,
+                    r->op == FSOP_OPEN_R ? FA_READ
+                                         : FA_WRITE | FA_CREATE_ALWAYS);
+        g_fs_fil_open = (fr == FR_OK);
+        if (fr == FR_OK)
+            r->size = (uint32_t)f_size(&g_fs_fil);
+        break;
+    case FSOP_READ:
+        fr = g_fs_fil_open ? f_read(&g_fs_fil, r->buf, r->len, &n)
+                           : FR_NOT_ENABLED;
+        r->out = n;
+        break;
+    case FSOP_WRITE:
+        fr = g_fs_fil_open ? f_write(&g_fs_fil, r->buf, r->len, &n)
+                           : FR_NOT_ENABLED;
+        r->out = n;
+        break;
+    case FSOP_CLOSE:
+        if (g_fs_fil_open) {
+            fr = f_close(&g_fs_fil);
+            g_fs_fil_open = false;
+        }
+        break;
+    case FSOP_DELETE:
+    case FSOP_MKDIR:
+    case FSOP_RMDIR:
+        snprintf(full, sizeof(full), "0:/%s", r->path);
+        fr = r->op == FSOP_DELETE ? f_unlink(full)
+           : r->op == FSOP_MKDIR  ? f_mkdir(full)
+                                  : f_unlink(full);   /* rmdir==unlink */
+        break;
+    case FSOP_RENAME: {
+        char full2[SETTINGS_NAME_LEN + 4];
+        snprintf(full, sizeof(full), "0:/%s", r->path);
+        snprintf(full2, sizeof(full2), "0:/%s", r->path2);
+        fr = f_rename(full, full2);
+        break;
+    }
+    case FSOP_STAT: {
+        FILINFO fno;
+        snprintf(full, sizeof(full), "0:/%s", r->path);
+        if (!r->path[0]) {             /* volume root */
+            r->size = 0;
+            r->attr = AM_DIR;
+            fr = FR_OK;
+            break;
+        }
+        fr = f_stat(full, &fno);
+        if (fr == FR_OK) {
+            r->size  = (uint32_t)fno.fsize;
+            r->attr  = fno.fattrib;
+            r->fdate = fno.fdate;
+            r->ftime = fno.ftime;
+        }
+        break;
+    }
+    case FSOP_LIST_OPEN:
+        if (g_fs_dir_open) {
+            f_closedir(&g_fs_dir);
+            g_fs_dir_open = false;
+        }
+        snprintf(full, sizeof(full), "0:/%s", r->path);
+        fr = f_opendir(&g_fs_dir, full);
+        g_fs_dir_open = (fr == FR_OK);
+        break;
+    case FSOP_LIST_NEXT: {
+        FILINFO fno;
+        r->name[0] = 0;
+        fr = g_fs_dir_open ? f_readdir(&g_fs_dir, &fno) : FR_NOT_ENABLED;
+        if (fr == FR_OK && fno.fname[0]) {
+            snprintf(r->name, sizeof(r->name), "%s", fno.fname);
+            r->size  = (uint32_t)fno.fsize;
+            r->attr  = fno.fattrib;
+            r->fdate = fno.fdate;
+            r->ftime = fno.ftime;
+        }
+        break;
+    }
+    case FSOP_LIST_CLOSE:
+        if (g_fs_dir_open) {
+            f_closedir(&g_fs_dir);
+            g_fs_dir_open = false;
+        }
+        break;
+    default:
+        fr = FR_INVALID_PARAMETER;
+        break;
+    }
+
+    g_fs_fr = fr;
+    g_fs_state = FS_DONE;
 }
 
 void disk_list_begin(const char *path, const char *const *exts)

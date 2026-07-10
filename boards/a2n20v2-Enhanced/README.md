@@ -307,6 +307,63 @@ settings-store state: `LD:` is the load result at boot (`OK`, or `MAG` on a
 first boot with no saved settings), `SV:` the last save (`-` = none yet
 this session).
 
+## Remote console and menu (telnet)
+
+With the USB-Ethernet adapter connected, the board runs a telnet server on
+port 23 (the IP is shown on the boot console and in the NETWORK menu).
+From any machine on the LAN:
+
+```
+telnet <board-ip>
+```
+
+You get the boot/status console (the same log the on-screen console
+shows), streamed live. Press **m** to mirror the on-screen menu and drive
+it from the keyboard — up/down arrows move, right-arrow/Enter select,
+left-arrow/Esc/b go back, `y` toggles menu/console, `s` toggles the
+board's display between the Apple II and the MCU, `[` / `]` are the ±16
+keys, `c` returns to the console stream, `q` disconnects. Entering the
+remote menu switches the board's HDMI output to the menu too (there is
+one shared view); press `s` or back out of the root menu to hand the
+display back to the Apple II.
+
+This works with no gamepad attached, and it is the best way to include
+diagnostics in a problem report: copy the console text instead of
+photographing the screen.
+
+## Copying disk images over the network (FTP)
+
+With the USB-Ethernet adapter connected, the board serves the storage
+volume over FTP (port 21) — no more shuttling the stick between machines.
+Point Cyberduck, FileZilla or `lftp` at `ftp://<board-ip>` (the IP is on
+the boot console and the NETWORK menu screen): any username/password,
+passive mode (every client's default). Upload, download, rename, delete
+and manage folders with your normal file manager; disk serving to the
+Apple II keeps running throughout, and files that are currently mounted
+as disk images are protected from overwrite/delete (eject them in the
+menu first). Plaintext FTP: fine on your LAN, don't port-forward it.
+
+## Modem on the Super Serial Card (dial the Internet)
+
+The virtual Super Serial Card (slot 2 by default) is wired to a
+Hayes-compatible modem emulation with TCP behind it. Any period comm
+program (ProTERM, Z-Link, ...) configured for a Hayes modem on slot 2
+works — any baud rate, since the bridge follows the 6551's programmed
+speed. Leave hardware flow control off.
+
+```
+AT                      OK
+ATI                     bridge info + the board's IP
+ATDT bbs.example.com    connect (port defaults to 23)
+ATDT 192.168.1.50:6502  explicit port
++++  then ATH           escape (1 s guard) and hang up
+```
+
+When the destination port is 23 the bridge speaks just enough telnet to
+keep servers happy. Party trick: `ATDT <the board's own IP>` connects the
+Apple II to the board's remote console (previous section) — a IIgs as a
+terminal on its own coprocessor.
+
 ## DIP switches
 
 The A2N20v2 card's 4-position DIP switch:

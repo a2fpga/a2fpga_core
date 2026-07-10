@@ -7,13 +7,17 @@
  *               CONSOLE  the boot/status log (osd_console)
  *               MENU     this menu system
  *
- * Controls (XInput pad; no keyboard required):
+ * Controls (XInput pad):
  *   SELECT (Back)  toggle APPLE <-> MCU (returns to the last MCU view)
  *   Y              in MCU: switch MENU <-> CONSOLE view
  *   D-PAD UP/DOWN  move the selection (hold to repeat)
  *   D-PAD L/R      change the highlighted choice/toggle value
  *   A              activate: enter submenu / run action / cycle choice
  *   B              back: leave submenu; at the root menu, back to APPLE
+ *
+ * A USB HID keyboard or media remote works too (usbh_hidinput.c maps keys
+ * into the same button word): arrows/Enter/Esc navigate, Tab / the Menu key /
+ * AC Home toggle APPLE <-> MCU, Y switches view, Vol+/- = big +/- steps.
  *
  * The menu runs entirely in the xinput poll thread: main.c feeds the current
  * button state into menu_input() every poll tick (~20 ms), and the menu does
@@ -40,6 +44,14 @@ void menu_init(void);
 /* Feed the current XInput button bitmap every poll tick (edge detection and
  * hold-repeat are handled inside). Safe to call with an unchanged state. */
 void menu_input(uint16_t buttons);
+
+/* OR one-tick button pulses into the next menu_input() call (remote
+ * control, e.g. the telnet mirror). Thread-safe. */
+void menu_inject(uint16_t buttons);
+
+/* Ask the menu (on its own input tick) to bring up the MENU view,
+ * whatever view is currently active. Used by the telnet mirror. */
+void menu_request_menu_view(void);
 
 /* True when the MCU owns the display (menu or console view). */
 bool menu_mcu_view_active(void);

@@ -20,6 +20,7 @@
 #include "task.h"
 #include "usbh_core.h"
 #include "usbh_xinput.h"
+#include "usbh_hidinput.h"  /* USB keyboard / remote-control menu input */
 #include "board.h"
 #include "bflb_mtimer.h"
 
@@ -40,7 +41,10 @@
 #include "usbh_msc.h"       /* USB Mass Storage host class */
 #include "osd_console.h"    /* shared boot/status console */
 #include "settings.h"       /* persisted preferences (flash) */
-#include "menu.h"           /* gamepad menu system */
+#include "menu.h"
+#include "telnetd.h"
+#include "sscbridge.h"
+#include "ftpd.h"           /* gamepad menu system */
 
 struct netif;
 static void net_apply_static(struct netif *nif);   /* defined below */
@@ -316,7 +320,14 @@ static void xinput_thread(void *arg)
             }
             g_dev = NULL;
             g_prev_buttons = 0;
-            usb_osal_msleep(500);
+            /* No pad: still tick the menu at 20 ms so remote input (HID
+             * keyboards/remotes, the telnet mirror's menu_inject pulses)
+             * works padless. The 500 ms device-scan cadence is preserved
+             * by the loop count. */
+            for (int t = 0; t < 25; t++) {
+                menu_input(usbh_hidinput_buttons());
+                usb_osal_msleep(20);
+            }
             continue;
         }
 
@@ -353,8 +364,9 @@ static void xinput_thread(void *arg)
             g_prev_buttons = g_btn_latest;
         }
         /* Menu system: edge detection + hold-repeat live inside; feed the
-         * current state every tick (repeat needs a time base, not events). */
-        menu_input(g_btn_latest);
+         * current state every tick (repeat needs a time base, not events).
+         * HID keyboard/remote buttons ride along in the same word. */
+        menu_input(g_btn_latest | usbh_hidinput_buttons());
         dbg_tick();                  /* heartbeat (thread context) */
         usb_osal_msleep(20);
     }
@@ -800,10 +812,11 @@ static void eth_report_thread(struct netif *netif, const char *chip,
         uint32_t ip = netif_ip4_addr(netif)->addr;
         if (ip != prev_ip) {
             const uint8_t *o = (const uint8_t *)&ip;
-            if (ip != 0)
+            if (ip != 0) {
                 osd_log("USB ETHERNET: IP %u.%u.%u.%u", o[0], o[1], o[2], o[3]);
-            else
+            } else {
                 osd_log("USB ETHERNET: REQUESTING IP (DHCP)...");
+            }
             prev_ip = ip;
         }
         fpga_spi_reg_write(DBG_COUNTER, (uint8_t)(++iter)); /* heartbeat */
@@ -1173,6 +1186,14 @@ int main(void)
     dbg_stage(STG_FPGA_READY);
     if (ready) dbg_set(F_FPGA_READY);
 
+    /* Assert bus-ready NOW, as early as possible: this lets apple_bus run
+     * its bridge init and grab the Apple II's RESET (hold-until-mounted).
+     * With the mcu_ready latch fixed on the FPGA side, the standalone
+     * fallback no longer asserts this for us — an MCU that never writes
+     * 0x30 would leave the Apple bus interface parked. Ready means "grab
+     * the bus now"; the mount-gated 0x2E release means "boot for real". */
+    fpga_spi_reg_write(REG_A2BUS_READY, 1);
+
     /* Persisted preferences, then the gamepad menu that edits them. */
     settings_init();
     menu_init();
@@ -1202,6 +1223,15 @@ int main(void)
 
     /* Disk II image serving: mount SD, serve track-on-demand requests. */
     usb_osal_thread_create("disk", 3072, CONFIG_USBHOST_PSC_PRIO + 1, disk_thread, NULL);
+
+    /* Remote console/menu mirror on TCP port 23. */
+    telnetd_init();
+
+    /* Super Serial Card bridge: 6551 wire <-> Hayes modem / TCP. */
+    sscbridge_init();
+
+    /* FTP server for the storage volume (port 21). */
+    ftpd_init();
 
     dbg_stage(STG_SCHED);
     dbg_set(F_THREAD_UP);

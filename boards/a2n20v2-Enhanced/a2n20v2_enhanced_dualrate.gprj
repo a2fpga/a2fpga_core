@@ -1,0 +1,106 @@
+<?xml version="1" encoding="UTF-8"?>
+<!DOCTYPE gowin-fpga-project>
+<Project>
+    <Template>FPGA</Template>
+    <Version>5</Version>
+    <Device name="GW2AR-18C" pn="GW2AR-LV18QN88C8/I7">gw2ar18c-000</Device>
+    <FileList>
+        <File path="../../hdl/bus/a2bus_if.sv" type="file.verilog" enable="1"/>
+        <File path="../../hdl/bus/a2bus_control_if.sv" type="file.verilog" enable="1"/>
+        <File path="../../hdl/bus/a2bus_timing.sv" type="file.verilog" enable="1"/>
+        <File path="../../hdl/cardrom/cardrom.sv" type="file.verilog" enable="1"/>
+        <File path="../../hdl/cardrom/cardrom.hex" type="file.other" enable="1"/>
+        <File path="../../hdl/debug/debugoverlay.sv" type="file.verilog" enable="1"/>
+        <File path="../../hdl/disk/apple_disk.sv" type="file.verilog" enable="1"/>
+        <File path="../../hdl/disk/drive_ii.sv" type="file.verilog" enable="1"/>
+        <File path="../../hdl/disk/drive_volume_if.sv" type="file.verilog" enable="1"/>
+        <File path="../../hdl/disk/hdd.sv" type="file.verilog" enable="1"/>
+        <File path="../../hdl/disk/hdd_rom.hex" type="file.other" enable="1"/>
+        <File path="../../hdl/f18a/f18a_color.vhd" type="file.vhdl" enable="1"/>
+        <File path="../../hdl/f18a/f18a_core.vhd" type="file.vhdl" enable="1"/>
+        <File path="../../hdl/f18a/f18a_counters.vhd" type="file.vhdl" enable="1"/>
+        <File path="../../hdl/f18a/f18a_cpu.vhd" type="file.vhdl" enable="1"/>
+        <File path="../../hdl/f18a/f18a_div32x16.vhd" type="file.vhdl" enable="1"/>
+        <File path="../../hdl/f18a/f18a_gpu_if.sv" type="file.verilog" enable="1"/>
+        <File path="../../hdl/f18a/f18a_single_port_ram.vhd" type="file.vhdl" enable="1"/>
+        <File path="../../hdl/f18a/f18a_sprites.vhd" type="file.vhdl" enable="1"/>
+        <File path="../../hdl/f18a/f18a_tile_linebuf_ssram.vhd" type="file.vhdl" enable="1"/>
+        <File path="../../hdl/f18a/f18a_tiles.vhd" type="file.vhdl" enable="1"/>
+        <File path="../../hdl/f18a/f18a_version.vhd" type="file.vhdl" enable="1"/>
+        <File path="../../hdl/f18a/f18a_vga_cont_640_60.vhd" type="file.vhdl" enable="1"/>
+        <File path="../../hdl/f18a/f18a_vram.vhd" type="file.vhdl" enable="1"/>
+        <File path="../../hdl/f18a/f18a.sv" type="file.verilog" enable="1"/>
+        <File path="../../hdl/hdmi/audio_clock_regeneration_packet.sv" type="file.verilog" enable="1"/>
+        <File path="../../hdl/hdmi/audio_info_frame.sv" type="file.verilog" enable="1"/>
+        <File path="../../hdl/hdmi/audio_sample_packet.sv" type="file.verilog" enable="1"/>
+        <File path="../../hdl/hdmi/auxiliary_video_information_info_frame.sv" type="file.verilog" enable="1"/>
+        <File path="../../hdl/hdmi/hdmi.sv" type="file.verilog" enable="1"/>
+        <File path="../../hdl/hdmi/packet_assembler.sv" type="file.verilog" enable="1"/>
+        <File path="../../hdl/hdmi/packet_picker.sv" type="file.verilog" enable="1"/>
+        <File path="../../hdl/hdmi/serializer.sv" type="file.verilog" enable="1"/>
+        <File path="../../hdl/hdmi/source_product_description_info_frame.sv" type="file.verilog" enable="1"/>
+        <File path="../../hdl/hdmi/tmds_channel.sv" type="file.verilog" enable="1"/>
+        <File path="../../hdl/memory/a2mem_if.sv" type="file.verilog" enable="1"/>
+        <File path="../../hdl/mockingboard/mockingboard.sv" type="file.verilog" enable="1"/>
+        <File path="../../hdl/sound/apple_speaker.sv" type="file.verilog" enable="1"/>
+        <File path="../../hdl/sound/audio_out.v" type="file.verilog" enable="1"/>
+        <File path="../../hdl/sound/audio_timing.sv" type="file.verilog" enable="1"/>
+        <File path="../../hdl/memory/mem_if_mux.sv" type="file.verilog" enable="1"/>
+        <File path="../../hdl/memory/mem_port_if.sv" type="file.verilog" enable="1"/>
+        <File path="../../hdl/sdram/mem_port_cdc.sv" type="file.verilog" enable="1"/>
+        <File path="../../hdl/sdram/sdram_ports.sv" type="file.verilog" enable="1"/>
+        <File path="../../hdl/sdram/sdram.sv" type="file.verilog" enable="1"/>
+        <File path="../../hdl/slots/slot_if.sv" type="file.verilog" enable="1"/>
+        <File path="../../hdl/slots/slotmaker.sv" type="file.verilog" enable="1"/>
+        <File path="../../hdl/slots/slotmaker_config_if.sv" type="file.verilog" enable="1"/>
+        <File path="../../hdl/slots/slots.hex" type="file.other" enable="1"/>
+        <File path="../../hdl/sound/doc5503.sv" type="file.verilog" enable="1"/>
+        <File path="../../hdl/sound/sound_glu.sv" type="file.verilog" enable="1"/>
+        <File path="../../hdl/ssc/ssc_rom.vhd" type="file.vhdl" enable="1"/>
+        <File path="../../hdl/ssc/super_serial_card.sv" type="file.verilog" enable="1"/>
+        <File path="../../hdl/supersprite/supersprite.sv" type="file.verilog" enable="1"/>
+        <File path="../../hdl/uthernet2/uthernet2.sv" type="file.verilog" enable="1"/>
+        <File path="../../hdl/support/cdc.sv" type="file.verilog" enable="1"/>
+        <File path="../../hdl/support/cdc_denoise.sv" type="file.verilog" enable="1"/>
+        <File path="../../hdl/support/cdc_fifo.sv" type="file.verilog" enable="1"/>
+        <File path="../../hdl/support/cdc_sampling.sv" type="file.verilog" enable="1"/>
+        <File path="../../hdl/support/clock_enable_counter.sv" type="file.verilog" enable="1"/>
+        <File path="../../hdl/support/countdown.sv" type="file.verilog" enable="1"/>
+        <File path="../../hdl/support/debounce.sv" type="file.verilog" enable="1"/>
+        <File path="../../hdl/support/rising_edge.sv" type="file.verilog" enable="1"/>
+        <File path="../../hdl/support/iir_filter.v" type="file.verilog" enable="1"/>
+        <File path="../../hdl/support/pulse_crossing.v" type="file.verilog" enable="1"/>
+        <File path="../../hdl/support/pulse_generator.v" type="file.verilog" enable="1"/>
+        <File path="../../hdl/support/rom.v" type="file.verilog" enable="1"/>
+        <File path="../../hdl/support/sdpram32.sv" type="file.verilog" enable="1"/>
+        <File path="../../hdl/support/srff.v" type="file.verilog" enable="1"/>
+        <File path="../../hdl/support/timer.sv" type="file.verilog" enable="1"/>
+        <File path="../../hdl/support/uart_6551.v" type="file.verilog" enable="1"/>
+        <File path="../../hdl/support/uart_rx.v" type="file.verilog" enable="1"/>
+        <File path="../../hdl/support/uart_tx.v" type="file.verilog" enable="1"/>
+        <File path="../../hdl/support/via6522.vhd" type="file.vhdl" enable="1"/>
+        <File path="../../hdl/support/YM2149.sv" type="file.verilog" enable="1"/>
+        <File path="../../hdl/support/ws2812.sv" type="file.verilog" enable="1"/>
+        <File path="../../hdl/video/apple_video.sv" type="file.verilog" enable="1"/>
+        <File path="../../hdl/video/apple_video_gen.sv" type="file.verilog" enable="1"/>
+        <File path="../../hdl/video/vgc.sv" type="file.verilog" enable="1"/>
+        <File path="../../hdl/video/vgc_gen.sv" type="file.verilog" enable="1"/>
+        <File path="../../hdl/video/pixel_stream_if.sv" type="file.verilog" enable="1"/>
+        <File path="../../hdl/video/direct_display.sv" type="file.verilog" enable="1"/>
+        <File path="../../hdl/video/video_control_if.sv" type="file.verilog" enable="1"/>
+        <File path="../../hdl/video/video.hex" type="file.other" enable="1"/>
+        <File path="hdl/a2n20v2_enhanced.cst" type="file.cst" enable="1"/>
+        <File path="hdl/a2n20v2_enhanced_dualrate.sdc" type="file.sdc" enable="1"/>
+        <File path="../../hdl/bus/apple_bus.sv" type="file.verilog" enable="1"/>
+        <File path="hdl/gowin/clk_hdmi/clk_hdmi.v" type="file.verilog" enable="1"/>
+        <File path="hdl/gowin/clk_logic/clk_logic.v" type="file.verilog" enable="1"/>
+        <File path="hdl/gowin/clk_logic_108/clk_logic_108.v" type="file.verilog" enable="1"/>
+        <File path="../../hdl/memory/apple_memory_sdram.sv" type="file.verilog" enable="1"/>
+        <File path="hdl/bl616/bl616_spi_proto_proc.sv" type="file.verilog" enable="1"/>
+        <File path="hdl/bl616/bl616_spi_connector.sv" type="file.verilog" enable="1"/>
+        <File path="hdl/bl616/mcu_status_led.sv" type="file.verilog" enable="1"/>
+        <File path="hdl/bl616/fpga_sd_spi.sv" type="file.verilog" enable="1"/>
+        <File path="hdl/bl616/a2bus_event_fifo.sv" type="file.verilog" enable="1"/>
+        <File path="hdl/top_dualrate.sv" type="file.verilog" enable="1"/>
+    </FileList>
+</Project>
