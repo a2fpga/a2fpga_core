@@ -9,6 +9,7 @@
 #include "bflb_core.h"
 #include "bflb_flash.h"
 #include "bflb_irq.h"
+#include "bl616_irq.h"   /* BL616_IRQ_USB */
 #include "bflb_l1c.h"
 #include "bflb_spi.h"
 
@@ -323,7 +324,10 @@ void fwupdate_poll(void)
     if (s_restart_req && s_state != FWU_COMMIT_REQ) {
         osd_log("FWUPDATE: RESTARTING");
         usb_osal_msleep(200);
-        usbh_deinitialize(0);
+        /* Hard teardown only — usbh_deinitialize() can block forever on a
+         * stuck class driver (see FWU_COMMIT_REQ below). Mask the IRQ; the
+         * VBUS drop + GLB reset + PDS power-off below do the real work. */
+        bflb_irq_disable(BL616_IRQ_USB);
         /* Drop VBUS and hold it low so the (bus-powered) hub and devices
          * get a REAL power cycle, not the ~10 ms brownout of the driver's
          * init dance — a brownout zombies the hub's port controller (EP0
@@ -436,12 +440,21 @@ void fwupdate_poll(void)
     case FWU_COMMIT_REQ:
         osd_log("FWUPDATE: INSTALLING - DO NOT POWER OFF");
         /* Let the menu finish painting its final instructions, then prepare
-         * the warm-boot environment (per FPGA-Companion's proven recipe):
-         * tear down the USB host stack and clear the HBN user-boot override
-         * — the HBN domain survives warm resets and a stale boot-config
-         * there redirects the BootROM away from flash boot. */
+         * the warm-boot environment. HARD USB teardown only: the polite
+         * usbh_deinitialize() walks every class driver and can block forever
+         * on a URB that never completes (observed 2026-07-09: install stuck
+         * at INSTALLING with USB torn half-down, commit never entered —
+         * LED green, flash untouched). It buys nothing here anyway: we are
+         * about to jump into a fresh image that re-initializes USB from
+         * power-on state. Mask the USB IRQ so no ISR fires into the dying
+         * block, then the GLB block reset chops any in-flight EHCI DMA and
+         * PDS powers the PHY off (bflb_usb_phy_init only ORs its power bits
+         * in, so the relaunched app needs them at 0). Clear the HBN
+         * user-boot override — the HBN domain survives warm resets and a
+         * stale boot-config there redirects the BootROM away from flash
+         * boot. */
         usb_osal_msleep(500);
-        usbh_deinitialize(0);
+        bflb_irq_disable(BL616_IRQ_USB);
         GLB_AHB_MCU_Software_Reset(GLB_AHB_MCU_SW_EXT_USB);
         PDS_Turn_Off_USB();
         HBN_Set_User_Boot_Config(0);
