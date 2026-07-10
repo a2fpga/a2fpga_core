@@ -54,9 +54,24 @@ void telnetd_console_tee(const char *line)
 }
 
 /* ---- helpers ------------------------------------------------------------- */
+/* Set when a send errors or times out (SO_SNDTIMEO): the peer vanished
+ * without closing (crashed client, port scanner) and its window filled.
+ * tn_send goes no-op and session() bails, so the next client can connect. */
+static bool s_peer_dead;
+
 static int tn_send(int fd, const void *buf, int len)
 {
-    return lwip_send(fd, buf, len, 0);
+    const char *p = buf;
+    while (len > 0 && !s_peer_dead) {
+        int n = lwip_send(fd, p, len, 0);
+        if (n <= 0) {
+            s_peer_dead = true;
+            return -1;
+        }
+        p += n;
+        len -= n;
+    }
+    return s_peer_dead ? -1 : 0;
 }
 
 static void tn_puts(int fd, const char *s)
@@ -134,6 +149,7 @@ static uint16_t key_to_buttons(uint8_t ch, int *st)
 /* ---- session ------------------------------------------------------------- */
 static void session(int fd)
 {
+    s_peer_dead = false;
     /* char-at-a-time: WILL ECHO, WILL SGA, DO SGA */
     static const uint8_t nego[] = { 255, 251, 1, 255, 251, 3, 255, 253, 3 };
     tn_send(fd, nego, sizeof(nego));
@@ -160,11 +176,15 @@ static void session(int fd)
     }
 
     for (;;) {
+        if (s_peer_dead)
+            return;                        /* send timed out/failed */
         /* input (non-blocking-ish: 50 ms poll via SO_RCVTIMEO) */
         uint8_t ch;
         int r = lwip_recv(fd, &ch, 1, 0);
         if (r == 0)
             return;                        /* closed */
+        if (r < 0 && errno != EWOULDBLOCK && errno != EAGAIN)
+            return;                        /* reset/keepalive-reaped, not the 50 ms poll */
         if (r != 1 && esc_st == 1) {
             /* lone ESC (no sequence followed within the 50 ms poll): back */
             esc_st = 0;
@@ -285,6 +305,18 @@ static void telnetd_thread(void *arg)
         }
         struct timeval tv = { .tv_sec = 0, .tv_usec = 50 * 1000 };
         lwip_setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+        /* A peer that vanishes without closing (port scan, killed nc) stops
+         * ACKing; once its window fills an untimed send blocks this thread
+         * forever and the single-session server is wedged until reboot. */
+        struct timeval stv = { .tv_sec = 3, .tv_usec = 0 };
+        lwip_setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &stv, sizeof(stv));
+        /* Keepalive reaps half-open sessions that go idle (console mode
+         * with no log traffic never sends, so SO_SNDTIMEO alone can't). */
+        int idle = 10, intvl = 5, cnt = 3;
+        lwip_setsockopt(fd, SOL_SOCKET, SO_KEEPALIVE, &one, sizeof(one));
+        lwip_setsockopt(fd, IPPROTO_TCP, TCP_KEEPIDLE, &idle, sizeof(idle));
+        lwip_setsockopt(fd, IPPROTO_TCP, TCP_KEEPINTVL, &intvl, sizeof(intvl));
+        lwip_setsockopt(fd, IPPROTO_TCP, TCP_KEEPCNT, &cnt, sizeof(cnt));
         s_client_up = true;
         osd_log("TELNET: CLIENT CONNECTED");
         session(fd);
