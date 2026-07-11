@@ -410,6 +410,12 @@ bool wifi_bridge_init(const char *ssid, const char *psk)
     if (esp_wifi_set_config(WIFI_IF_STA, &wc) != ESP_OK) return false;
 
     err = esp_wifi_start();
+    /* Disable modem power save: the default WIFI_PS_MIN_MODEM sleeps the
+     * radio between DTIM beacons, which on UniFi-class APs turns sustained
+     * INBOUND traffic (ping, TCP SYN, FTP) into near-total loss while
+     * association/DHCP/outbound look perfect — live-debugged exactly so.
+     * The bridge + FTP server need the radio always listening. */
+    esp_wifi_set_ps(WIFI_PS_NONE);
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "esp_wifi_start: %s", esp_err_to_name(err));
         return false;

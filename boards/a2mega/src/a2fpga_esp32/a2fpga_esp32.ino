@@ -36,7 +36,10 @@
 #include "w5100.h"
 #include "wifi_bridge.h"
 #include "fpgaupdate.h"
+#include "ftpd.h"
 #include "esp_err.h"
+#include "esp_wifi.h"
+#include "esp_netif.h"
 #include <ctype.h>
 #include <stdlib.h>
 
@@ -283,6 +286,52 @@ static void cmd_process(String cmd) {
         Serial.printf("shadow rd fsm=0x%02X: vid_req=%d is_vgc=%d cache_valid=%d vgc_req=%d state=%d\n",
                       v[7], !!(v[7] & 0x80), !!(v[7] & 0x40), !!(v[7] & 0x20), !!(v[7] & 0x10), v[7] & 0x07);
         Serial.printf("vgc stale-word swaps/frame=%u\n", v[8]);
+
+    } else if (cmd == "net") {
+        wifi_ap_record_t ap;
+        if (esp_wifi_sta_get_ap_info(&ap) == ESP_OK)
+            Serial.printf("WiFi: associated to %s  RSSI %d\n", (const char*)ap.ssid, ap.rssi);
+        else
+            Serial.println("WiFi: NOT associated");
+        esp_netif_t *nif = esp_netif_get_handle_from_ifkey("WIFI_STA_DEF");
+        if (nif) {
+            esp_netif_ip_info_t ii;
+            if (esp_netif_get_ip_info(nif, &ii) == ESP_OK)
+                Serial.printf("IP: " IPSTR "  GW: " IPSTR "  MASK: " IPSTR "\n",
+                              IP2STR(&ii.ip), IP2STR(&ii.gw), IP2STR(&ii.netmask));
+        } else {
+            Serial.println("netif: WIFI_STA_DEF not found");
+        }
+
+    } else if (cmd.startsWith("fpgaflash ")) {
+        // Persistent FPGA flash via the on-board bit-bang updater (fpgaupdate/
+        // fpga_jtag). Exists because openFPGALoader's flash flow loses the
+        // SPI bus to the GW5A's config-retry loop whenever the flash already
+        // holds a corrupt image (its own SRAM-erase step re-arms the retry
+        // loop, then its hardcoded-10MHz flash-ID read fails). The bit-bang
+        // path runs at the slow clocks that demonstrably win, with per-page
+        // verify. We hold the recursive link mutex, so driving
+        // fpgaupdate_poll() synchronously here is safe: menu/disk tasks stay
+        // blocked (the FPGA is dark during the write anyway) and osd_log's
+        // lock re-enters.
+        String toks[4];
+        int nt = split_ws(cmd, toks, 4);
+        if (nt < 2) {
+            Serial.println("Usage: fpgaflash <file.bin on SD>");
+            return;
+        }
+        if (!fpgaupdate_request(toks[1].c_str())) {
+            Serial.println("fpgaflash: updater busy");
+            return;
+        }
+        fpgaupdate_poll();   // CHECK phase, synchronous
+        Serial.printf("fpgaflash: %s\n", fpgaupdate_message());
+        if (fpgaupdate_state() != FPU_READY)
+            return;
+        Serial.println("fpgaflash: INSTALLING — FPGA goes dark; can take 10+ min; DO NOT power off");
+        fpgaupdate_commit();
+        fpgaupdate_poll();   // INSTALL phase, synchronous; esp_restart() on success
+        Serial.printf("fpgaflash: %s\n", fpgaupdate_message());  // reached only on error
 
     } else if (cmd.startsWith("ddrd ")) {
         // Dump DDR3 words via the debug read window (regs 0x34-0x3B).
@@ -672,11 +721,13 @@ static void start_subsystems() {
     if (s->wifi_ssid[0]) {
         wifi_bridge_config_ip(s->dhcp_enable != 0, s->static_ip,
                               s->static_mask, s->static_gw);
-        if (wifi_bridge_init(s->wifi_ssid, s->wifi_psk))
+        if (wifi_bridge_init(s->wifi_ssid, s->wifi_psk)) {
             osd_log("WIFI: JOINING %s (%s)", s->wifi_ssid,
                     s->dhcp_enable ? "DHCP" : "STATIC IP");
-        else
+            ftpd_init();   /* FTP file drop for /sdcard once WiFi is up */
+        } else {
             osd_log("WIFI: INIT FAILED");
+        }
     } else {
         osd_log("WIFI: NOT CONFIGURED (WIFI.TXT)");
     }
