@@ -46,7 +46,22 @@ Open issues, in priority order:
       investigate pf idle-slot availability vs vid dummy churn);
       invisible now but margin-reducing. MOTION-SHR untested (needs
       menu/gamepad to mount GS game images — the standing gate)
-- [ ] WiFi VERDICT (2026-07-10 session close): the pathology follows the
+- [ ] WiFi INVESTIGATION (2026-07-11, still open — verdict RETRACTED
+      twice, now confounded): the "RF path" conclusion was premature.
+      One PRISTINE measurement exists: 9ms avg / 0% loss sustained,
+      with the RX-takeover DISABLED via the FAR UniFi AP (RSSI -83!) —
+      proving the module can do healthy WiFi. But takeover-off via the
+      NEAR AP (-46) was sick again (~600-900ms), so the takeover A/B is
+      confounded with AP selection: every bad measurement is consistent
+      with the NEAR AP being the disease. NEXT: dedicated non-UniFi
+      2.4GHz test router placed next to the ESP32 (arriving 2026-07-11)
+      → run the 2x2: {takeover on/off} x {test router} to separate our
+      wifi_bridge RX-callback takeover from AP-side pathology.
+      CURRENT BUILD STATE: takeover DISABLED (diagnostic) — W5100/
+      Uthernet bridge is INERT until this resolves; FTP/net services
+      unaffected. The a2p25 streamed 128kbps via stock Arduino WiFi on
+      a similar board — whichever way the 2x2 lands, that path exists.
+- [ ] (retracted) WiFi VERDICT (2026-07-10 session close): the pathology follows the
       BOARD, not the network — identical/worse on edhome, edhome-iot-3
       (all toggles stock), AND an iPhone hotspot (87-100% loss). With
       every client knob and AP setting eliminated, the remaining cause

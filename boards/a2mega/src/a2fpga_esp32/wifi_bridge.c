@@ -291,7 +291,11 @@ static void on_wifi_event(void *arg, esp_event_base_t base, int32_t id, void *da
         /* Take over the STA RX path. Registered after esp-netif's default
          * handler (registration order), so this wins on every (re)connect;
          * bridge_rxcb forwards to esp_netif_receive so lwIP still runs. */
-        esp_wifi_internal_reg_rxcb(WIFI_IF_STA, bridge_rxcb);
+        /* DIAGNOSTIC A/B (temporary): takeover DISABLED to test whether the
+         * custom RX path causes the WiFi latency/loss pathology — the a2p25
+         * streamed 128kbps audio on a similar board using the stock path.
+         * W5100 bridging is inert in this build. */
+        /* esp_wifi_internal_reg_rxcb(WIFI_IF_STA, bridge_rxcb); */
         ESP_LOGI(TAG, "associated with '%s'", s_ssid);
         break;
     case WIFI_EVENT_STA_DISCONNECTED: {
