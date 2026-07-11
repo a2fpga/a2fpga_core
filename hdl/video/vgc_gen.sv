@@ -49,7 +49,13 @@ module vgc_gen (
     // Diagnostic: count of hsync events that arrived while we were
     // still rendering a previous line (i.e. silently dropped lines).
     // Resets on vsync; saturates at 8'hFF.
-    output reg [7:0]  dbg_missed_hsync_o
+    output reg [7:0]  dbg_missed_hsync_o,
+
+    // Diagnostic: pixel-word swaps that happened while the prefetched word
+    // had NOT landed (next_word_rdy_r low) — each one repeats a stale word
+    // AND phase-slips the rest of the line (the moving horizontal smear on
+    // static SHR screens). Resets on vsync; saturates at 8'hFF.
+    output reg [7:0]  dbg_starved_o
 );
 
     // =========================================================================
@@ -122,6 +128,7 @@ module vgc_gen (
     reg [6:0]  fetch_idx_r;      // word index the fetch engine is reading
     reg [1:0]  fe_step_r;        // fetch engine step
     reg        fe_busy_r;        // fetch engine running
+    reg        word_stall_r;     // waiting at a word boundary for late data
 
     // =========================================================================
     // Pixel decode logic (from vgc_fb.sv)
@@ -159,7 +166,7 @@ module vgc_gen (
     // Active is high throughout the rendered line once primed. With the
     // prefetch engine keeping next_word_r filled, a valid pixel is present on
     // every cycle (advancing on pixel_clk_en), so there are no inter-word gaps.
-    assign pixel_stream.active = (state_r == ST_RENDER) && render_primed_r;
+    assign pixel_stream.active = (state_r == ST_RENDER) && render_primed_r && !word_stall_r;
 
     // =========================================================================
     // Main state machine
@@ -182,12 +189,14 @@ module vgc_gen (
             prev_palette_r <= 4'd0;
             pix_out_cnt_r <= 10'd0;
             dbg_missed_hsync_o <= 8'd0;
+            dbg_starved_o <= 8'd0;
             render_primed_r <= 1'b0;
             next_word_r <= 32'd0;
             next_word_rdy_r <= 1'b0;
             fetch_idx_r <= 7'd0;
             fe_step_r <= 2'd0;
             fe_busy_r <= 1'b0;
+            word_stall_r <= 1'b0;
         end else begin
             vgc_rd_o <= 1'b0;
 
@@ -196,6 +205,7 @@ module vgc_gen (
                 shrg_mode_r <= video_control_if.shrg_mode(a2mem_if.SHRG_MODE);
                 // Reset per-frame missed-hsync counter on vsync
                 dbg_missed_hsync_o <= 8'd0;
+                dbg_starved_o <= 8'd0;
             end
 
             // Diagnostic: detect hsync arriving while we are NOT in
@@ -328,6 +338,28 @@ module vgc_gen (
                         fe_busy_r <= 1'b1;
                         fe_step_r <= 2'd0;
                     end
+                end else if (word_stall_r) begin
+                    // Stalled at a word boundary: the next word was late.
+                    // pixel_stream.active is LOW (framebuffer_writer pauses —
+                    // position is implied by accepted pixels, so the stall is
+                    // invisible in the framebuffer). Resume the moment data
+                    // lands. This restores the pre-direct_display semantics
+                    // for latency-real memories: the never-stall redesign
+                    // emitted the STALE word here and phase-slipped the rest
+                    // of the line (the moving horizontal smear on static SHR
+                    // screens over DDR3). BSRAM-backed boards never stall.
+                    if (next_word_rdy_r) begin
+                        pixel_word_r <= next_word_r;
+                        next_word_rdy_r <= 1'b0;
+                        pix_sub_cnt_r <= 4'd0;
+                        pix_word_cnt_r <= pix_word_cnt_r + 6'd1;
+                        if ((pix_word_cnt_r + 6'd2) <= 6'd39) begin
+                            fetch_idx_r <= {1'b0, pix_word_cnt_r} + 7'd2;
+                            fe_busy_r <= 1'b1;
+                            fe_step_r <= 2'd0;
+                        end
+                        word_stall_r <= 1'b0;
+                    end
                 end else if (pixel_stream.pixel_clk_en) begin
                     prev_palette_r <= pix_fill_w;
                     pix_out_cnt_r <= pix_out_cnt_r + 10'd1;
@@ -336,9 +368,16 @@ module vgc_gen (
                         if (pix_word_cnt_r == 6'd39) begin
                             state_r <= ST_IDLE;
                             render_primed_r <= 1'b0;
+                        end else if (!next_word_rdy_r) begin
+                            // Pixel 15 was emitted on this tick; the next
+                            // word is late — stall instead of emitting stale
+                            // data (counted for the debug register).
+                            if (dbg_starved_o != 8'hFF)
+                                dbg_starved_o <= dbg_starved_o + 8'd1;
+                            word_stall_r <= 1'b1;
                         end else begin
-                            // Swap in the prefetched word (ready well within the
-                            // 16-pixel window) and prefetch the word after it.
+                            // Swap in the prefetched word and prefetch the
+                            // word after it.
                             pixel_word_r <= next_word_r;
                             next_word_rdy_r <= 1'b0;
                             pix_sub_cnt_r <= 4'd0;

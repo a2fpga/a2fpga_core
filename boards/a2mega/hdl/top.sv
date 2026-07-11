@@ -348,17 +348,30 @@ module top #(
     wire [31:0] vgc_data_w;
     wire vgc_ready_w;
 
-    // DDR3 memory port allocation (single unified array for all clients):
-    //   0 = FB write (highest priority — prevents FIFO overflow/pixel drops)
-    //   1 = FB read  (scanline prefetch, line-buffer absorbs latency)
-    //   2 = Shadow read  (apple_video_gen)
-    //   3 = Shadow write (CPU)
+    // DDR3 memory port allocation (single unified array for all clients).
+    //
+    // Priority = latency criticality, NOT bandwidth. apple_video_gen and
+    // vgc_gen are hard-real-time: they emit pixels at fixed cadence from a
+    // single-word prefetch, so a shadow read that misses its ~500ns slot
+    // makes the shifter reuse the previous word — seen on hardware as
+    // "sparkle" (occasional misses: moving misplaced pixels on static
+    // screens, worst during disk loads) or wholesale shape garble (chronic
+    // misses during SHR). No counter fires: the data is correct, merely
+    // late. Every other client tolerates latency by construction: the FB
+    // writer has a deep accumulator FIFO, the FB reader prefetches whole
+    // lines into a line buffer, CPU shadow writes sit in a 16-deep FIFO
+    // (drops instrumented at dbg reg 0x74).
+    //
+    //   0 = Shadow read  (apple_video_gen + vgc_gen — latency-critical)
+    //   1 = Shadow write (CPU; FIFO absorbs stalls, drops counted)
+    //   2 = FB write     (accumulator FIFO; overflow counted per frame)
+    //   3 = FB read      (line-buffered prefetch; line-not-ready counted)
     //   4 = DOC (Ensoniq wavetable read)
     //   5 = GLU (Ensoniq write)
-    localparam FB_WRITE_PORT   = 0;
-    localparam FB_READ_PORT    = 1;
-    localparam SHADOW_READ_PORT  = 2;
-    localparam SHADOW_WRITE_PORT = 3;
+    localparam SHADOW_READ_PORT  = 0;
+    localparam SHADOW_WRITE_PORT = 1;
+    localparam FB_WRITE_PORT   = 2;
+    localparam FB_READ_PORT    = 3;
     localparam DOC_MEM_PORT      = 4;
     localparam GLU_MEM_PORT      = 5;
     localparam NUM_DDR3_PORTS    = 6;
@@ -466,6 +479,7 @@ module top #(
     wire [17:0] vgc_fb_data_w;
     wire        vgc_fb_vsync_w;
     wire [7:0]  vgc_dbg_missed_hsync_w;
+    wire [7:0]  vgc_dbg_starved_w;
     wire [7:0]  shadow_dbg_drop_w;
 
     wire [7:0] rgb_r_w;
@@ -540,7 +554,8 @@ module top #(
         .vgc_data_i(vgc_data_w),
         .vgc_ready_i(vgc_ready_w),
 
-        .dbg_missed_hsync_o(vgc_dbg_missed_hsync_w)
+        .dbg_missed_hsync_o(vgc_dbg_missed_hsync_w),
+        .dbg_starved_o(vgc_dbg_starved_w)
     );
 
     framebuffer_writer #(
@@ -593,6 +608,14 @@ module top #(
 
     // 64KB sound RAM backed by BSRAM (DDR3 ports kept but idle)
 
+    // With USE_BSRAM=1 the DOC never touches DDR3 — park its interface on a
+    // dummy instance and give port 4 to the ESP32 DDR3 debug read window.
+    mem_port_if #(.PORT_ADDR_WIDTH(21), .DATA_WIDTH(32), .DQM_WIDTH(4), .PORT_OUTPUT_WIDTH(32))
+        doc_idle_if();
+    assign doc_idle_if.available = 1'b0;
+    assign doc_idle_if.ready     = 1'b0;
+    assign doc_idle_if.q         = 32'd0;
+
     sound_glu #(
         .ENABLE(ENSONIQ_ENABLE),
         .MONO_MIX(ENSONIQ_MONO_MIX),
@@ -610,7 +633,39 @@ module top #(
         .debug_osc_halt_o(doc_osc_halt_w),
 
         .glu_mem_if(ddr3_mem_ports[GLU_MEM_PORT]),
-        .doc_mem_if(ddr3_mem_ports[DOC_MEM_PORT])
+        .doc_mem_if(doc_idle_if)
+    );
+
+    wire [20:0] dbg_mem_addr_w;
+    wire        dbg_mem_go_w;
+    wire        dbg_mem_busy_w;
+    wire [31:0] dbg_mem_data_w;
+
+    // Discrete member wiring — passing ddr3_mem_ports[4] into a module port
+    // hits Gowin's interface-array flattening bug (see ddr3_ports.sv note);
+    // the first build attempt with an interface port killed the OSPI link.
+    wire        dbg_mem_rd_w;
+    wire [20:0] dbg_mem_port_addr_w;
+
+    assign ddr3_mem_ports[DOC_MEM_PORT].rd      = dbg_mem_rd_w;
+    assign ddr3_mem_ports[DOC_MEM_PORT].wr      = 1'b0;
+    assign ddr3_mem_ports[DOC_MEM_PORT].addr    = dbg_mem_port_addr_w;
+    assign ddr3_mem_ports[DOC_MEM_PORT].data    = 32'd0;
+    assign ddr3_mem_ports[DOC_MEM_PORT].byte_en = 4'b1111;
+    assign ddr3_mem_ports[DOC_MEM_PORT].burst   = 1'b0;
+
+    ddr3_debug_reader u_ddr3_dbg_reader (
+        .clk    (clk_logic_w),
+        .rst_n  (device_reset_n_w),
+        .mem_rd_o        (dbg_mem_rd_w),
+        .mem_addr_o      (dbg_mem_port_addr_w),
+        .mem_available_i (ddr3_mem_ports[DOC_MEM_PORT].available),
+        .mem_ready_i     (ddr3_mem_ports[DOC_MEM_PORT].ready),
+        .mem_q_i         (ddr3_mem_ports[DOC_MEM_PORT].q),
+        .addr_i (dbg_mem_addr_w),
+        .req_i  (dbg_mem_go_w),
+        .busy_o (dbg_mem_busy_w),
+        .data_o (dbg_mem_data_w)
     );
 
     // SuperSprite
@@ -1086,11 +1141,12 @@ module top #(
         .NUM_PORTS(NUM_DDR3_PORTS),
         .DDR_ADDR_WIDTH(29),
         .PORT_BASE_ADDR('{
-            FB_WORD_BASE,       // [0] FB write (highest priority)
-            FB_WORD_BASE,       // [1] FB read
-            SHADOW_WORD_BASE,   // [2] Shadow read
-            SHADOW_WORD_BASE,   // [3] Shadow write
-            ENSONIQ_WORD_BASE,  // [4] DOC read
+            SHADOW_WORD_BASE,   // [0] Shadow read (highest priority)
+            SHADOW_WORD_BASE,   // [1] Shadow write
+            FB_WORD_BASE,       // [2] FB write
+            FB_WORD_BASE,       // [3] FB read
+            21'h000000,         // [4] DDR3 debug reader (absolute addresses;
+                                //     Ensoniq runs from BSRAM, port was idle)
             ENSONIQ_WORD_BASE   // [5] GLU write
         }),
         .WIDE_WR_PORT(FB_WRITE_PORT),
@@ -1692,6 +1748,12 @@ module top #(
         .dbg_fb_flags_i(fb_dbg_flags_w),
         .dbg_resp_ovfl_i(dbg_resp_ovfl_sync1),
         .dbg_shadow_rd_i(shadow_dbg_rd_state_w),
+        .dbg_vgc_starved_i(vgc_dbg_starved_w),
+
+        .dbg_mem_addr_o(dbg_mem_addr_w),
+        .dbg_mem_go_o(dbg_mem_go_w),
+        .dbg_mem_busy_i(dbg_mem_busy_w),
+        .dbg_mem_data_i(dbg_mem_data_w),
 
         .w5100_host_wr(u2_host_wr_w),
         .w5100_host_addr(u2_host_addr_w),

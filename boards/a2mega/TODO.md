@@ -33,10 +33,50 @@ fpgaupdate takes .bin, flash.sh hardened (--verify/retries/procedure).
 
 Open issues, in priority order:
 
+- [ ] SHR VERDICT (2026-07-10 live session, Spy Hunter static splash
+      clean and stable): the SHR garble was vgc_gen's never-stall word
+      swap — a semantic change imported with the a2n20v2 direct_display
+      redesign — emitting STALE words when DDR3 fetches missed the
+      16-pixel window and phase-slipping the rest of the line. FIXED:
+      stall-on-late-word restored (active low during the stall; the
+      framebuffer_writer pauses cleanly; BSRAM boards never stall), plus
+      a vgc next-group prefetch in apple_memory (odd-word arming) and a
+      pipelined issue path for clk_logic timing. REMAINING: stalls/frame
+      still saturate 255 during SHR (prefetch mostly not winning —
+      investigate pf idle-slot availability vs vid dummy churn);
+      invisible now but margin-reducing. MOTION-SHR untested (needs
+      menu/gamepad to mount GS game images — the standing gate)
+- [ ] FLASH REPAIR PENDING: config flash holds a half-written image
+      (interrupted openFPGALoader write); board runs from SRAM — power
+      loss needs a re-SRAM-load. openFPGALoader writes lose to the
+      config-retry loop; repair via ESP32 bit-bang fpgaupdate (menu) or
+      SRAM-load-then-flash in a fresh power window
+- [ ] Old "sparkle"/garble notes (superseded by the above): (2026-07-10 live session):
+      apple_video_gen and vgc_gen are hard-real-time single-word-prefetch
+      consumers; a shadow read that misses its ~500ns slot makes the pixel
+      shifter reuse the PREVIOUS word (stale chunk). Occasional misses =
+      moving misplaced pixels on static screens (worst during disk-load
+      write streams); chronic misses (2 clients on one port during SHR) =
+      wholesale shape garble. No counter fires — data is correct, merely
+      late. FIX SHIPPED: shadow read to priority 0 (latency-critical; all
+      other clients are FIFO/line-buffered), shadow write to 1, FB 2/3;
+      hidden-renderer fetches complete immediately with dummy data during
+      SHR (wedge-safe, zero port traffic). RESIDUAL RISK: DRAM auto-refresh
+      (~350ns per 7.8us) + in-flight FB burst can still exceed the word
+      budget at low rate — if sparkle persists, deepen renderer prefetch
+      to 2 words (measure via viddbg + photos first)
 - [ ] Display sticks in SHR after the TransWarp GS power-up splash (reset
-      recovers; regression vs pre-port builds) — instrumented via OSPI
-      debug regs 0x70-0x77 + `viddbg` CLI: read C029 write count/last +
-      SHRG/use_vgc while stuck to localize (missed bus write vs display mux)
+      recovers) — ROOT CAUSE from main PR #46 (hardware-validated on a
+      IIgs+TWGS): read-FSM swallowed fetch pulses (vgc_active_i gating +
+      busy-FSM drops with both generators fetching), wedging a generator
+      until reset; the shared framebuffer then freezes on the splash.
+      FIX PORTED: per-client request latches, classify by client+latched
+      address, a request once latched always completes. VERIFY on hw;
+      `viddbg` regs 0x70-0x77 confirm (C029 count, SHRG/use_vgc, rd FSM)
+- [ ] Cold-boot polish from PR #46 worth porting later: seed the shadow
+      text page with 0xA0 at first reset release (DDR3 noise until the
+      ROM clears it; OSD console masks it today), and require two writer
+      vsyncs before unblanking the FB after reset release
 - [ ] SHR and hires rendering scrambled (text clean → scanout OK).
       HIRES root cause FOUND + FIXED: format_hires_data assembled
       {main,aux,main,aux} but the shared apple_video_gen contract is

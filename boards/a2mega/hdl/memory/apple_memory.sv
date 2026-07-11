@@ -47,7 +47,7 @@ module apple_memory #(
     // Debug: CPU shadow writes lost to a full shadow FIFO (sticky)
     output [7:0] dbg_shadow_drop_o,
 
-    // Debug: read FSM snapshot {rd_pending, rd_is_vgc, cache_valid, 2'b0, rd_state}
+    // Debug: read FSM snapshot {vid_req, rd_is_vgc, cache_valid, vgc_req, 0, rd_state}
     output [7:0] dbg_rd_state_o
 );
 
@@ -281,12 +281,16 @@ module apple_memory #(
     //      busy overwrote the deferred slot — older write lost.
     //   2. A new write_en on the same cycle the deferred write drained was
     //      never stored — new write lost.
-    // All writes now transit the FIFO in strict order. Depth 8 absorbs
-    // worst-case port-busy stretches (~1µs behind an 8-beat FB read burst)
-    // at the CPU's ~0.36-1µs/write rate. Forced to registers: the head and
-    // the coherency scan below need combinational access to all entries.
-    localparam SW_FIFO_DEPTH = 8;
-    localparam SW_FIFO_ADDR_BITS = 3;
+    // All writes now transit the FIFO in strict order. Depth 16: depth 8
+    // overflowed on live hardware (drop counter saturated at 0xFF) while the
+    // TransWarp GS painted its SHR splash behind back-to-back generator
+    // bursts — fixed primarily by raising the shadow-WRITE port above the
+    // shadow-read port in the DDR3 arbiter (see top.sv port allocation);
+    // the deeper FIFO is margin on top at ~460 extra FFs. Forced to
+    // registers: the head and the coherency scan below need combinational
+    // access to all entries.
+    localparam SW_FIFO_DEPTH = 16;
+    localparam SW_FIFO_ADDR_BITS = 4;
     // Entry: {byte_en[56:53], addr[52:32], data[31:0]}
     reg [56:0] sw_fifo [0:SW_FIFO_DEPTH-1] /* synthesis syn_ramstyle="registers" */;
     reg [SW_FIFO_DEPTH-1:0] sw_valid_r;
@@ -333,23 +337,68 @@ module apple_memory #(
     // DDR3 read path — burst cache for unified region, passthrough for text
     // =========================================================================
 
-    // Read address classification
-    wire is_text_read  = !vgc_active_i && (video_address_i < 16'h2000);
-    wire is_hires_read = !vgc_active_i && (video_address_i >= 16'h2000);
-    wire is_vgc_read   = vgc_active_i;
+    // Per-client request latches — a read pulse is NEVER dropped, and a
+    // request once accepted always completes (ported from the
+    // apple_memory_sdram VGC fetch-handshake wedge fix, validated on a IIgs
+    // with a TransWarp GS). Two rules:
+    //
+    //  1. Never classify or gate a request on live vgc_active_i: it is raw
+    //     SHRG_MODE and flips combinationally on a $C029 write, while both
+    //     generators pace on frame-latched copies and keep fetching until
+    //     the next vsync. A pulse swallowed in that window leaves that
+    //     generator waiting on its ready forever (until Apple reset). The
+    //     TransWarp splash clears SHRG on every cold boot — this was the
+    //     "display frozen on the splash until reset" failure.
+    //  2. Never require the FSM to be idle at pulse time: during SHR both
+    //     apple_video_gen and vgc_gen fetch concurrently through this one
+    //     port, so a pulse routinely lands mid-way through the other
+    //     client's read. Latch it and serve it when the FSM frees up.
+    //
+    // Requests are classified by CLIENT (which strobe) and the LATCHED
+    // address only. Each generator has at most one outstanding request.
+    reg        vid_req_r;
+    reg [15:0] vid_req_addr_r;
+    reg        vid_req_bank_r;
+    reg        vgc_req_r;
+    reg [12:0] vgc_req_addr_r;
 
-    // Compute group R for cache lookup
-    wire [14:0] hires_read_offset = {(video_address_i[15:13] - 1'b1), video_address_i[12:0]};
-    wire [11:0] video_group = hires_read_offset[13:2];
-    wire [11:0] vgc_group   = vgc_address_i[12:1];
-    wire [11:0] read_group  = is_vgc_read ? vgc_group : video_group;
+    // Classification of the latched requests
+    wire vid_is_text_w = vid_req_addr_r < 16'h2000;
+    wire [14:0] vid_hires_offset_w = {(vid_req_addr_r[15:13] - 1'b1), vid_req_addr_r[12:0]};
+    wire [11:0] vid_group_w = vid_hires_offset_w[13:2];
+    wire [11:0] vgc_group_w = vgc_req_addr_r[12:1];
 
     // Single-entry burst cache: 4 × 32-bit words + 12-bit tag
     reg [31:0] cache_r [0:3];
     reg [11:0] cache_tag_r;
     reg        cache_valid_r;
 
-    wire cache_hit = cache_valid_r && (cache_tag_r == read_group);
+    wire vid_cache_hit_w = cache_valid_r && (cache_tag_r == vid_group_w);
+    wire vgc_cache_hit_w = cache_valid_r && (cache_tag_r == vgc_group_w);
+
+    // =========================================================================
+    // VGC next-group prefetch store
+    // =========================================================================
+    // The VGC's per-word fetch budget in SHR is ~16 pixel clocks; a cache-miss
+    // burst round trip through the CDC + arbiter does not reliably fit, and a
+    // single late word phase-slips the rest of the scanline (live-verified:
+    // moving horizontal smear on STATIC SHR screens; vgc_gen dbg_starved
+    // counts the events). VGC accesses are strictly sequential and SHR groups
+    // are contiguous across the whole frame, so after each VGC serve the FSM
+    // speculatively burst-loads group+1 into this second store during idle
+    // cycles — steady state renders entirely from prefetched data.
+    reg [31:0] vnext_r [0:3];
+    reg [11:0] vnext_tag_r;
+    reg        vnext_valid_r;
+    reg [11:0] pf_want_tag_r;   // next group worth prefetching
+    reg        pf_want_r;       // a prefetch is desired
+    reg        pf_stale_r;      // write raced the in-flight prefetch burst
+
+    wire vgc_vnext_hit_w = vnext_valid_r && (vnext_tag_r == vgc_group_w);
+
+    // Invalidate on writes to the held tag (mirror of cache_inv_write)
+    wire vnext_inv_write = vnext_valid_r && write_en && is_unified_write &&
+                           (vnext_tag_r == wr_unified_group);
 
     // Cache invalidation: snoop writes to unified region
     wire [11:0] wr_unified_group = unified_group;
@@ -361,20 +410,17 @@ module apple_memory #(
     localparam RD_TEXT_WAIT  = 3'd1;  // Non-burst text read in flight
     localparam RD_BURST_WAIT = 3'd2;  // Burst read filling cache
     localparam RD_HIT_RESP   = 3'd3;  // Cache hit, 1-cycle ready pulse
+    localparam RD_PF_WAIT    = 3'd4;  // Speculative burst filling vnext
 
     reg [2:0]  rd_state_r;
     reg [1:0]  burst_cnt_r;
     reg        rd_is_vgc_r;         // Which requester gets the response
     reg [14:0] rd_hires_offset_r;   // Latched for format conversion
     reg [12:0] rd_vgc_addr_r;       // Latched for VGC extraction
+    reg        rd_from_vnext_r;     // Hit was in the prefetch store
 
-    // Pending read retry (port busy when rd pulse fires)
-    reg        rd_pending_r;
-    reg [20:0] rd_pending_addr_r;
-    reg        rd_pending_burst_r;
-    reg        rd_pending_vgc_r;
-    reg [14:0] rd_pending_hires_r;
-    reg [12:0] rd_pending_vgc_addr_r;
+    // (Port-busy retry needs no extra state: an ungranted request simply
+    // stays latched in vid_req_r/vgc_req_r and retries every cycle.)
 
     // Cache-coherency: snoop writes to the in-flight burst tag.
     //
@@ -407,6 +453,7 @@ module apple_memory #(
     // {7'b0, group[11:0], word[1:0]}, so bit[16] set identifies unified and
     // bits[13:2] are the tag.
     reg burst_data_stale_r;
+    reg stale_scan_todo_r;   // run the shadow-FIFO scan on the first WAIT cycle
     wire [11:0] inflight_burst_tag_w = rd_is_vgc_r ? rd_vgc_addr_r[12:1]
                                                    : rd_hires_offset_r[13:2];
     wire burst_snoop_hit_w = (rd_state_r == RD_BURST_WAIT) && write_en &&
@@ -414,7 +461,7 @@ module apple_memory #(
                              (inflight_burst_tag_w == wr_unified_group);
 
     // Helper: check whether ANY queued shadow write targets a given tag.
-    // Used at burst-issue / pending-retry time before rd_is_vgc_r / rd_*_r
+    // Used at burst-issue time before rd_is_vgc_r / rd_*_r
     // have been latched. Scans all occupied shadow-FIFO entries — a queued
     // write that hasn't drained is exactly as stale-producing as the old
     // single-slot deferred write was. Packed entry: addr[16] = bit 48,
@@ -430,18 +477,93 @@ module apple_memory #(
         end
     endfunction
 
-    // Combinational: DDR3 read address for new requests
-    wire [20:0] text_rd_addr   = {5'b0, video_bank_i, video_address_i[15:1]};
-    wire [20:0] unified_rd_addr = UNIFIED_OFFSET + {7'b0, read_group, 2'b00};
+    // During SHR the legacy renderer's output is not displayed, but its
+    // fetches must still COMPLETE — a swallowed pulse wedges the generator
+    // until Apple reset (the PR #46 failure). They must not consume DDR3
+    // read slots either: vgc_gen's per-word fetch budget has no room for a
+    // second client on this port (live-verified: chronic misses garble the
+    // TransWarp splash shape while colors/animation stay correct). So while
+    // vgc_active_i is high, video-client requests complete IMMEDIATELY with
+    // dummy data: wedge-safe, zero port traffic, invisible (not displayed).
+    // vgc requests issued around an SHR exit complete for real — also
+    // wedge-safe, at the cost of one stray read at the transition.
+    wire vid_dummy_fire_w = (rd_state_r == RD_IDLE) && vid_req_r && vgc_active_i;
 
-    // New read request detection
-    wire new_text_rd  = is_text_read  && video_rd_i && (rd_state_r == RD_IDLE) && !rd_pending_r;
-    wire new_hires_rd = is_hires_read && video_rd_i && (rd_state_r == RD_IDLE) && !rd_pending_r;
-    wire new_vgc_rd   = is_vgc_read   && vgc_rd_i  && (rd_state_r == RD_IDLE) && !rd_pending_r;
+    // Grant selection: FSM idle, video client first (matches the
+    // apple_memory_sdram arbiter)
+    wire grant_vid_w = (rd_state_r == RD_IDLE) && vid_req_r && !vgc_active_i;
+    wire grant_vgc_w = (rd_state_r == RD_IDLE) && !grant_vid_w && vgc_req_r;
 
-    // Issue DDR3 read (text non-burst or unified burst on cache miss)
-    wire issue_text_rd  = new_text_rd;
-    wire issue_burst_rd = (new_hires_rd || new_vgc_rd) && !cache_hit;
+    // Issue DDR3 read (text non-burst or unified burst on cache miss);
+    // cache/prefetch hits respond without touching the port
+    wire issue_text_rd   = grant_vid_w && vid_is_text_w && video_mem_if.available;
+    wire issue_vid_burst = grant_vid_w && !vid_is_text_w && !vid_cache_hit_w && video_mem_if.available;
+    wire hit_vid_w       = grant_vid_w && !vid_is_text_w && vid_cache_hit_w;
+    wire issue_vgc_burst = grant_vgc_w && !vgc_cache_hit_w && !vgc_vnext_hit_w && video_mem_if.available;
+    wire hit_vgc_w       = grant_vgc_w && (vgc_cache_hit_w || vgc_vnext_hit_w);
+    wire issue_burst_rd  = issue_vid_burst || issue_vgc_burst;
+
+    // Speculative prefetch: only when the FSM is otherwise idle and the
+    // wanted group is not already held somewhere
+    // Pre-registered: the tag-compare chain fed video_mem_if.rd
+    // combinationally at issue time and broke clk_logic timing (8 setup
+    // endpoints through this cone). All inputs are registers, so evaluating
+    // one cycle behind is safe; the live pf_want_r term prevents re-issue in
+    // the transitional cycle after a prefetch completes.
+    reg pf_ok_r;
+    always @(posedge a2bus_if.clk_logic or negedge a2bus_if.system_reset_n) begin
+        if (!a2bus_if.system_reset_n)
+            pf_ok_r <= 1'b0;
+        else
+            pf_ok_r <= pf_want_r &&
+                       !(vnext_valid_r && vnext_tag_r == pf_want_tag_r) &&
+                       !(cache_valid_r && cache_tag_r == pf_want_tag_r);
+    end
+    // During SHR a pending vid request is a DUMMY (completes in parallel,
+    // touches no port) — it must not block prefetch arbitration. Without
+    // this, apple_video_gen's instant-dummy spin keeps vid_req_r pending
+    // nearly always and the prefetch never issues (live-measured: starved
+    // counter saturated at 255/frame with the prefetch nominally in place).
+    wire issue_pf_burst = (rd_state_r == RD_IDLE) && !vgc_req_r &&
+                          (!vid_req_r || vgc_active_i) &&
+                          pf_want_r && pf_ok_r && video_mem_if.available;
+
+    wire [11:0] issue_group_w = issue_vgc_burst ? vgc_group_w : vid_group_w;
+
+    // DDR3 read addresses (from the latched request — stable at grant time)
+    wire [20:0] text_rd_addr    = {5'b0, vid_req_bank_r, vid_req_addr_r[15:1]};
+    wire [20:0] unified_rd_addr = UNIFIED_OFFSET + {7'b0, issue_group_w, 2'b00};
+    wire [20:0] pf_rd_addr      = UNIFIED_OFFSET + {7'b0, pf_want_tag_r, 2'b00};
+
+    // Request latch update: set on the generator's strobe, clear when the
+    // FSM accepts the request (issue or cache hit). A generator never
+    // re-pulses before its ready, so set/clear cannot collide per client.
+    wire vid_grant_fire_w = issue_text_rd || issue_vid_burst || hit_vid_w;
+    wire vgc_grant_fire_w = issue_vgc_burst || hit_vgc_w;
+
+    always @(posedge a2bus_if.clk_logic or negedge a2bus_if.system_reset_n) begin
+        if (!a2bus_if.system_reset_n) begin
+            vid_req_r      <= 1'b0;
+            vgc_req_r      <= 1'b0;
+            vid_req_addr_r <= 16'd0;
+            vid_req_bank_r <= 1'b0;
+            vgc_req_addr_r <= 13'd0;
+        end else begin
+            if (video_rd_i) begin
+                vid_req_r      <= 1'b1;
+                vid_req_addr_r <= video_address_i;
+                vid_req_bank_r <= video_bank_i;
+            end else if (vid_grant_fire_w || vid_dummy_fire_w) begin
+                vid_req_r <= 1'b0;
+            end
+            if (vgc_rd_i) begin
+                vgc_req_r      <= 1'b1;
+                vgc_req_addr_r <= vgc_address_i;
+            end else if (vgc_grant_fire_w) begin
+                vgc_req_r <= 1'b0;
+            end
+        end
+    end
 
     // Ready output signals
     reg video_ready_r;
@@ -467,97 +589,83 @@ module apple_memory #(
             cache_valid_r <= 1'b0;
             cache_tag_r   <= 12'd0;
             rd_is_vgc_r   <= 1'b0;
-            rd_pending_r  <= 1'b0;
             video_ready_r <= 1'b0;
             vgc_ready_r   <= 1'b0;
             video_data_r  <= 32'd0;
             vgc_data_r    <= 32'd0;
             rd_hires_offset_r    <= 15'd0;
             rd_vgc_addr_r        <= 13'd0;
-            rd_pending_addr_r    <= 21'd0;
-            rd_pending_burst_r   <= 1'b0;
-            rd_pending_vgc_r     <= 1'b0;
-            rd_pending_hires_r   <= 15'd0;
-            rd_pending_vgc_addr_r <= 13'd0;
             burst_data_stale_r   <= 1'b0;
+            stale_scan_todo_r    <= 1'b0;
+            rd_from_vnext_r      <= 1'b0;
+            vnext_tag_r          <= 12'd0;
+            vnext_valid_r        <= 1'b0;
+            pf_want_tag_r        <= 12'd0;
+            pf_want_r            <= 1'b0;
+            pf_stale_r           <= 1'b0;
         end else begin
             // Default: clear ready pulses each cycle
             video_ready_r <= 1'b0;
             vgc_ready_r   <= 1'b0;
 
+            // Hidden-renderer dummy completion (see vid_dummy_fire_w above):
+            // immediate ready, stale video_data_r — never displayed
+            if (vid_dummy_fire_w)
+                video_ready_r <= 1'b1;
+
             // Cache invalidation on writes to same unified group
             if (cache_inv_write)
                 cache_valid_r <= 1'b0;
+            if (vnext_inv_write)
+                vnext_valid_r <= 1'b0;
 
-            // Pending read retry: if we captured a request while port was busy,
-            // try to issue it now
-            if (rd_pending_r && video_mem_if.available && rd_state_r == RD_IDLE) begin
-                rd_pending_r <= 1'b0;
-                rd_is_vgc_r  <= rd_pending_vgc_r;
-                rd_hires_offset_r <= rd_pending_hires_r;
-                rd_vgc_addr_r     <= rd_pending_vgc_addr_r;
-                if (rd_pending_burst_r) begin
-                    rd_state_r <= RD_BURST_WAIT;
-                    // Catch a same-cycle write to the tag we're about to load,
-                    // AND any deferred write still queued in the shadow FIFO
-                    // for the same tag. The write port and read port are on
-                    // independent CDC handshakes, so the arbiter may service
-                    // them in either order — treat coincident activity as
-                    // stale-producing.
-                    burst_data_stale_r <=
-                        (write_en && is_unified_write &&
-                         ((rd_pending_vgc_r ? rd_pending_vgc_addr_r[12:1]
-                                            : rd_pending_hires_r[13:2]) == wr_unified_group)) ||
-                        shadow_pending_matches(rd_pending_vgc_r ? rd_pending_vgc_addr_r[12:1]
-                                                                : rd_pending_hires_r[13:2]);
-                end else
-                    rd_state_r <= RD_TEXT_WAIT;
-                burst_cnt_r <= 2'd0;
-            end else begin
+            // Arm the prefetch only when the SECOND (odd) word of a group is
+            // served — the group is finished only then. Arming on every serve
+            // let the prefetch overwrite vnext with group+1 while the current
+            // group's second word still needed it, evicting live data: every
+            // other group missed and starvation stayed saturated
+            // (live-measured: RD_BURST_WAIT frequent alongside RD_PF_WAIT).
+            if (vgc_grant_fire_w && vgc_req_addr_r[0]) begin
+                pf_want_tag_r <= vgc_group_w + 12'd1;
+                pf_want_r     <= 1'b1;
+            end
+
+            begin
                 case (rd_state_r)
                     RD_IDLE: begin
                         if (issue_text_rd) begin
-                            if (video_mem_if.available) begin
-                                rd_state_r <= RD_TEXT_WAIT;
-                            end else begin
-                                // Port busy — latch for retry
-                                rd_pending_r          <= 1'b1;
-                                rd_pending_addr_r     <= text_rd_addr;
-                                rd_pending_burst_r    <= 1'b0;
-                                rd_pending_vgc_r      <= 1'b0;
-                                rd_pending_hires_r    <= 15'd0;
-                                rd_pending_vgc_addr_r <= 13'd0;
-                            end
+                            rd_state_r <= RD_TEXT_WAIT;
                         end else if (issue_burst_rd) begin
-                            rd_is_vgc_r       <= is_vgc_read;
-                            rd_hires_offset_r <= hires_read_offset;
-                            rd_vgc_addr_r     <= vgc_address_i;
-                            if (video_mem_if.available) begin
-                                burst_cnt_r <= 2'd0;
-                                rd_state_r  <= RD_BURST_WAIT;
-                                // Catch a same-cycle write to the new burst's
-                                // tag AND any deferred write still sitting in
-                                // the shadow FIFO for the same tag.
-                                // (read_group is the combinational tag for this issue.)
-                                burst_data_stale_r <=
-                                    (write_en && is_unified_write &&
-                                     (read_group == wr_unified_group)) ||
-                                    shadow_pending_matches(read_group);
-                            end else begin
-                                // Port busy — latch for retry
-                                rd_pending_r          <= 1'b1;
-                                rd_pending_addr_r     <= unified_rd_addr;
-                                rd_pending_burst_r    <= 1'b1;
-                                rd_pending_vgc_r      <= is_vgc_read;
-                                rd_pending_hires_r    <= hires_read_offset;
-                                rd_pending_vgc_addr_r <= vgc_address_i;
-                            end
-                        end else if ((new_hires_rd || new_vgc_rd) && cache_hit) begin
-                            // Cache hit — respond next cycle
-                            rd_is_vgc_r       <= is_vgc_read;
-                            rd_hires_offset_r <= hires_read_offset;
-                            rd_vgc_addr_r     <= vgc_address_i;
+                            rd_is_vgc_r       <= issue_vgc_burst;
+                            rd_hires_offset_r <= vid_hires_offset_w;
+                            rd_vgc_addr_r     <= vgc_req_addr_r;
+                            burst_cnt_r <= 2'd0;
+                            rd_state_r  <= RD_BURST_WAIT;
+                            // Catch a same-cycle write to the new burst's tag
+                            // now; the shadow-FIFO scan for already-queued
+                            // writes to it runs on the first WAIT cycle
+                            // (stale_scan_todo_r) — moving the 16-entry scan
+                            // off the issue path fixed clk_logic timing, and
+                            // the burst cannot complete before it lands.
+                            burst_data_stale_r <=
+                                (write_en && is_unified_write &&
+                                 (issue_group_w == wr_unified_group));
+                            stale_scan_todo_r <= 1'b1;
+                        end else if (hit_vid_w || hit_vgc_w) begin
+                            // Cache/prefetch hit — respond next cycle
+                            rd_is_vgc_r       <= hit_vgc_w;
+                            rd_hires_offset_r <= vid_hires_offset_w;
+                            rd_vgc_addr_r     <= vgc_req_addr_r;
+                            rd_from_vnext_r   <= hit_vgc_w && !vgc_cache_hit_w;
                             rd_state_r        <= RD_HIT_RESP;
+                        end else if (issue_pf_burst) begin
+                            // Speculative next-group burst into vnext
+                            burst_cnt_r <= 2'd0;
+                            rd_state_r  <= RD_PF_WAIT;
+                            pf_stale_r  <=
+                                (write_en && is_unified_write &&
+                                 (pf_want_tag_r == wr_unified_group));
+                            stale_scan_todo_r <= 1'b1;
                         end
                     end
 
@@ -570,6 +678,12 @@ module apple_memory #(
                     end
 
                     RD_BURST_WAIT: begin
+                        // Deferred shadow-FIFO scan (see issue site)
+                        if (stale_scan_todo_r) begin
+                            if (shadow_pending_matches(inflight_burst_tag_w))
+                                burst_data_stale_r <= 1'b1;
+                            stale_scan_todo_r <= 1'b0;
+                        end
                         // Snoop writes to the in-flight burst tag during the
                         // entire load (in-flight tag = inflight_burst_tag_w).
                         // burst_snoop_hit_w is gated by (rd_state_r == RD_BURST_WAIT).
@@ -596,7 +710,10 @@ module apple_memory #(
                     RD_HIT_RESP: begin
                         // Provide formatted data and pulse ready
                         if (rd_is_vgc_r) begin
-                            vgc_data_r  <= interleave_mux(rd_vgc_addr_r[0],
+                            vgc_data_r  <= rd_from_vnext_r ?
+                                           interleave_mux(rd_vgc_addr_r[0],
+                                                          vnext_r[2], vnext_r[3]) :
+                                           interleave_mux(rd_vgc_addr_r[0],
                                                           cache_r[2], cache_r[3]);
                             vgc_ready_r <= 1'b1;
                         end else begin
@@ -604,7 +721,36 @@ module apple_memory #(
                                                             cache_r[0], cache_r[2]);
                             video_ready_r <= 1'b1;
                         end
+                        rd_from_vnext_r <= 1'b0;
                         rd_state_r <= RD_IDLE;
+                    end
+
+                    // Speculative prefetch burst filling vnext. Same stale
+                    // snooping discipline as RD_BURST_WAIT.
+                    RD_PF_WAIT: begin
+                        // Deferred shadow-FIFO scan (see issue site)
+                        if (stale_scan_todo_r) begin
+                            if (shadow_pending_matches(pf_want_tag_r))
+                                pf_stale_r <= 1'b1;
+                            stale_scan_todo_r <= 1'b0;
+                        end
+                        if (write_en && is_unified_write &&
+                            (pf_want_tag_r == wr_unified_group))
+                            pf_stale_r <= 1'b1;
+
+                        if (video_mem_if.ready) begin
+                            vnext_r[burst_cnt_r] <= video_mem_if.q;
+                            if (burst_cnt_r == 2'd3) begin
+                                vnext_tag_r   <= pf_want_tag_r;
+                                vnext_valid_r <= !(pf_stale_r ||
+                                                   (write_en && is_unified_write &&
+                                                    (pf_want_tag_r == wr_unified_group)));
+                                pf_stale_r <= 1'b0;
+                                pf_want_r  <= 1'b0;
+                                rd_state_r <= RD_IDLE;
+                            end
+                            burst_cnt_r <= burst_cnt_r + 2'd1;
+                        end
                     end
 
                     default: rd_state_r <= RD_IDLE;
@@ -615,18 +761,15 @@ module apple_memory #(
 
     // Drive video_mem_if for DDR3 reads
     // Text: non-burst read. Burst: read with burst=1 at group-aligned address.
-    wire do_text_issue  = issue_text_rd  && video_mem_if.available;
-    wire do_burst_issue = issue_burst_rd && video_mem_if.available;
-    wire do_pending_issue = rd_pending_r && video_mem_if.available && (rd_state_r == RD_IDLE);
-
+    // (issue_* wires already include video_mem_if.available.)
     assign video_mem_if.wr      = 1'b0;
     assign video_mem_if.data    = 32'b0;
     assign video_mem_if.byte_en = 4'b1111;
-    assign video_mem_if.rd      = do_text_issue || do_burst_issue || do_pending_issue;
-    assign video_mem_if.burst   = do_burst_issue || (do_pending_issue && rd_pending_burst_r);
-    assign video_mem_if.addr    = do_pending_issue ? rd_pending_addr_r :
-                                  do_burst_issue   ? unified_rd_addr :
-                                                     text_rd_addr;
+    assign video_mem_if.rd      = issue_text_rd || issue_burst_rd || issue_pf_burst;
+    assign video_mem_if.burst   = issue_burst_rd || issue_pf_burst;
+    assign video_mem_if.addr    = issue_burst_rd ? unified_rd_addr :
+                                  issue_pf_burst ? pf_rd_addr :
+                                                   text_rd_addr;
 
     // Output assignments — text uses registered data from DDR3, hires/VGC from cache
     assign video_data_o  = (rd_state_r == RD_TEXT_WAIT) ? video_mem_if.q : video_data_r;
@@ -634,6 +777,9 @@ module apple_memory #(
     assign vgc_data_o    = vgc_data_r;
     assign vgc_ready_o   = vgc_ready_r;
 
-    assign dbg_rd_state_o = {rd_pending_r, rd_is_vgc_r, cache_valid_r, 2'b00, rd_state_r};
+    // {vid request latched, in-flight is-vgc, cache valid, vgc request
+    //  latched, 0, rd_state}
+    assign dbg_rd_state_o = {vid_req_r, rd_is_vgc_r, cache_valid_r,
+                             vgc_req_r, 1'b0, rd_state_r};
 
 endmodule

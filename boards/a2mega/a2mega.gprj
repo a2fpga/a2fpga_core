@@ -6,6 +6,7 @@
     <Device name="GW5AT-60B" pn="GW5AT-LV60PG484AC1/I0">gw5at60b-002</Device>
     <FileList>
         <File path="hdl/bus/apple_bus.sv" type="file.verilog" enable="1"/>
+        <File path="hdl/esp32/ddr3_debug_reader.sv" type="file.verilog" enable="1"/>
         <File path="hdl/esp32/esp32_ospi_connector.sv" type="file.verilog" enable="1"/>
         <File path="hdl/esp32/esp32_ospi_proto_proc.sv" type="file.verilog" enable="1"/>
         <File path="hdl/esp32/osd_text_overlay.sv" type="file.verilog" enable="1"/>

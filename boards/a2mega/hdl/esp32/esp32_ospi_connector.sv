@@ -72,6 +72,13 @@ module esp32_ospi_connector #(
     input  wire [7:0]  dbg_fb_flags_i,      // framebuffer live status flags
     input  wire [7:0]  dbg_resp_ovfl_i,     // per-port CDC resp overflow (sticky)
     input  wire [7:0]  dbg_shadow_rd_i,     // apple_memory read FSM snapshot
+    input  wire [7:0]  dbg_vgc_starved_i,   // vgc_gen stale-word swaps per frame
+
+    // DDR3 debug read window (ddr3_debug_reader on idle port 4)
+    output wire [20:0] dbg_mem_addr_o,
+    output wire        dbg_mem_go_o,
+    input  wire        dbg_mem_busy_i,
+    input  wire [31:0] dbg_mem_data_i,
     input  wire [7:0]  key0_i,
     input  wire [7:0]  key1_i,
 
@@ -158,6 +165,17 @@ module esp32_ospi_connector #(
     localparam REG_SLOT_STATUS  = 7'h32;
     localparam REG_SLOT_RECONFIG= 7'h33;
 
+    // DDR3 debug read window (idle port 4, absolute word addresses)
+    localparam REG_DBG_MEM_A0   = 7'h34;  // W/R addr[7:0]
+    localparam REG_DBG_MEM_A1   = 7'h35;  // W/R addr[15:8]
+    localparam REG_DBG_MEM_A2   = 7'h36;  // W/R addr[20:16]
+    localparam REG_DBG_MEM_GO   = 7'h37;  // W: strobe read; R: {7'b0, busy}
+    localparam REG_DBG_MEM_D0   = 7'h38;  // R data[7:0]
+    localparam REG_DBG_MEM_D1   = 7'h39;  // R data[15:8]
+    localparam REG_DBG_MEM_D2   = 7'h3A;  // R data[23:16]
+    localparam REG_DBG_MEM_D3   = 7'h3B;  // R data[31:24]; addr auto-incs
+                                          // when each read completes
+
     // Drive 0 (0x40-0x4F)
     localparam REG_VOL0_READY   = 7'h40;
     localparam REG_VOL0_ACTIVE  = 7'h41;
@@ -219,7 +237,8 @@ module esp32_ospi_connector #(
     localparam REG_DBG_SHADOW_DROP= 7'h74;
     localparam REG_DBG_FB_FLAGS   = 7'h75;
     localparam REG_DBG_RESP_OVFL  = 7'h76;  // bit n = DDR3 port n resp-FIFO overflow
-    localparam REG_DBG_SHADOW_RD  = 7'h77;  // {pending,is_vgc,cache_valid,2'b0,rd_state}
+    localparam REG_DBG_SHADOW_RD  = 7'h77;  // {vid_req,is_vgc,cache_valid,vgc_req,0,rd_state}
+    localparam REG_DBG_VGC_STARVED= 7'h78;  // vgc stale-word swaps per frame
 
     localparam REG_U2_DOORBELL  = 7'h7A;
 
@@ -280,6 +299,13 @@ module esp32_ospi_connector #(
     reg        vol_readonly_r[2];
     reg [31:0] vol_size_r[2];
     reg        vol_ack_r[2];      // one-shot strobe
+
+    // DDR3 debug read window
+    reg [20:0] dbg_mem_addr_r;
+    reg        dbg_mem_go_r;       // one-shot strobe to ddr3_debug_reader
+    reg        dbg_mem_busy_d_r;   // busy edge detect for addr auto-inc
+    assign dbg_mem_addr_o = dbg_mem_addr_r;
+    assign dbg_mem_go_o   = dbg_mem_go_r;
 
     // ProDOS HDD volumes
     reg        hdd_ready_r[2];
@@ -495,6 +521,16 @@ module esp32_ospi_connector #(
             REG_KEY_0:        reg_rdata = key0_i;
             REG_KEY_1:        reg_rdata = key1_i;
 
+            // DDR3 debug read window
+            REG_DBG_MEM_A0:   reg_rdata = dbg_mem_addr_r[7:0];
+            REG_DBG_MEM_A1:   reg_rdata = dbg_mem_addr_r[15:8];
+            REG_DBG_MEM_A2:   reg_rdata = {3'b0, dbg_mem_addr_r[20:16]};
+            REG_DBG_MEM_GO:   reg_rdata = {7'b0, dbg_mem_busy_i};
+            REG_DBG_MEM_D0:   reg_rdata = dbg_mem_data_i[7:0];
+            REG_DBG_MEM_D1:   reg_rdata = dbg_mem_data_i[15:8];
+            REG_DBG_MEM_D2:   reg_rdata = dbg_mem_data_i[23:16];
+            REG_DBG_MEM_D3:   reg_rdata = dbg_mem_data_i[31:24];
+
             // Video-pipeline debug readback
             REG_DBG_VIDEO_SS:   reg_rdata = dbg_video_ss_i;
             REG_DBG_C029_CNT:   reg_rdata = dbg_c029_cnt_i;
@@ -504,6 +540,7 @@ module esp32_ospi_connector #(
             REG_DBG_FB_FLAGS:   reg_rdata = dbg_fb_flags_i;
             REG_DBG_RESP_OVFL:  reg_rdata = dbg_resp_ovfl_i;
             REG_DBG_SHADOW_RD:  reg_rdata = dbg_shadow_rd_i;
+            REG_DBG_VGC_STARVED: reg_rdata = dbg_vgc_starved_i;
 
             // ProDOS HDD compact bank
             REG_HDD0_REQ_CTL: reg_rdata = {6'b0, hdd_volumes[0].wr, hdd_volumes[0].rd};
@@ -634,10 +671,20 @@ module esp32_ospi_connector #(
             gpu_raddr_r <= 14'h0;
             gpu_rdata_r <= 8'h0;
             gpu_rwe_r <= 1'b0;
+            dbg_mem_addr_r <= 21'h0;
+            dbg_mem_go_r <= 1'b0;
+            dbg_mem_busy_d_r <= 1'b0;
         end else begin
             // Clear one-shot registers
             slot_wr_r <= 1'b0;
             slot_reconfig_r <= 1'b0;
+            dbg_mem_go_r <= 1'b0;
+
+            // DDR3 debug window: auto-increment the address when a read
+            // completes (busy falling edge) so streaming needs no re-address
+            dbg_mem_busy_d_r <= dbg_mem_busy_i;
+            if (dbg_mem_busy_d_r && !dbg_mem_busy_i)
+                dbg_mem_addr_r <= dbg_mem_addr_r + 21'd1;
             vol_ack_r[0] <= 1'b0;
             vol_ack_r[1] <= 1'b0;
             hdd_ack_r[0] <= 1'b0;
@@ -687,6 +734,11 @@ module esp32_ospi_connector #(
                         slot_wr_r <= 1'b1;   // latch into the slot table now
                     end
                     REG_SLOT_RECONFIG:slot_reconfig_r <= reg_wdata[0];
+
+                    REG_DBG_MEM_A0:   dbg_mem_addr_r[7:0]   <= reg_wdata;
+                    REG_DBG_MEM_A1:   dbg_mem_addr_r[15:8]  <= reg_wdata;
+                    REG_DBG_MEM_A2:   dbg_mem_addr_r[20:16] <= reg_wdata[4:0];
+                    REG_DBG_MEM_GO:   dbg_mem_go_r <= 1'b1;
 
                     REG_VOL0_READY:   vol_ready_r[0] <= reg_wdata[0];
                     REG_VOL0_MOUNTED: vol_mounted_r[0] <= reg_wdata[0];
