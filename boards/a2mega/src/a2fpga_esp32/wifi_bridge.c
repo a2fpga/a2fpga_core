@@ -161,9 +161,23 @@ bool wifi_bridge_fixup_ingress(uint8_t *frame, uint16_t len,
 /* WiFi driver RX callback. Runs in the WiFi task: keep it cheap -- copy at
  * most, no FPGA-link traffic here. Always forwards the frame to the ESP32's
  * own lwIP via esp_netif_receive() (which owns/frees `eb`). */
+/* Diagnostic counters for the inbound-unicast investigation (read via the
+ * CLI 'net' command). rx_total counts every frame the radio delivers;
+ * rx_ucast counts frames unicast to our MAC. If pings fail while rx_ucast
+ * is static, the AP is not delivering unicast (power-save/buffering
+ * pathology); if it increments, the loss is inside our stack. */
+volatile uint32_t wifi_dbg_rx_total = 0;
+volatile uint32_t wifi_dbg_disconnects = 0;
+volatile uint32_t wifi_dbg_last_reason = 0;
+volatile uint32_t wifi_dbg_rx_ucast = 0;
+
 static esp_err_t bridge_rxcb(void *buffer, uint16_t len, void *eb)
 {
     const uint8_t *f = (const uint8_t *)buffer;
+
+    wifi_dbg_rx_total++;
+    if (len >= 14 && memcmp(f, s_sta_mac, 6) == 0)
+        wifi_dbg_rx_ucast++;
 
     if (len >= 14 && len <= W5100_MAX_FRAME && w5100_macraw_active()) {
         bool mcast = (f[0] & 0x01) != 0;                    /* covers broadcast */
@@ -280,12 +294,17 @@ static void on_wifi_event(void *arg, esp_event_base_t base, int32_t id, void *da
         esp_wifi_internal_reg_rxcb(WIFI_IF_STA, bridge_rxcb);
         ESP_LOGI(TAG, "associated with '%s'", s_ssid);
         break;
-    case WIFI_EVENT_STA_DISCONNECTED:
+    case WIFI_EVENT_STA_DISCONNECTED: {
+        const wifi_event_sta_disconnected_t *d =
+            (const wifi_event_sta_disconnected_t *)data;
+        wifi_dbg_disconnects++;
+        wifi_dbg_last_reason = d ? d->reason : 0;
         s_link_up = false;
         s_got_ip = false;
         s_ip = 0;
         esp_wifi_connect();   /* keep retrying */
         break;
+    }
     default:
         break;
     }

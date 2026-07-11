@@ -46,10 +46,21 @@ Open issues, in priority order:
       investigate pf idle-slot availability vs vid dummy churn);
       invisible now but margin-reducing. MOTION-SHR untested (needs
       menu/gamepad to mount GS game images — the standing gate)
-- [ ] WiFi latency: ~0.5s idle RTT / ~2.7KB/s FTP despite RSSI -52 and
-      PS_NONE (which fixed the total inbound loss). Check UniFi client
-      retries/roam events + DTIM; A/B ping with the IIgs powered off.
-      FTP server itself verified end-to-end (2.5MB upload, size match)
+- [ ] WiFi performance (OPEN, extensively characterized 2026-07-10 —
+      CLI instruments: net/wifitest/wifiproto + rx/disconnect counters):
+      bimodal fly-or-wait latency — RTT floor 3-11ms proves the path,
+      but most packets wait 0.5-2.5s; ~10% loss; ~2.7KB/s FTP.
+      ELIMINATED: power save (PS_NONE confirmed via readback — fixing it
+      cured the original 100% inbound loss), 802.11n/MCS rates (bg-only
+      identical), client 11k/v scanning (disabled in core), guest/
+      isolation, DTIM lock + force-WiFi4 (reverted), dual-interface
+      artifact, board workload (quiesce = 2x better, not the core),
+      IIgs RFI (off = same). REMAINING: channel-6 lock (last user
+      toggle — revert to auto), 2.4GHz channel utilization at the AP
+      (read UniFi's metric), AP-side buffering toward this client,
+      SSID/VLAN mapping of edhome-iot-3 (wired-path blackhole was
+      observed transiently — verify network assignment), or return to
+      edhome with band steering off as clean baseline
 - [x] FLASH REPAIRED (2026-07-10): root cause of all flash-write failures
       was openFPGALoader's flash phase defaulting to 10 MHz through the
       ESP32 JTAG bridge — 500 kHz works. Recovery recipe in docs/gotchas.md

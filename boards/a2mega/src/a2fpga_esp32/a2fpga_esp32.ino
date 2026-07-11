@@ -101,6 +101,9 @@ static const int SPI_HZ = 4 * 1000 * 1000;  // (reg path is clean at 8 MHz but
 bool usb_was_connected = false;
 static bool sd_mounted = false;
 static bool subsystems_up = false;
+static TaskHandle_t disk_task_h = NULL;
+static TaskHandle_t menu_task_h = NULL;
+static bool wifitest_quiesced = false;
 
 // CLI Escape Sequence
 const char* CLI_ESCAPE_SEQUENCE = "+++";
@@ -288,6 +291,48 @@ static void cmd_process(String cmd) {
                       v[7], !!(v[7] & 0x80), !!(v[7] & 0x40), !!(v[7] & 0x20), !!(v[7] & 0x10), v[7] & 0x07);
         Serial.printf("vgc stale-word swaps/frame=%u\n", v[8]);
 
+    } else if (cmd.startsWith("wifitest")) {
+        // A/B instrument for the latency investigation: suspend the board's
+        // periodic workload (disk poll @2ms, menu @20ms — both OSPI traffic
+        // adjacent to the antenna and core-1 load) to measure whether our
+        // own activity causes the RTT spikes. "wifitest on" quiesces,
+        // "wifitest off" resumes. Suspending disk serving pauses floppy/HDD
+        // I/O — do not leave it on with the Apple II running from disk.
+        if (cmd.endsWith("on") && !wifitest_quiesced) {
+            if (disk_task_h) vTaskSuspend(disk_task_h);
+            if (menu_task_h) vTaskSuspend(menu_task_h);
+            wifitest_quiesced = true;
+            Serial.println("wifitest: disk+menu tasks SUSPENDED (OSPI quiet)");
+        } else if (cmd.endsWith("off") && wifitest_quiesced) {
+            if (disk_task_h) vTaskResume(disk_task_h);
+            if (menu_task_h) vTaskResume(menu_task_h);
+            wifitest_quiesced = false;
+            Serial.println("wifitest: tasks resumed");
+        } else {
+            Serial.printf("wifitest: %s (usage: wifitest on|off)\n",
+                          wifitest_quiesced ? "QUIESCED" : "normal");
+        }
+
+    } else if (cmd.startsWith("wifiproto")) {
+        // TX rate-pathology A/B: "wifiproto bg" drops all 802.11n/MCS rates,
+        // "wifiproto bgn" restores. Small frames (ARP) always got through
+        // while data frames (ICMP/TCP) died at good RSSI — if bg-only fixes
+        // it, the n-rate path (rate control / AMPDU) is the culprit.
+        esp_err_t perr;
+        if (cmd.endsWith("bgn")) {
+            perr = esp_wifi_set_protocol(WIFI_IF_STA,
+                WIFI_PROTOCOL_11B | WIFI_PROTOCOL_11G | WIFI_PROTOCOL_11N);
+            Serial.printf("wifiproto: bgn (%s)\n", esp_err_to_name(perr));
+        } else if (cmd.endsWith("bg")) {
+            perr = esp_wifi_set_protocol(WIFI_IF_STA,
+                WIFI_PROTOCOL_11B | WIFI_PROTOCOL_11G);
+            Serial.printf("wifiproto: bg-only (%s)\n", esp_err_to_name(perr));
+        } else {
+            uint8_t pr = 0;
+            esp_wifi_get_protocol(WIFI_IF_STA, &pr);
+            Serial.printf("wifiproto: current=0x%02X (b=1 g=2 n=4)\n", pr);
+        }
+
     } else if (cmd == "net") {
         wifi_ap_record_t ap;
         if (esp_wifi_sta_get_ap_info(&ap) == ESP_OK)
@@ -303,6 +348,22 @@ static void cmd_process(String cmd) {
         } else {
             Serial.println("netif: WIFI_STA_DEF not found");
         }
+        int8_t txp = 0;
+        if (esp_wifi_get_max_tx_power(&txp) == ESP_OK)
+            Serial.printf("max TX power: %.2f dBm (%d)\n", txp * 0.25, txp);
+        wifi_ps_type_t ps;
+        if (esp_wifi_get_ps(&ps) == ESP_OK)
+            Serial.printf("power save: %s\n",
+                          ps == WIFI_PS_NONE ? "NONE" :
+                          ps == WIFI_PS_MIN_MODEM ? "MIN_MODEM" : "MAX_MODEM");
+        extern volatile uint32_t wifi_dbg_rx_total, wifi_dbg_rx_ucast;
+        extern volatile uint32_t wifi_dbg_disconnects, wifi_dbg_last_reason;
+        Serial.printf("rx frames: total=%lu unicast-to-me=%lu\n",
+                      (unsigned long)wifi_dbg_rx_total,
+                      (unsigned long)wifi_dbg_rx_ucast);
+        Serial.printf("disconnects: %lu (last reason %lu)\n",
+                      (unsigned long)wifi_dbg_disconnects,
+                      (unsigned long)wifi_dbg_last_reason);
 
     } else if (cmd == "fpgaerase") {
         // Erase the config-flash HEADER blocks only (128KB), via the
@@ -774,8 +835,8 @@ static void start_subsystems() {
         osd_log("WIFI: NOT CONFIGURED (WIFI.TXT)");
     }
 
-    xTaskCreatePinnedToCore(disk_task, "disk", 8192, NULL, 5, NULL, 1);
-    xTaskCreatePinnedToCore(menu_task, "menu", 8192, NULL, 4, NULL, 1);
+    xTaskCreatePinnedToCore(disk_task, "disk", 8192, NULL, 5, &disk_task_h, 1);
+    xTaskCreatePinnedToCore(menu_task, "menu", 8192, NULL, 4, &menu_task_h, 1);
 
     subsystems_up = true;
     Serial.println("[a2fpga] subsystems up");
