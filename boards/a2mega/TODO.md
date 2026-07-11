@@ -46,7 +46,19 @@ Open issues, in priority order:
       investigate pf idle-slot availability vs vid dummy churn);
       invisible now but margin-reducing. MOTION-SHR untested (needs
       menu/gamepad to mount GS game images — the standing gate)
-- [ ] WiFi performance (OPEN, extensively characterized 2026-07-10 —
+- [ ] WiFi VERDICT (2026-07-10 session close): the pathology follows the
+      BOARD, not the network — identical/worse on edhome, edhome-iot-3
+      (all toggles stock), AND an iPhone hotspot (87-100% loss). With
+      every client knob and AP setting eliminated, the remaining cause
+      is the a2mega's RF path: the ESP32-S3-MINI PCB antenna in its
+      board environment sustains management-rate traffic (association
+      looks "excellent") but not data conversation. HW mitigations to
+      evaluate: ESP32-S3-MINI-1U variant (U.FL external antenna) on a
+      board rev; module placement/keepout audit vs the OSPI bus and
+      slot copper; accept as-is for low-rate uses (disk serving works;
+      FTP is slow but functional at close range/good moments).
+      Note: the W5100-over-WiFi bridge shares this ceiling.
+- [ ] (superseded ledger) WiFi performance (extensively characterized —
       CLI instruments: net/wifitest/wifiproto + rx/disconnect counters):
       bimodal fly-or-wait latency — RTT floor 3-11ms proves the path,
       but most packets wait 0.5-2.5s; ~10% loss; ~2.7KB/s FTP.
