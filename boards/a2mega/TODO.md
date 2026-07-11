@@ -46,6 +46,10 @@ Open issues, in priority order:
       investigate pf idle-slot availability vs vid dummy churn);
       invisible now but margin-reducing. MOTION-SHR untested (needs
       menu/gamepad to mount GS game images — the standing gate)
+- [ ] WiFi latency: ~0.5s idle RTT / ~2.7KB/s FTP despite RSSI -52 and
+      PS_NONE (which fixed the total inbound loss). Check UniFi client
+      retries/roam events + DTIM; A/B ping with the IIgs powered off.
+      FTP server itself verified end-to-end (2.5MB upload, size match)
 - [ ] FLASH REPAIR PENDING: config flash holds a half-written image
       (interrupted openFPGALoader write); board runs from SRAM — power
       loss needs a re-SRAM-load. openFPGALoader writes lose to the
