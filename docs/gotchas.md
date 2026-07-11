@@ -106,6 +106,14 @@ fails at "Read ID failed" — because openFPGALoader's **flash phase defaults
 to a 10 MHz JTAG clock through the ESP32 bridge, which does not work on this
 board**; 500 kHz does (proven repeatedly: dumps, JEDEC ID, bulk erase).
 
+**Decision rule: whenever the board is in an INDETERMINATE state where
+flash corruption is possible** — a flash write errored or was interrupted,
+the FPGA stops configuring at power-on (no DONE/READY LEDs), or JTAG flash
+operations fail unexpectedly — **do not iterate on writes: bulk-erase first**
+(`--freq 500000 --bulk-erase`), then flash normally. A blank flash returns
+the board to well-understood factory behavior; a half-written image creates
+the failure spiral documented above.
+
 Recovery recipe (validated 2026-07-10):
 1. `openFPGALoader -c esp32s3 --freq 500000 --bulk-erase`  (JEDEC ID reads
    clean at this speed; the chip is a Winbond W25Q64)

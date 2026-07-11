@@ -42,3 +42,9 @@ connected before running, unless the user already said to go ahead.
   cycle can fail DDR3 init and produce a black screen that looks like a logic bug, not a
   programming failure. The script prints this reminder. See [docs/gotchas.md](../../../docs/gotchas.md).
 - Loader install (macOS): `brew install openfpgaloader`.
+- **a2mega, indeterminate/corrupt flash state** (a write errored or was
+  interrupted; FPGA no longer configures at power-on; flash ops fail with
+  "Read ID failed"): do NOT iterate on writes. Bulk-erase first at low speed
+  — `openFPGALoader -c esp32s3 --freq 500000 --bulk-erase` — then replug and
+  flash normally. The flash phase's default 10 MHz JTAG clock does not work
+  on this board; 500 kHz does. Full recipe: [docs/gotchas.md](../../../docs/gotchas.md).
