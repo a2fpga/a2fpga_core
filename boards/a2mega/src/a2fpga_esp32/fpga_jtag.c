@@ -360,6 +360,24 @@ bool fpga_jtag_flash_enter(void)
     return true;
 }
 
+/* Enter SPI-over-JTAG WITHOUT erasing SRAM. Used when the config flash
+ * holds a corrupt image: erasing SRAM un-configures the device and re-arms
+ * the boot engine's retry loop, which then owns the MSPI bus and defeats
+ * every flash operation (live-debugged: block-erase status polls read
+ * garbage and time out). With a JTAG-loaded SRAM config the boot engine is
+ * satisfied and the bus is free; the running fabric does not use the MSPI
+ * pins. The fabric keeps running during the whole flash write. */
+bool fpga_jtag_flash_enter_keepsram(void)
+{
+    fpga_jtag_reset();
+    jtag_idle_clocks(1000000);
+
+    vTaskDelay(pdMS_TO_TICKS(100));
+    gw5a_enable_spi();
+    vTaskDelay(pdMS_TO_TICKS(100));
+    return true;
+}
+
 /* Leave SPI mode and reconfigure from external flash. */
 void fpga_jtag_reload(void)
 {

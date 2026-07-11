@@ -44,6 +44,7 @@ static const char *TAG = "fpgaupd";
 #define FPU_HDR_SCAN   4096u   /* window searched for sync word + IDCODE */
 
 static volatile fpu_state_t s_state = FPU_IDLE;
+static bool     s_keepsram = false;
 static char     s_path[160];
 static char     s_msg[41];
 static uint32_t s_size;
@@ -126,6 +127,13 @@ void fpgaupdate_commit(void)
         s_state = FPU_INSTALL_REQ;
         s_dirty = true;
     }
+}
+
+/* Choose the SRAM-preserving SPI entry for the next install (see
+ * fpga_jtag_flash_enter_keepsram). Reset to the default on completion. */
+void fpgaupdate_set_keepsram(bool on)
+{
+    s_keepsram = on;
 }
 
 void fpgaupdate_cancel(void)
@@ -229,7 +237,9 @@ static void install(void)
         return;
     }
 
-    if (!fpga_jtag_flash_enter()) {      /* fabric dies here */
+    bool entered = s_keepsram ? fpga_jtag_flash_enter_keepsram()
+                              : fpga_jtag_flash_enter();
+    if (!entered) {                       /* fabric dies here (non-keepsram) */
         fclose(f);
         fpga_jtag_reload();              /* try to come back up */
         fail("COULD NOT ENTER FLASH MODE");

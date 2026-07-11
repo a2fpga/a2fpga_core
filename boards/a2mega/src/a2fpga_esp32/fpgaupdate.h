@@ -23,6 +23,7 @@ bool fpgaupdate_request(const char *path);
 
 // Confirm installation of the verified file (FPU_READY -> FPU_INSTALL_REQ).
 void fpgaupdate_commit(void);
+void fpgaupdate_set_keepsram(bool on);
 
 // Cancel from FPU_READY / FPU_ERROR back to idle.
 void fpgaupdate_cancel(void);

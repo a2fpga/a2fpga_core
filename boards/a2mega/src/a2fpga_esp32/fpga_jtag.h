@@ -22,6 +22,7 @@ uint32_t fpga_jtag_status(void);
 // Kill the fabric (SRAM erase) and switch the GW5A into SPI-flash mode.
 // The running bitstream dies here; fpga_jtag_reload() brings it back.
 bool fpga_jtag_flash_enter(void);
+bool fpga_jtag_flash_enter_keepsram(void);
 
 // One SPI transaction to the external config flash while in SPI mode
 // (mirrors openFPGALoader's spi_put_gw5a): cmd byte, then len full-duplex

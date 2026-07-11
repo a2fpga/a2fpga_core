@@ -50,7 +50,16 @@ Open issues, in priority order:
       PS_NONE (which fixed the total inbound loss). Check UniFi client
       retries/roam events + DTIM; A/B ping with the IIgs powered off.
       FTP server itself verified end-to-end (2.5MB upload, size match)
-- [ ] FLASH REPAIR PENDING: config flash holds a half-written image
+- [x] FLASH REPAIRED (2026-07-10): root cause of all flash-write failures
+      was openFPGALoader's flash phase defaulting to 10 MHz through the
+      ESP32 JTAG bridge — 500 kHz works. Recovery recipe in docs/gotchas.md
+      (`--freq 500000 --bulk-erase`, replug, normal flash.sh). Board boots
+      from flash again; power cycles safe
+- [ ] Bit-bang GW5A SPI-flash path (fpgaupdate/fpgaflash/fpgaerase CLI)
+      not silicon-validated: SPI status reads return busy/0xFF in both
+      normal and keepsram entry modes — debug against openFPGALoader's
+      working 500 kHz sequence before trusting the menu FPGA-update flow
+- [ ] (was) FLASH REPAIR PENDING: config flash holds a half-written image
       (interrupted openFPGALoader write); board runs from SRAM — power
       loss needs a re-SRAM-load. openFPGALoader writes lose to the
       config-retry loop; repair via ESP32 bit-bang fpgaupdate (menu) or

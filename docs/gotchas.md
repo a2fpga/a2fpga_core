@@ -97,3 +97,26 @@ working in these areas. **When you discover a new one, add it here** — that's 
 - [setup-gowin-cli.md](setup-gowin-cli.md) — build & timing-check procedure
 - [architecture.md](architecture.md) — the pipeline these traps live in
 - `boards/<board>/TODO.md` — current, board-specific open issues
+
+## a2mega: recovering from a corrupt/interrupted config-flash write (GW5A)
+
+An interrupted `openFPGALoader` flash write leaves a half-written image. The
+GW5A then retries booting it, and every subsequent standard flash attempt
+fails at "Read ID failed" — because openFPGALoader's **flash phase defaults
+to a 10 MHz JTAG clock through the ESP32 bridge, which does not work on this
+board**; 500 kHz does (proven repeatedly: dumps, JEDEC ID, bulk erase).
+
+Recovery recipe (validated 2026-07-10):
+1. `openFPGALoader -c esp32s3 --freq 500000 --bulk-erase`  (JEDEC ID reads
+   clean at this speed; the chip is a Winbond W25Q64)
+2. Replug the board USB (fresh power window; the chain usually goes dark
+   after any flash-phase operation).
+3. `tools/flash.sh a2mega` — with the flash blank the board behaves factory-
+   fresh and the standard full-speed write + verify completes first try.
+
+While the flash is corrupt the board remains fully usable via SRAM loads
+(`tools/flash.sh a2mega --sram`, first-try reliable in a fresh power
+window). Related: the ESP32's bit-bang GW5A SPI-flash path (fpgaupdate /
+fpgaflash CLI) is NOT yet silicon-validated — its status reads returned
+busy/0xFF in both entry modes; do not rely on it until debugged against
+openFPGALoader's working 500 kHz sequence.

@@ -35,6 +35,7 @@
 #include "menu.h"
 #include "w5100.h"
 #include "wifi_bridge.h"
+#include "fpga_jtag.h"
 #include "fpgaupdate.h"
 #include "ftpd.h"
 #include "esp_err.h"
@@ -303,6 +304,43 @@ static void cmd_process(String cmd) {
             Serial.println("netif: WIFI_STA_DEF not found");
         }
 
+    } else if (cmd == "fpgaerase") {
+        // Erase the config-flash HEADER blocks only (128KB), via the
+        // SRAM-preserving SPI entry. With no sync word the GW5A boots like a
+        // factory-blank board: quietly unconfigured, JTAG and flash bus free
+        // — which lets the STANDARD openFPGALoader flash flow work again.
+        // The running fabric stays alive (it is in SRAM).
+        Serial.println("fpgaerase: entering SPI mode (fabric stays live)...");
+        if (!fpga_jtag_flash_enter_keepsram()) {
+            Serial.println("fpgaerase: SPI entry failed");
+            return;
+        }
+        bool ok = true;
+        for (uint32_t a = 0; a < 0x20000 && ok; a += 0x10000) {
+            fpga_jtag_spi_xfer(0x06, NULL, NULL, 0);          // WREN
+            uint8_t tx[3] = { (uint8_t)(a >> 16), (uint8_t)(a >> 8), (uint8_t)a };
+            fpga_jtag_spi_xfer(0xD8, tx, NULL, 3);            // block erase
+            ok = false;
+            for (int i = 0; i < 40000; i++) {                 // poll WIP
+                uint8_t st = 0xFF;
+                fpga_jtag_spi_xfer(0x05, NULL, &st, 1);
+                if (!(st & 0x01)) { ok = true; break; }
+            }
+            Serial.printf("fpgaerase: block 0x%05lX %s\n",
+                          (unsigned long)a, ok ? "erased" : "TIMEOUT");
+        }
+        if (ok) {
+            // Read back the header area to confirm FF
+            uint8_t chk[16];
+            fpga_jtag_flash_read(0, chk, sizeof(chk));
+            bool blank = true;
+            for (size_t i = 0; i < sizeof(chk); i++)
+                if (chk[i] != 0xFF) blank = false;
+            Serial.printf("fpgaerase: header readback %s\n",
+                          blank ? "BLANK (FF) — success" : "NOT blank!");
+        }
+        Serial.println("fpgaerase: done; replug, then flash normally");
+
     } else if (cmd.startsWith("fpgaflash ")) {
         // Persistent FPGA flash via the on-board bit-bang updater (fpgaupdate/
         // fpga_jtag). Exists because openFPGALoader's flash flow loses the
@@ -320,6 +358,10 @@ static void cmd_process(String cmd) {
             Serial.println("Usage: fpgaflash <file.bin on SD>");
             return;
         }
+        bool keepsram = (nt >= 3 && toks[2] == "keepsram");
+        fpgaupdate_set_keepsram(keepsram);
+        if (keepsram)
+            Serial.println("fpgaflash: keepsram — fabric stays live; flash written under a quiet MSPI bus");
         if (!fpgaupdate_request(toks[1].c_str())) {
             Serial.println("fpgaflash: updater busy");
             return;
