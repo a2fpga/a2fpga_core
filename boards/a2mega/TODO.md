@@ -46,7 +46,19 @@ Open issues, in priority order:
       investigate pf idle-slot availability vs vid dummy churn);
       invisible now but margin-reducing. MOTION-SHR untested (needs
       menu/gamepad to mount GS game images — the standing gate)
-- [ ] WiFi INVESTIGATION (2026-07-11, still open — verdict RETRACTED
+- [ ] WiFi 2x2 VERDICT (2026-07-11, test router "edhomelab" @-33):
+      RX-takeover EXONERATED (on/off statistically identical — W5100
+      bridge re-enabled at no cost). Clean AP eliminates ALL loss
+      (0% every bucket; UniFi near AP adds real loss+latency on top —
+      user to investigate that AP separately). Residual: ~150-280ms
+      mean RTT / ~12KB/s FTP in the common mode, with a PROVEN 3-9ms
+      mode (sustained once; floors of 2.6-6ms seen daily) — bistable
+      radio/driver behavior surviving elimination of takeover, IIgs
+      power, disk/menu workload, PS, rates. Next tools: monitor-mode
+      channel sniffer, in-firmware RTT profiling, audit w5100_poll's
+      continuous OSPI duty (not covered by wifitest quiesce).
+      Acceptable for current uses (disk serving OSPI-side; FTP works).
+- [ ] (superseded) WiFi INVESTIGATION (2026-07-11 — verdict RETRACTED
       twice, now confounded): the "RF path" conclusion was premature.
       One PRISTINE measurement exists: 9ms avg / 0% loss sustained,
       with the RX-takeover DISABLED via the FAR UniFi AP (RSSI -83!) —
