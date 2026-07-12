@@ -484,27 +484,57 @@ def flash_image(port, image_path, address, baudrate, label, verbose=False):
     sys.exit(1)
 
 
-def _bflb_iot_tool_dir():
-    """Return the bflb_iot_tool package directory, where its --read writes
-    'flash.bin'. Resolved via the interpreter behind the bflb-iot-tool CLI."""
+def _bflb_flash_bin_candidates():
+    """Candidate paths for the 'flash.bin' that bflb-iot-tool --read writes
+    into its own package directory (app_path), regardless of --outdir/cwd.
+    The package dir is derived every way we can, because no single method
+    works across install styles (venv, conda, pipx, pyenv shims):
+    - site-packages globbed relative to the resolved CLI executable
+    - an interpreter probe via the CLI script's shebang
+    - the interpreter running this script"""
+    cands = []
     exe = shutil.which("bflb-iot-tool")
+
+    # venv/conda layout: <prefix>/bin/bflb-iot-tool ->
+    # <prefix>/{lib/pythonX.Y,Lib,lib}/site-packages/bflb_iot_tool
+    if exe:
+        prefix = os.path.dirname(os.path.dirname(os.path.realpath(exe)))
+        for pat in ("lib/python*/site-packages", "Lib/site-packages",
+                    "lib/site-packages"):
+            cands += glob.glob(os.path.join(prefix, pat, "bflb_iot_tool"))
+
+    # Interpreter probe: ask the python behind the CLI where the package is.
     py = sys.executable
     if exe:
         try:
             with open(exe) as f:
                 first = f.readline()
             if first.startswith("#!"):
-                py = first[2:].strip().split()[0]
+                parts = first[2:].strip().split()
+                py = parts[0]
+                # '#!/usr/bin/env python3' style shebang
+                if os.path.basename(py) == "env" and len(parts) > 1:
+                    py = shutil.which(parts[1]) or py
         except Exception:
             pass
     try:
         out = subprocess.run(
             [py, "-c", "import bflb_iot_tool,os;print(os.path.dirname(bflb_iot_tool.__file__))"],
             capture_output=True, text=True, timeout=15)
-        path = out.stdout.strip()
-        return path or None
+        lines = [ln.strip() for ln in out.stdout.strip().splitlines() if ln.strip()]
+        if lines and os.path.isdir(lines[-1]):
+            cands.append(lines[-1])
     except Exception:
-        return None
+        pass
+
+    # Last resort: the interpreter running this script.
+    try:
+        import bflb_iot_tool
+        cands.append(os.path.dirname(bflb_iot_tool.__file__))
+    except ImportError:
+        pass
+
+    return [os.path.join(d, "flash.bin") for d in dict.fromkeys(cands)]
 
 
 def verify_flash_image(port, image_path, address, baudrate, verbose=False):
@@ -558,17 +588,22 @@ def verify_flash_image(port, image_path, address, baudrate, verbose=False):
 
         # Search likely locations for a freshly-written flash.bin.
         search = [os.path.join(tmpdir, "flash.bin"), os.path.join(os.getcwd(), "flash.bin")]
-        pkg = _bflb_iot_tool_dir()
-        if pkg:
-            search.append(os.path.join(pkg, "flash.bin"))
+        search += _bflb_flash_bin_candidates()
         search += glob.glob(os.path.join(tmpdir, "**", "flash.bin"), recursive=True)
+        search = list(dict.fromkeys(search))
 
         read_path = next((p for p in search
                           if os.path.isfile(p) and os.path.getmtime(p) >= start), None)
         if read_path is None:
             print(yellow("  [WARN]") + " read-back file not found; skipping "
-                  "verify (flash itself succeeded). Re-run with --verbose to see "
-                  "the read output.")
+                  "verify (flash itself succeeded).")
+            print("  Locations checked for flash.bin:")
+            for p in search:
+                if os.path.isfile(p):
+                    age = time.time() - os.path.getmtime(p)
+                    print(f"    {p}  (exists but stale, {age:.0f}s old)")
+                else:
+                    print(f"    {p}  (not found)")
             if not verbose and result.stdout:
                 for line in result.stdout.strip().splitlines()[-5:]:
                     print(f"    {line}")
