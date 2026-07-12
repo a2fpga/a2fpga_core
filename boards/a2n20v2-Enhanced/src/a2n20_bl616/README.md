@@ -389,6 +389,27 @@ On a **fused** board (enumerates as "USB Debugger"), the signed Sipeed Stage 1
 at `0x0` is kept and firmware is written as Stage 2 at `0x40000`; Stage 1
 chain-loads it when no PC is attached.
 
+> **First-time setup on a new board: flash BOTH stages.** Boards arrive with a
+> factory Stage 1 that may **not** chain-load 0x40000 — fused boards can carry
+> an old Sipeed image predating chain-load support. Flash only `--stage2` on
+> such a board and the write verifies perfectly but the app never runs: the
+> status LED goes **blue at power-on, then off** (the FPGA gives up waiting for
+> the MCU and falls back to standalone mode). The recommended first-time
+> command flashes a known-good Stage 1 too:
+>
+> ```bash
+> ./tools/a2n20-mcu-program --stage1 --stage2 \
+>     --firmware firmware_host/build/build_out/a2n20_bl616_host_bl616.bin \
+>     --port /dev/cu.usbmodemXXXX --non-interactive
+> ```
+>
+> Bare `--stage1` (no path) is safe on any board: it probes the eFuse state
+> over the BootROM and auto-selects the correct image (signed Sipeed partner
+> image for fused boards — which also upgrades old non-chaining Stage 1s —
+> `friend_20k` for unfused). Note that bare `--stage2` defaults to the FT2232
+> **device** build; always pass `--firmware` explicitly when you want the host
+> build.
+
 **Non-interactive / scripted / agent use.** Put the board in boot mode first
 (hold UPDATE while connecting USB-C to the Debug port — it appears as
 `/dev/cu.usbmodemXXXX`), then drive the flash without prompts:
@@ -497,6 +518,90 @@ this for you.
 openFPGALoader --detect
 # Should show: GW2AR-18 (idcode 0x0000081b)
 ```
+
+## Field Troubleshooting
+
+Lessons from real user bring-ups (first external field debug: 2026-07-11).
+Work top-to-bottom: LED first, then the DebugOverlay, then telnet.
+
+### Status LED decoder (WS2812, driven by the FPGA)
+
+The LED is an FPGA-side MCU liveness watchdog
+(`boards/a2n20v2-Enhanced/hdl/bl616/mcu_status_led.sv`) — it works even when
+the MCU is dead, and no firmware support is required.
+
+| LED | Meaning |
+|-----|---------|
+| blue steady | power-on, MCU hasn't made an SPI transaction yet |
+| cyan | firmware booting |
+| yellow | USB searching (no usable device yet) |
+| green | USB device connected, reports flowing — normal operation |
+| magenta / white | firmware self-update copy/verify / verified |
+| red steady | MCU-declared fatal (see fwupdate markers) |
+| red blinking (~0.8 Hz) | MCU went silent > 10 s after having run (wedged update / crash) |
+| off (after blue) | **standalone fallback engaged — the MCU never spoke** |
+
+Field signatures observed in practice:
+
+- **Blue → off, board otherwise works but no USB/disk/network:** the app at
+  0x40000 never runs. Almost always a factory Stage 1 without chain-load
+  support — reflash with `--stage1 --stage2` (see the first-time setup note in
+  the Flash section). The DebugOverlay still works in this state (it's
+  FPGA-rendered; its version datestamp is the *gateware* build, not proof the
+  MCU is alive).
+- **Green → yellow:** a USB device enumerated, then dropped off the bus. See
+  the USB notes below.
+
+### USB device invisible? Check the USB-C adapter FIRST
+
+**Not all USB-A→C adapters pass data.** Many are charge-only, and some wire
+the CC resistor for one plug orientation only. Signature: the device is
+*electrically absent* — overlay shows `USB HOST: WAITING FOR DEVICE...`
+forever, **no** `ENUM STALLED` supervisor messages (those require a physical
+connect), stage byte stuck at `A0`. Confirmed in the field: two visually
+identical adapters, one works, one doesn't. Try flipping the adapter 180°
+(single-orientation CC wiring) and then a different adapter before suspecting
+anything else. The same applies to detachable device cables (charge-only
+cables are everywhere).
+
+### USB hubs and plug order
+
+- **Hub with other live devices on it (ethernet, storage): connect the
+  controller BEFORE power-on.** Hot-plug behind an already-working hub is not
+  detected (CherryUSB hub driver limitation), and re-plugging just the device
+  won't recover it — re-plug the whole hub or power-cycle.
+- **Empty or fully-stalled hub: hot-plug recovers by itself within ~30 s** —
+  the enumeration supervisor escalates ADOPT → VBUS power-cycle → stack
+  recycle (up to 5 attempts, visible on the overlay as
+  `USB: ENUM STALLED - ...`).
+- **Direct attach: hot-plug just works.**
+- A **self-powered hub** helps when the Apple II slot 5 V is marginal, but is
+  not required for a working setup.
+
+### Remote support: telnet console (port 23)
+
+With a USB-ethernet adapter attached, `telnet <board-ip>` gives field support
+without photographs of CRTs: `c` streams the console log live (with backlog),
+`m` mirrors the on-screen menu as ANSI and maps the keyboard to gamepad
+buttons (arrows = D-pad, Enter = A, `s`/Tab = SELECT), `q` disconnects.
+
+### `--verify-flash` says "read-back file not found"
+
+Fixed 2026-07-11: `bflb-iot-tool --read` writes its dump into its own Python
+package directory, and locating that dir used to fail for venv installs whose
+CLI entry point has a `#!/bin/sh` wrapper shebang (pip/distlib does this on
+some setups), silently skipping the byte-compare. The tool now derives
+site-packages from the CLI executable path directly and, if the file still
+can't be found, prints every location it checked.
+
+### Known issue: 8BitDo SN30 Pro (Bluetooth model) over USB
+
+The BT-capable model connects as XInput and then drops a few seconds later
+(LED green → yellow) on current firmware — reproduced on two units, two
+boards. The wired-only model is unaffected. Under investigation (suspected
+regression from the SDK v2.3.27 / CherryUSB v1.5.3 migration; the BT model
+needs the timing-sensitive extended init sequence). Wrong-mode pads are a
+*different* failure: a pad not in X-input mode never goes green at all.
 
 ## BL616 Technical Reference
 
