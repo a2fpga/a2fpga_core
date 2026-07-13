@@ -27,9 +27,14 @@ building; hardware bring-up of the new co-processor paths is next. See
       ⚠️ any a2spi_* call outside the CLI/tasks MUST hold fpga_link_lock()
       and ideally run before task creation — unlocked boot-path reads
       boot-looped the ESP32 (IDF spi_device_transmit assert).
-- [ ] Wire the DDR3 IP's dangling pll_stop output per Gowin reference
-      design (may be the root cause of marginal calibration that the
-      watchdog now absorbs) — investigation notes pending.
+- [x] Wire the DDR3 IP's pll_stop via mDRP (a302d566): WAS the root cause
+      of marginal calibration (IPUG281 §4.4.4 — Sync_mod must stop
+      memory_clk to phase-align the /4 dividers; ours was a silent no-op,
+      cold boots aligned by GSR luck). Raw PLLA wrapper (PLL_INIT was IDE
+      boilerplate that permanently owned the mDRP bus), refdesign glue,
+      pll_mDRP_intf enabled. Verified: forced re-inits (reg 0x25 write)
+      converge back to calibrated, 0-1 watchdog retries each — re-init
+      was guaranteed-fail before this.
 - [ ] Track DDR3 retry counter during testing; correlate nonzero counts
       with gamepad presence/rumble (user's supply-sag hypothesis).
 
