@@ -27,6 +27,21 @@ clean), OSPI link (at 2 MHz + workarounds below), OSD console rendering,
 SD disk serving — **ProDOS 8 boots from a .dsk over the link**, WiFi
 joins + DHCP, boot-time slot config, reset policy.
 
+**Gamepad + menu (2026-07-12, commit aa897c81)**: 8BitDo SN30 Pro
+enumerates on the fabric usb_hid_host, input reports stream, menu
+navigates via pad, rumble/LED init lands. Four stacked root causes fixed
+(empty $readmemh microcode ROM → inlined .vh; D+/D− pin swap vs the dock
+reference — carrier truth is D+=G13/D−=H13 per sch p.3+p.5; SLEW_RATE=
+SLOW corrupted the 12 Mbps TX; SN30 needs the Enhanced-proven init
+sequence with LED/rumble on EP1 OUT, now in the UKP ROM — source
+vendored at hdl/usb_hid_host/ukp.s, regen: `python3 asukp.py ukp.s`).
+NOTE: HID SET_IDLE/SET_PROTOCOL/report-descriptor path deleted from the
+microcode for ROM space — USB keyboards/mice unsupported on this port
+until re-slimmed. USB debug regs (permanent): 0x79/0x7B line-state +
+UKP PC, 0x1C-0x1F + 0x7C-0x7D enum VID/PID/class, 0x20-0x22 core flags
++ transaction/data counters.
+OPEN: OSD text glitch on menu repaint (screencap pending).
+
 Fixed later the same day (commit 3ed97d1): proto-proc stale-read + OSPI
 sync-skew flashed (link clean at 4 MHz, shim removed), CLI mutexed,
 fpgaupdate takes .bin, flash.sh hardened (--verify/retries/procedure).
