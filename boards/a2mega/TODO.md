@@ -19,6 +19,19 @@ building; hardware bring-up of the new co-processor paths is next. See
 - [ ] Verify W5100 MACRAW bridge + WiFi MAC NAT against IP65/Contiki
 - [ ] Verify GW5A JTAG self-update path (IDCODE probe first — reg constants
       mirrored from openFPGALoader's GW5A support, not yet run on silicon)
+- [x] DDR3 reset sequencer + calibration watchdog (79f4afc1): rst_n was
+      tied high (one unsequenced calibration shot, no retry — the
+      intermittent dead-DDR3 cold boots). Sequencer holds reset through
+      PLL lock + 1 ms, 100 ms watchdog retries indefinitely; retries in
+      reg 0x23, state in 0x24; boot warning + `status` line in firmware.
+      ⚠️ any a2spi_* call outside the CLI/tasks MUST hold fpga_link_lock()
+      and ideally run before task creation — unlocked boot-path reads
+      boot-looped the ESP32 (IDF spi_device_transmit assert).
+- [ ] Wire the DDR3 IP's dangling pll_stop output per Gowin reference
+      design (may be the root cause of marginal calibration that the
+      watchdog now absorbs) — investigation notes pending.
+- [ ] Track DDR3 retry counter during testing; correlate nonzero counts
+      with gamepad presence/rumble (user's supply-sag hypothesis).
 
 ## Bring-up status (2026-07-05 live IIgs session)
 
