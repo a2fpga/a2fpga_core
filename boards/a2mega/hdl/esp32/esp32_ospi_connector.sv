@@ -81,6 +81,7 @@ module esp32_ospi_connector #(
     input  wire [7:0]  dbg_usb_cnt_rdy_i,   // received-data-packet counter (wraps)
     input  wire [7:0]  dbg_ddr3_retry_i,    // DDR3 calib watchdog retries (saturating)
     input  wire [7:0]  dbg_ddr3_seq_i,      // {3'b0,rst_n,pll_lock,calib,state[1:0]}
+    output reg         ddr3_reinit_tgl_o,   // toggles on REG_DDR3_REINIT write (CDC as toggle)
 
     // DDR3 debug read window (ddr3_debug_reader on idle port 4)
     output wire [20:0] dbg_mem_addr_o,
@@ -262,6 +263,7 @@ module esp32_ospi_connector #(
     localparam REG_DBG_USB_DATA  = 7'h22;   // received-data-packet counter
     localparam REG_DBG_DDR3_RETRY= 7'h23;   // calib watchdog retries (0 = clean first shot)
     localparam REG_DBG_DDR3_SEQ  = 7'h24;   // {3'b0,rst_n,pll_lock,calib,state[1:0]}
+    localparam REG_DDR3_REINIT   = 7'h25;   // W: any value forces a DDR3 re-init (retry-path test)
 
     // Memory spaces (XFER via reg 0x7F)
     localparam SPACE_TEST  = 3'd0;
@@ -708,6 +710,7 @@ module esp32_ospi_connector #(
             dbg_mem_addr_r <= 21'h0;
             dbg_mem_go_r <= 1'b0;
             dbg_mem_busy_d_r <= 1'b0;
+            ddr3_reinit_tgl_o <= 1'b0;
         end else begin
             // Clear one-shot registers
             slot_wr_r <= 1'b0;
@@ -731,6 +734,7 @@ module esp32_ospi_connector #(
             if (reg_wr_req) begin
                 case (reg_idx)
                     REG_SCRATCH:      scratch_r <= reg_wdata;
+                    REG_DDR3_REINIT:  ddr3_reinit_tgl_o <= ~ddr3_reinit_tgl_o;
                     REG_SCRATCH1:     scratch1_r <= reg_wdata;
                     REG_SCRATCH2:     scratch2_r <= reg_wdata;
                     REG_SCRATCH3:     scratch3_r <= reg_wdata;

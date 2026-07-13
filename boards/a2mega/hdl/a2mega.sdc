@@ -13,7 +13,7 @@ create_generated_clock -name clk_pixel_x5 -source [get_ports {clk}] -master_cloc
 create_generated_clock -name clk_logic -source [get_ports {clk}] -master_clock clk -divide_by 25 -multiply_by 27 [get_pins {clocks_pll/PLLA_inst/CLKOUT2}]
 
 // DDR3 internal clocks -- 324 MHz memory, 81 MHz app clock
-create_clock -name clk4x -period 3.086 -waveform {0 1.543} [get_pins {pll_ddr3_inst/u_pll/PLLA_inst/CLKOUT2}]
+create_clock -name clk4x -period 3.086 -waveform {0 1.543} [get_pins {pll_ddr3_inst/PLLA_inst/CLKOUT2}]
 create_clock -name clk1x -period 12.346 -waveform {0 6.173} [get_pins {u_ddr3/gw3_top/u_ddr_phy_top/fclkdiv/CLKOUT}]
 
 // DDR3 IP internal clocks: clk1x (app) and clk4x (PHY) are managed by the

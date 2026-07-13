@@ -1054,18 +1054,56 @@ module top #(
     wire pll_lock_w;
     wire pll_stop_w;
 
-    pll_ddr3 pll_ddr3_inst (
+    // Raw PLLA wrapper (no PLL_INIT): on GW5AT-60 the DDR3 IP's pll_stop
+    // output MUST actually stop memory_clk during init — the controller's
+    // Sync_mod stops the clock, releases its dividers, and restarts it to
+    // phase-align the /4 domains (IPUG281 §4.4.4). The 60K PLLA has no
+    // enclk, so pll_stop acts through the PLL's mDRP port via
+    // pll_mDRP_intf. The previous generated wrapper routed the mDRP bus
+    // through PLL_INIT permanently (bypass mux), making pll_stop a silent
+    // no-op: cold-boot calibration then relied on luck-of-the-GSR phase
+    // alignment (the intermittent dead-DDR3 boots), and any rst_n re-init
+    // was guaranteed to fail. Raw PLLA + wired mDRP matches Sipeed's and
+    // nand2mario's shipped designs on this exact part.
+    wire       mdrp_inc_w;
+    wire [1:0] mdrp_op_w;
+    wire [7:0] mdrp_wdata_w;
+    wire [7:0] mdrp_rdata_w;
+
+    pll_ddr3_MOD pll_ddr3_inst (
         .clkin(clk_pixel_w),           // 27 MHz from board PLL
         .clkout0(),                    // unused
         .clkout2(memory_clk_w),        // 324 MHz to DDR3
         .lock(pll_lock_w),
-        .mdopc(2'b00),                 // external MDRP unused
-        .mdainc(1'b0),
-        .mdwdi(8'b0),
-        .mdrdo(),                      // unused output
-        .pll_init_bypass(1'b0),        // PLL_INIT always controls calibration
-        .mdclk(clk),                   // 50 MHz board crystal for MDRP clock
+        .mdclk(clk),                   // 50 MHz board crystal = IP clk domain
+        .mdopc(mdrp_op_w),
+        .mdainc(mdrp_inc_w),
+        .mdwdi(mdrp_wdata_w),
+        .mdrdo(mdrp_rdata_w),
         .reset(~clk_lock_w)
+    );
+
+    // pll_stop -> mDRP glue (refdesign pattern): pulse wr on either edge
+    // of pll_stop, gated by PLL lock; pll_mDRP_intf turns each pulse into
+    // the register write that stops/starts CLKOUT2.
+    reg pll_lock_mdrp_sync0, pll_lock_mdrp_sync1;
+    reg pll_stop_d_r, mdrp_wr_r;
+    always @(posedge clk) begin
+        pll_lock_mdrp_sync0 <= pll_lock_w;
+        pll_lock_mdrp_sync1 <= pll_lock_mdrp_sync0;
+        pll_stop_d_r <= pll_stop_w;
+        mdrp_wr_r    <= pll_lock_mdrp_sync1 ? (pll_stop_w ^ pll_stop_d_r) : 1'b0;
+    end
+
+    pll_mDRP_intf u_pll_mDRP_intf (
+        .clk(clk),
+        .rst_n(clk_lock_w),
+        .pll_lock(pll_lock_mdrp_sync1),
+        .wr(mdrp_wr_r),
+        .mdrp_inc(mdrp_inc_w),
+        .mdrp_op(mdrp_op_w),
+        .mdrp_wdata(mdrp_wdata_w),
+        .mdrp_rdata(mdrp_rdata_w)
     );
 
     // -----------------------------------------------------------------
@@ -1090,6 +1128,18 @@ module top #(
     reg [22:0] ddr3_seq_timer_r = '0;
     reg [7:0]  ddr3_retry_cnt_r = '0;    // saturating; nonzero = watchdog fired
 
+    // Forced re-init test hook: ESP32 write to reg 0x25 toggles a line in
+    // clk_logic; edge here fires the watchdog path on demand so the retry
+    // mechanism is testable without waiting for a marginal boot.
+    wire ddr3_reinit_tgl_w;
+    reg  ddr3_reinit_sync0, ddr3_reinit_sync1, ddr3_reinit_sync2;
+    always @(posedge clk) begin
+        ddr3_reinit_sync0 <= ddr3_reinit_tgl_w;
+        ddr3_reinit_sync1 <= ddr3_reinit_sync0;
+        ddr3_reinit_sync2 <= ddr3_reinit_sync1;
+    end
+    wire ddr3_force_reinit_w = ddr3_reinit_sync1 ^ ddr3_reinit_sync2;
+
     always @(posedge clk) begin
         if (!pll_lock_w) begin
             ddr3_rst_n_r     <= 1'b0;
@@ -1110,18 +1160,17 @@ module top #(
                     end
                 end
                 2'd2: begin  // released — watch calibration
-                    if (init_calib_complete_w)
+                    if (ddr3_force_reinit_w ||
+                        (!init_calib_complete_w && ddr3_seq_timer_r >= DDR3_CALIB_CYC)) begin
+                        ddr3_rst_n_r     <= 1'b0;
+                        ddr3_seq_timer_r <= '0;
+                        if (!(&ddr3_retry_cnt_r))
+                            ddr3_retry_cnt_r <= ddr3_retry_cnt_r + 1'b1;
+                        ddr3_seq_state_r <= 2'd3;
+                    end else if (init_calib_complete_w)
                         ddr3_seq_timer_r <= '0;  // calibrated; park here
-                    else begin
+                    else
                         ddr3_seq_timer_r <= ddr3_seq_timer_r + 1'b1;
-                        if (ddr3_seq_timer_r >= DDR3_CALIB_CYC) begin
-                            ddr3_rst_n_r     <= 1'b0;
-                            ddr3_seq_timer_r <= '0;
-                            if (!(&ddr3_retry_cnt_r))
-                                ddr3_retry_cnt_r <= ddr3_retry_cnt_r + 1'b1;
-                            ddr3_seq_state_r <= 2'd3;
-                        end
-                    end
                 end
                 2'd3: begin  // reset pulse, then settle+release again
                     ddr3_seq_timer_r <= ddr3_seq_timer_r + 1'b1;
@@ -1887,6 +1936,7 @@ module top #(
         .dbg_usb_cnt_rdy_i(usb_cnt_rdy_sync1),
         .dbg_ddr3_retry_i(ddr3_retry_sync1),
         .dbg_ddr3_seq_i({3'b0, ddr3_seq_sync1}),
+        .ddr3_reinit_tgl_o(ddr3_reinit_tgl_w),
 
         .dbg_mem_addr_o(dbg_mem_addr_w),
         .dbg_mem_go_o(dbg_mem_go_w),
