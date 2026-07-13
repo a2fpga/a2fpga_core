@@ -29,6 +29,12 @@
 static uint8_t s_shadow[OSD_SIZE];               /* local copy (space is WO) */
 static int cursor_h = 0;
 static int cursor_v = 0;
+/* VT100-style deferred wrap: filling the last column arms this flag instead
+ * of wrapping immediately; the wrap (and any scroll) happens only when the
+ * NEXT printable character arrives. Without this, painting a full 40-char
+ * bottom row scrolls the page — the menu painter fills row 23 last, and the
+ * eager scroll ate the title bar on every repaint. */
+static bool wrap_pending = false;
 static bool inverse_mode = false;
 
 /* ASCII -> Apple II screen code. Normal text = ASCII+128; inverse = codes
@@ -56,6 +62,7 @@ void fpga_screen_clear(void)
 {
     memset(s_shadow, 0xA0, OSD_SIZE);
     fpga_mem_write(A2SPACE_OSD, 0, s_shadow, OSD_SIZE);
+    wrap_pending = false;
     cursor_h = 0;
     cursor_v = 0;
 }
@@ -70,6 +77,7 @@ static void scroll_up(void)
 
 static void newline(void)
 {
+    wrap_pending = false;
     cursor_h = 0;
     cursor_v++;
     if (cursor_v >= SCREEN_H) {
@@ -96,13 +104,16 @@ void fpga_screen_putchar(uint8_t c)
     }
     if (c < 32) return;
 
+    if (wrap_pending) newline();
+
     uint32_t addr = screen_addr(cursor_h, cursor_v);
     s_shadow[addr] = screen_code(c);
     fpga_mem_write(A2SPACE_OSD, addr, &s_shadow[addr], 1);
 
     cursor_h++;
     if (cursor_h >= SCREEN_W) {
-        newline();
+        cursor_h = SCREEN_W - 1;
+        wrap_pending = true;
     }
 }
 
@@ -126,6 +137,14 @@ void fpga_screen_puts(const char *str)
             continue;
         }
 
+        if (wrap_pending) {
+            flush_line(start_h, start_v, count);
+            count = 0;
+            newline();
+            start_h = cursor_h;
+            start_v = cursor_v;
+        }
+
         s_shadow[screen_addr(cursor_h, cursor_v)] = screen_code(c);
         count++;
 
@@ -133,7 +152,8 @@ void fpga_screen_puts(const char *str)
         if (cursor_h >= SCREEN_W) {
             flush_line(start_h, start_v, count);
             count = 0;
-            newline();
+            cursor_h = SCREEN_W - 1;
+            wrap_pending = true;
             start_h = cursor_h;
             start_v = cursor_v;
         }
@@ -144,6 +164,7 @@ void fpga_screen_puts(const char *str)
 
 void fpga_screen_home(void)
 {
+    wrap_pending = false;
     cursor_h = 0;
     cursor_v = 0;
 }
@@ -154,6 +175,7 @@ void fpga_screen_goto(int x, int y)
     if (x >= SCREEN_W) x = SCREEN_W - 1;
     if (y < 0) y = 0;
     if (y >= SCREEN_H) y = SCREEN_H - 1;
+    wrap_pending = false;
     cursor_h = x;
     cursor_v = y;
 }
