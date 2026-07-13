@@ -79,6 +79,8 @@ module esp32_ospi_connector #(
     input  wire [7:0]  dbg_usb_flags_i,     // {connerr,x_input,full_speed,connected,start,rdy,stb,busy}
     input  wire [7:0]  dbg_usb_cnt_start_i, // transaction-start counter (wraps)
     input  wire [7:0]  dbg_usb_cnt_rdy_i,   // received-data-packet counter (wraps)
+    input  wire [7:0]  dbg_ddr3_retry_i,    // DDR3 calib watchdog retries (saturating)
+    input  wire [7:0]  dbg_ddr3_seq_i,      // {3'b0,rst_n,pll_lock,calib,state[1:0]}
 
     // DDR3 debug read window (ddr3_debug_reader on idle port 4)
     output wire [20:0] dbg_mem_addr_o,
@@ -258,6 +260,8 @@ module esp32_ospi_connector #(
     localparam REG_DBG_USB_FLAGS = 7'h20;   // {connerr,x_input,fs,connected,start,rdy,stb,busy}
     localparam REG_DBG_USB_TXNS  = 7'h21;   // transaction-start counter
     localparam REG_DBG_USB_DATA  = 7'h22;   // received-data-packet counter
+    localparam REG_DBG_DDR3_RETRY= 7'h23;   // calib watchdog retries (0 = clean first shot)
+    localparam REG_DBG_DDR3_SEQ  = 7'h24;   // {3'b0,rst_n,pll_lock,calib,state[1:0]}
 
     // Memory spaces (XFER via reg 0x7F)
     localparam SPACE_TEST  = 3'd0;
@@ -569,6 +573,8 @@ module esp32_ospi_connector #(
             REG_DBG_USB_FLAGS:  reg_rdata = dbg_usb_flags_i;
             REG_DBG_USB_TXNS:   reg_rdata = dbg_usb_cnt_start_i;
             REG_DBG_USB_DATA:   reg_rdata = dbg_usb_cnt_rdy_i;
+            REG_DBG_DDR3_RETRY: reg_rdata = dbg_ddr3_retry_i;
+            REG_DBG_DDR3_SEQ:   reg_rdata = dbg_ddr3_seq_i;
 
             // ProDOS HDD compact bank
             REG_HDD0_REQ_CTL: reg_rdata = {6'b0, hdd_volumes[0].wr, hdd_volumes[0].rd};

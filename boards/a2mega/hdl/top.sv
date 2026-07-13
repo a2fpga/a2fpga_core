@@ -1069,6 +1069,72 @@ module top #(
     );
 
     // -----------------------------------------------------------------
+    // DDR3 reset sequencer + calibration watchdog
+    // -----------------------------------------------------------------
+    // The IP's rst_n was tied high: calibration was a single unsequenced
+    // shot racing PLL lock at configuration time, and a miss was permanent
+    // (no retry in the IP) — the intermittent dead-DDR3 cold boots.
+    // Sequence: hold reset until the DDR3 PLL locks, settle 1 ms, release,
+    // then if init_calib_complete fails to assert within 100 ms, pulse
+    // reset 100 us and retry. Retry count in debug reg 0x23; observed on
+    // hardware with power stable ~30 s before config, so failures here are
+    // controller-reset races, not supply ramp.
+    // Clocked on the always-on 50 MHz crystal (same domain as the IP's
+    // clk port); regs power up to 0 so reset starts ASSERTED.
+    localparam DDR3_SETTLE_CYC   = 50_000;     // 1 ms @ 50 MHz
+    localparam DDR3_CALIB_CYC    = 5_000_000;  // 100 ms watchdog
+    localparam DDR3_RSTPULSE_CYC = 5_000;      // 100 us reset pulse
+
+    reg        ddr3_rst_n_r = 1'b0;
+    reg [1:0]  ddr3_seq_state_r = 2'd0;  // 0=wait-lock 1=settle 2=watch 3=pulse
+    reg [22:0] ddr3_seq_timer_r = '0;
+    reg [7:0]  ddr3_retry_cnt_r = '0;    // saturating; nonzero = watchdog fired
+
+    always @(posedge clk) begin
+        if (!pll_lock_w) begin
+            ddr3_rst_n_r     <= 1'b0;
+            ddr3_seq_state_r <= 2'd0;
+            ddr3_seq_timer_r <= '0;
+        end else begin
+            case (ddr3_seq_state_r)
+                2'd0: begin
+                    ddr3_seq_timer_r <= '0;
+                    ddr3_seq_state_r <= 2'd1;
+                end
+                2'd1: begin  // settle with reset held
+                    ddr3_seq_timer_r <= ddr3_seq_timer_r + 1'b1;
+                    if (ddr3_seq_timer_r >= DDR3_SETTLE_CYC) begin
+                        ddr3_rst_n_r     <= 1'b1;
+                        ddr3_seq_timer_r <= '0;
+                        ddr3_seq_state_r <= 2'd2;
+                    end
+                end
+                2'd2: begin  // released — watch calibration
+                    if (init_calib_complete_w)
+                        ddr3_seq_timer_r <= '0;  // calibrated; park here
+                    else begin
+                        ddr3_seq_timer_r <= ddr3_seq_timer_r + 1'b1;
+                        if (ddr3_seq_timer_r >= DDR3_CALIB_CYC) begin
+                            ddr3_rst_n_r     <= 1'b0;
+                            ddr3_seq_timer_r <= '0;
+                            if (!(&ddr3_retry_cnt_r))
+                                ddr3_retry_cnt_r <= ddr3_retry_cnt_r + 1'b1;
+                            ddr3_seq_state_r <= 2'd3;
+                        end
+                    end
+                end
+                2'd3: begin  // reset pulse, then settle+release again
+                    ddr3_seq_timer_r <= ddr3_seq_timer_r + 1'b1;
+                    if (ddr3_seq_timer_r >= DDR3_RSTPULSE_CYC) begin
+                        ddr3_seq_timer_r <= '0;
+                        ddr3_seq_state_r <= 2'd1;
+                    end
+                end
+            endcase
+        end
+    end
+
+    // -----------------------------------------------------------------
     // DDR3 Memory Controller (Gowin IP)
     // -----------------------------------------------------------------
     wire        ddr3_cmd_ready_w;
@@ -1090,7 +1156,7 @@ module top #(
         .memory_clk      (memory_clk_w),
         .pll_stop        (pll_stop_w),
         .clk             (clk),                 // 50 MHz board crystal
-        .rst_n           (1'b1),
+        .rst_n           (ddr3_rst_n_r),        // sequencer above (was 1'b1)
         .cmd_ready       (ddr3_cmd_ready_w),
         .cmd             (ddr3_cmd_w),
         .cmd_en          (ddr3_cmd_en_w),
@@ -1568,6 +1634,15 @@ module top #(
         usb_cnt_rdy_sync0   <= usb_cnt_rdy_r;     usb_cnt_rdy_sync1   <= usb_cnt_rdy_sync0;
     end
 
+    // DDR3 sequencer telemetry (clk 50 MHz -> clk_logic; quasi-static)
+    reg [7:0] ddr3_retry_sync0, ddr3_retry_sync1;
+    reg [4:0] ddr3_seq_sync0, ddr3_seq_sync1;
+    always @(posedge clk_logic_w) begin
+        ddr3_retry_sync0 <= ddr3_retry_cnt_r;  ddr3_retry_sync1 <= ddr3_retry_sync0;
+        ddr3_seq_sync0   <= {ddr3_rst_n_r, pll_lock_w, init_calib_complete_w, ddr3_seq_state_r};
+        ddr3_seq_sync1   <= ddr3_seq_sync0;
+    end
+
     // =========================================================================
     // OSD text overlay — ESP32 menu/console text page (clk_pixel domain)
     // =========================================================================
@@ -1810,6 +1885,8 @@ module top #(
         .dbg_usb_flags_i(usb_dbg_flags_sync1),
         .dbg_usb_cnt_start_i(usb_cnt_start_sync1),
         .dbg_usb_cnt_rdy_i(usb_cnt_rdy_sync1),
+        .dbg_ddr3_retry_i(ddr3_retry_sync1),
+        .dbg_ddr3_seq_i({3'b0, ddr3_seq_sync1}),
 
         .dbg_mem_addr_o(dbg_mem_addr_w),
         .dbg_mem_go_o(dbg_mem_go_w),

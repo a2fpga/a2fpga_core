@@ -165,6 +165,16 @@ static void cmd_process(String cmd) {
             Serial.printf("SPI mode: %s\n", a2spi_is_octal() ? "OCTAL" : "STANDARD");
         }
         Serial.printf("USB connected: %s\n", usb_was_connected ? "YES" : "NO");
+        if (a2spi_is_ready()) {
+            uint8_t fs = 0, retries = 0, seq = 0, st = 0;
+            if (a2spi_reg_read_status(0x07, &fs, &st) == ESP_OK) {
+                a2spi_reg_read_status(0x23, &retries, &st);
+                a2spi_reg_read_status(0x24, &seq, &st);
+                Serial.printf("DDR3: %s (retries=%u seq=0x%02X)\n",
+                              (fs & 0x02) ? "CALIBRATED" : "NOT CALIBRATED",
+                              retries, seq);
+            }
+        }
 
     } else if (cmd == "spiinit") {
         Serial.println("[SPI] Initializing Octal SPI...");
@@ -833,6 +843,28 @@ static void start_subsystems() {
         }
     } else {
         osd_log("WIFI: NOT CONFIGURED (WIFI.TXT)");
+    }
+
+    // DDR3 calibration telemetry: status reg bit1 = init_calib_complete,
+    // reg 0x23 = fabric watchdog retry count (nonzero = the reset sequencer
+    // had to re-run calibration this boot — track to correlate failures
+    // with e.g. gamepad rumble load). MUST run before the disk/menu tasks
+    // exist AND under the link mutex: raw a2spi calls racing task traffic
+    // panic the SPI driver (boot-loop, learned the hard way).
+    if (a2spi_is_ready()) {
+        uint8_t fpga_status = 0, ddr3_retries = 0, st = 0;
+        fpga_link_lock();
+        esp_err_t serr = a2spi_reg_read_status(0x07, &fpga_status, &st);
+        esp_err_t rerr = a2spi_reg_read_status(0x23, &ddr3_retries, &st);
+        fpga_link_unlock();
+        if (serr == ESP_OK && !(fpga_status & 0x02)) {
+            Serial.println("[a2fpga] WARNING: DDR3 NOT CALIBRATED");
+            osd_log("WARNING: DDR3 NOT CALIBRATED");
+        }
+        if (serr == ESP_OK && rerr == ESP_OK && ddr3_retries != 0) {
+            Serial.printf("[a2fpga] DDR3 calib retries this boot: %u\n", ddr3_retries);
+            osd_log("DDR3 CALIB RETRIES: %u", ddr3_retries);
+        }
     }
 
     xTaskCreatePinnedToCore(disk_task, "disk", 8192, NULL, 5, &disk_task_h, 1);
