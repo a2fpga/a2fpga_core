@@ -56,6 +56,7 @@ module usb_hid_host #(
   // debug
   output wire [63:0] dbg_hid_report,  // last HID report
   output wire [63:0] dbg_hid_regs,    // internal regs
+  output wire [7:0]  dbg_state,       // {connerr,x_input,full_speed,connected,ukpstart,ukprdy,ukpstb,busy}
 
   // rom
   output wire [9:0] rom_addr,
@@ -122,6 +123,7 @@ wire [15:0] pid = {regs[3], regs[2]};
 
 assign dbg_hid_report = {dat[7], dat[6], dat[5], dat[4], dat[3], dat[2], dat[1], dat[0]};
 assign dbg_hid_regs   = {regs[7], regs[6], regs[5], regs[4], regs[3], regs[2], regs[1], regs[0]};
+assign dbg_state      = {connerr, x_input, full_speed, connected, ukpstart, ukprdy, ukpstb, busy};
 
 integer i;
 
@@ -235,8 +237,13 @@ always @(*) begin
       in_payload[0] = 8'h81;   // IN endpoint 1 (81 58) - default
       in_payload[1] = 8'h58;
 
-      out_payload[0] = 8'h01;  // OUT endpoint 2 (01 c1) - default
-      out_payload[1] = 8'hc1;
+      // OUT endpoint 1 (81 58): Xbox 360-class pads (incl. 8BitDo SN30 Pro
+      // in X-mode, verified by descriptor dump) put rumble/LED on EP1 OUT;
+      // the old EP2 default (01 c1) landed on the headset interface and
+      // clone pads never got the LED init they wait for before streaming
+      // input reports.
+      out_payload[0] = 8'h81;
+      out_payload[1] = 8'h58;
     end
   endcase
 end

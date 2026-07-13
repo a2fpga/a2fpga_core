@@ -73,6 +73,12 @@ module esp32_ospi_connector #(
     input  wire [7:0]  dbg_resp_ovfl_i,     // per-port CDC resp overflow (sticky)
     input  wire [7:0]  dbg_shadow_rd_i,     // apple_memory read FSM snapshot
     input  wire [7:0]  dbg_vgc_starved_i,   // vgc_gen stale-word swaps per frame
+    input  wire [7:0]  dbg_usb_line_i,      // {pll_lock,usb_reset,oe_sticky,dm,dp,pc[9:7]}
+    input  wire [7:0]  dbg_usb_pc_i,        // UKP rom_addr[7:0] (async sample — fuzzy)
+    input  wire [47:0] dbg_usb_desc_i,      // {class,subclass,pid[15:0],vid[15:0]} from enum
+    input  wire [7:0]  dbg_usb_flags_i,     // {connerr,x_input,full_speed,connected,start,rdy,stb,busy}
+    input  wire [7:0]  dbg_usb_cnt_start_i, // transaction-start counter (wraps)
+    input  wire [7:0]  dbg_usb_cnt_rdy_i,   // received-data-packet counter (wraps)
 
     // DDR3 debug read window (ddr3_debug_reader on idle port 4)
     output wire [20:0] dbg_mem_addr_o,
@@ -239,8 +245,19 @@ module esp32_ospi_connector #(
     localparam REG_DBG_RESP_OVFL  = 7'h76;  // bit n = DDR3 port n resp-FIFO overflow
     localparam REG_DBG_SHADOW_RD  = 7'h77;  // {vid_req,is_vgc,cache_valid,vgc_req,0,rd_state}
     localparam REG_DBG_VGC_STARVED= 7'h78;  // vgc stale-word swaps per frame
+    localparam REG_DBG_USB_LINE   = 7'h79;  // {pll_lock,usb_reset,oe_sticky,dm,dp,pc[9:7]}
 
     localparam REG_U2_DOORBELL  = 7'h7A;
+    localparam REG_DBG_USB_PC   = 7'h7B;    // UKP rom_addr[7:0] (async sample)
+    localparam REG_DBG_USB_VID_L = 7'h1C;   // enumeration descriptor scratch
+    localparam REG_DBG_USB_VID_H = 7'h1D;
+    localparam REG_DBG_USB_PID_L = 7'h1E;
+    localparam REG_DBG_USB_PID_H = 7'h1F;
+    localparam REG_DBG_USB_CLASS = 7'h7C;   // interface class
+    localparam REG_DBG_USB_SUBCL = 7'h7D;   // interface subclass
+    localparam REG_DBG_USB_FLAGS = 7'h20;   // {connerr,x_input,fs,connected,start,rdy,stb,busy}
+    localparam REG_DBG_USB_TXNS  = 7'h21;   // transaction-start counter
+    localparam REG_DBG_USB_DATA  = 7'h22;   // received-data-packet counter
 
     // Memory spaces (XFER via reg 0x7F)
     localparam SPACE_TEST  = 3'd0;
@@ -541,6 +558,17 @@ module esp32_ospi_connector #(
             REG_DBG_RESP_OVFL:  reg_rdata = dbg_resp_ovfl_i;
             REG_DBG_SHADOW_RD:  reg_rdata = dbg_shadow_rd_i;
             REG_DBG_VGC_STARVED: reg_rdata = dbg_vgc_starved_i;
+            REG_DBG_USB_LINE:   reg_rdata = dbg_usb_line_i;
+            REG_DBG_USB_PC:     reg_rdata = dbg_usb_pc_i;
+            REG_DBG_USB_VID_L:  reg_rdata = dbg_usb_desc_i[7:0];
+            REG_DBG_USB_VID_H:  reg_rdata = dbg_usb_desc_i[15:8];
+            REG_DBG_USB_PID_L:  reg_rdata = dbg_usb_desc_i[23:16];
+            REG_DBG_USB_PID_H:  reg_rdata = dbg_usb_desc_i[31:24];
+            REG_DBG_USB_CLASS:  reg_rdata = dbg_usb_desc_i[39:32];
+            REG_DBG_USB_SUBCL:  reg_rdata = dbg_usb_desc_i[47:40];
+            REG_DBG_USB_FLAGS:  reg_rdata = dbg_usb_flags_i;
+            REG_DBG_USB_TXNS:   reg_rdata = dbg_usb_cnt_start_i;
+            REG_DBG_USB_DATA:   reg_rdata = dbg_usb_cnt_rdy_i;
 
             // ProDOS HDD compact bank
             REG_HDD0_REQ_CTL: reg_rdata = {6'b0, hdd_volumes[0].wr, hdd_volumes[0].rd};

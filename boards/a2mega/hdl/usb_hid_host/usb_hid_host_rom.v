@@ -10,8 +10,13 @@ module usb_hid_host_rom(
 
 reg [3:0] mem [0:1023];
 
-initial
-  $readmemh("usb_hid_host_rom.mem", mem);
+// Microcode is inlined via `include (resolved relative to THIS file —
+// well-defined), because $readmemh relative paths resolve against
+// GowinSynthesis's working directory and silently zero-filled this ROM
+// in every build: the UKP executed empty microcode and no USB device
+// could ever enumerate (live-debugged: dead-but-ticking host, typ=0).
+// usb_hid_host_rom_init.vh is GENERATED from usb_hid_host_rom.mem.
+`include "usb_hid_host_rom_init.vh"
 
 always @(posedge clk)
   if (en)

@@ -1381,6 +1381,9 @@ module top #(
         .OEN(!usb_oe_w)
     );
 
+    wire [63:0] usb_dbg_hid_regs_w;   // enum descriptor scratch (VID/PID/class/...)
+    wire [7:0]  usb_dbg_state_w;      // {connerr,x_input,full_speed,connected,ukpstart,ukprdy,ukpstb,busy}
+
     // UKP microcode ROM is external to the core in the m1nl fork
     wire [9:0] usb_rom_addr_w;
     wire [3:0] usb_rom_dout_w;
@@ -1448,7 +1451,8 @@ module top #(
         .game_extra   (usb_game_extra_w),
 
         .dbg_hid_report(),
-        .dbg_hid_regs (),
+        .dbg_hid_regs (usb_dbg_hid_regs_w),
+        .dbg_state    (usb_dbg_state_w),
 
         .rom_addr     (usb_rom_addr_w),
         .rom_dout     (usb_rom_dout_w),
@@ -1511,6 +1515,57 @@ module top #(
         key_mod_sync0 <= key_mod_usb_r;         key_mod_sync1 <= key_mod_sync0;
         key0_sync0 <= key0_usb_r;               key0_sync1 <= key0_sync0;
         key1_sync0 <= key1_usb_r;               key1_sync1 <= key1_sync0;
+    end
+
+    // USB bring-up debug (regs 0x79/0x7B). oe_sticky proves the UKP ever
+    // drove the bus (bus reset/SOF); pc bits are an async sample of the
+    // microcode PC — fuzzy per read, but repeated reads distinguish
+    // "stuck in reset" / "waiting for connect" / "enumerating".
+    reg usb_oe_sticky_usb_r;
+    always @(posedge clk_usb_w) begin
+        if (usb_reset_w) usb_oe_sticky_usb_r <= 1'b0;
+        else if (usb_oe_w) usb_oe_sticky_usb_r <= 1'b1;
+    end
+
+    reg [4:0]  usb_dbg_line_sync0, usb_dbg_line_sync1;
+    reg [9:0]  usb_dbg_pc_sync0, usb_dbg_pc_sync1;
+    always @(posedge clk_logic_w) begin
+        usb_dbg_line_sync0 <= {usb_pll_lock_w, usb_reset_w, usb_oe_sticky_usb_r,
+                               usb_dm_i_w, usb_dp_i_w};
+        usb_dbg_line_sync1 <= usb_dbg_line_sync0;
+        usb_dbg_pc_sync0   <= usb_rom_addr_w;
+        usb_dbg_pc_sync1   <= usb_dbg_pc_sync0;
+    end
+
+    wire [7:0] dbg_usb_line_w = {usb_dbg_line_sync1, usb_dbg_pc_sync1[9:7]};
+    wire [7:0] dbg_usb_pc_w   = usb_dbg_pc_sync1[7:0];
+
+    // Enumeration descriptor scratch: {subclass,class,pid,vid}. Quasi-static
+    // once enumeration parses descriptors — 2FF sync per byte is fine.
+    reg [47:0] usb_dbg_desc_sync0, usb_dbg_desc_sync1;
+    always @(posedge clk_logic_w) begin
+        usb_dbg_desc_sync0 <= usb_dbg_hid_regs_w[47:0];
+        usb_dbg_desc_sync1 <= usb_dbg_desc_sync0;
+    end
+
+    // Transaction / received-data-packet counters (clk_usb domain; sampled
+    // async — values are fuzzy per read but "is it ticking" is reliable).
+    reg [7:0] usb_cnt_start_r, usb_cnt_rdy_r;
+    reg usb_dbg_start_d, usb_dbg_rdy_d;
+    always @(posedge clk_usb_w) begin
+        usb_dbg_start_d <= usb_dbg_state_w[3];  // ukpstart
+        usb_dbg_rdy_d   <= usb_dbg_state_w[2];  // ukprdy
+        if (usb_dbg_state_w[3] & ~usb_dbg_start_d) usb_cnt_start_r <= usb_cnt_start_r + 8'd1;
+        if (usb_dbg_state_w[2] & ~usb_dbg_rdy_d)   usb_cnt_rdy_r   <= usb_cnt_rdy_r + 8'd1;
+    end
+
+    reg [7:0] usb_dbg_flags_sync0, usb_dbg_flags_sync1;
+    reg [7:0] usb_cnt_start_sync0, usb_cnt_start_sync1;
+    reg [7:0] usb_cnt_rdy_sync0, usb_cnt_rdy_sync1;
+    always @(posedge clk_logic_w) begin
+        usb_dbg_flags_sync0 <= usb_dbg_state_w;   usb_dbg_flags_sync1 <= usb_dbg_flags_sync0;
+        usb_cnt_start_sync0 <= usb_cnt_start_r;   usb_cnt_start_sync1 <= usb_cnt_start_sync0;
+        usb_cnt_rdy_sync0   <= usb_cnt_rdy_r;     usb_cnt_rdy_sync1   <= usb_cnt_rdy_sync0;
     end
 
     // =========================================================================
@@ -1749,6 +1804,12 @@ module top #(
         .dbg_resp_ovfl_i(dbg_resp_ovfl_sync1),
         .dbg_shadow_rd_i(shadow_dbg_rd_state_w),
         .dbg_vgc_starved_i(vgc_dbg_starved_w),
+        .dbg_usb_line_i(dbg_usb_line_w),
+        .dbg_usb_pc_i(dbg_usb_pc_w),
+        .dbg_usb_desc_i(usb_dbg_desc_sync1),
+        .dbg_usb_flags_i(usb_dbg_flags_sync1),
+        .dbg_usb_cnt_start_i(usb_cnt_start_sync1),
+        .dbg_usb_cnt_rdy_i(usb_cnt_rdy_sync1),
 
         .dbg_mem_addr_o(dbg_mem_addr_w),
         .dbg_mem_go_o(dbg_mem_go_w),

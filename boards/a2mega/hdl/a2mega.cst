@@ -76,12 +76,23 @@ IO_PORT "led[1]" IO_TYPE=LVCMOS33 PULL_MODE=NONE;
 // D+/D- wired directly to BANK3 GPIO (no PHY); 15k pulldowns + ESD diodes on
 // board. DRIVE=8/SLEW=SLOW approximates the 28-44 ohm FS driver impedance —
 // no series resistors on this board spin, so keep cables short.
+//
+// Pin truth comes from the a2mega carrier schematic (sch/a2-mega.pdf p.3+p.5),
+// NOT the Sipeed dock reference: J1 D+ (pin 3) -> net USB_PHY_N -> G13
+// (BTB1-66, IOR98B), J1 D- (pin 2) -> net USB_PHY_P -> H13 (BTB1-68,
+// IOR98A). The USB_PHY_P/N net names are cross-labeled relative to D+/D- —
+// trust the connector pin numbers. The dock's dp=H13/dm=G13 is exactly
+// SWAPPED on this carrier; the swap made a full-speed device read as
+// low-speed idle and broke all enumeration.
 
-IO_LOC  "usb_dp" H13;
-IO_PORT "usb_dp" IO_TYPE=LVCMOS33 PULL_MODE=NONE DRIVE=8 SLEW_RATE=SLOW;
+// No SLEW_RATE=SLOW here: at 12 Mbps NRZI slow slew risks smearing TX edges
+// (symptom under test: device NAKs polls but never accepts SETUP). The
+// working dock reference design uses default slew.
+IO_LOC  "usb_dp" G13;
+IO_PORT "usb_dp" IO_TYPE=LVCMOS33 PULL_MODE=NONE DRIVE=8;
 
-IO_LOC  "usb_dm" G13;
-IO_PORT "usb_dm" IO_TYPE=LVCMOS33 PULL_MODE=NONE DRIVE=8 SLEW_RATE=SLOW;
+IO_LOC  "usb_dm" H13;
+IO_PORT "usb_dm" IO_TYPE=LVCMOS33 PULL_MODE=NONE DRIVE=8;
 
 // Apple II Bus Interface
 
