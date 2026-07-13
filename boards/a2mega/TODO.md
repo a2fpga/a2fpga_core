@@ -40,7 +40,9 @@ microcode for ROM space — USB keyboards/mice unsupported on this port
 until re-slimmed. USB debug regs (permanent): 0x79/0x7B line-state +
 UKP PC, 0x1C-0x1F + 0x7C-0x7D enum VID/PID/class, 0x20-0x22 core flags
 + transaction/data counters.
-OPEN: OSD text glitch on menu repaint (screencap pending).
+OSD repaint glitch FIXED (58ac8201): console scroll-on-newline ate the
+title bar when the menu painted a full-width bottom row; fpga_screen now
+does VT100-style deferred wrap.
 
 Fixed later the same day (commit 3ed97d1): proto-proc stale-read + OSPI
 sync-skew flashed (link clean at 4 MHz, shim removed), CLI mutexed,
