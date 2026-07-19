@@ -30,6 +30,8 @@
 #include "bl616_pds.h"
 #include "boot_timeline.h" /* boot-milestone timeline (mount / reset-release) */
 
+extern bool g_slots_applied_early;  /* main.c: early slot map confirmed+strobed */
+
 /* ---- Volume register map (must match bl616_spi_connector.sv 0x40-0x5F) ---- */
 #define VOL_BASE(v)       (0x40u + (v) * 0x10u)
 #define VOL_READY(v)      (VOL_BASE(v) + 0x0u)   /* W: volume ready */
@@ -890,19 +892,26 @@ void disk_poll(void)
             if (any) bt_mark(BT_MOUNT_FOUND);   /* first volume seen (pre-release) */
             if ((any && !g_remount_req) ||
                 bflb_mtimer_get_time_us() > 7000000u) {
-                /* Program the slot map JUST before the release — this late in
-                 * boot the SPI link is proven good (the mounts above ran over
-                 * it; writes issued from early main() were getting lost), and
-                 * the Apple II is still held in reset so the reconfig is
-                 * race-free. The registers double as the readable mirror the
-                 * menu's "NOW:" column uses. 0xFF = hardware default. */
-                for (int i = 0; i < 8; i++) {
-                    uint8_t c = settings()->slot_cards[i];
-                    if (c == 0xFF)
-                        c = settings_slot_hw_defaults[i];
-                    fpga_spi_reg_write((uint8_t)(0x60 + i), c);
+                /* Fallback slot-map apply: normally main() already programmed
+                 * and strobed the map (readback-verified, g_slots_applied_early)
+                 * and /RES released on that strobe per the reset contract. Only
+                 * if the early apply could not be confirmed do we program here
+                 * -- this late in boot the SPI link is proven good (the mounts
+                 * above ran over it), and the Apple II is STILL held in reset
+                 * (the gateware waits for the 0x6B strobe), so the reconfig
+                 * remains race-free. Never re-strobe once applied: the Apple
+                 * is running by then and a slotmaker reconfig mid-run would
+                 * glitch card decode. 0xFF = hardware default. */
+                if (!g_slots_applied_early) {
+                    for (int i = 0; i < 8; i++) {
+                        uint8_t c = settings()->slot_cards[i];
+                        if (c == 0xFF)
+                            c = settings_slot_hw_defaults[i];
+                        fpga_spi_reg_write((uint8_t)(0x60 + i), c);
+                    }
+                    fpga_spi_reg_write(0x6B, 1);   /* slotmaker reconfig strobe */
+                    bt_mark(BT_SLOTS_APPLIED);
                 }
-                fpga_spi_reg_write(0x6B, 1);   /* slotmaker reconfig strobe */
                 osd_log("SLOTS: %d %d %d %d %d %d %d %d",
                         fpga_spi_reg_read(0x60), fpga_spi_reg_read(0x61),
                         fpga_spi_reg_read(0x62), fpga_spi_reg_read(0x63),

@@ -207,8 +207,10 @@ module bl616_spi_connector #(
     //   - the absolute backstop expires (MCU alive but never released).
     localparam RST_MCU_ALIVE_WAIT = CLOCK_SPEED_HZ * 3;   // MCU first SPI contact
     localparam RST_HOLD_BACKSTOP  = CLOCK_SPEED_HZ * 15;  // never hold forever
+    localparam RST_NATIVE_HOLD    = CLOCK_SPEED_HZ / 4;   // ~250 ms: native-like minimum
     localparam RST_CW = $clog2(RST_HOLD_BACKSTOP + 1);
     reg               a2_rst_release_r;   // set by reg 0x2E write
+    reg               slots_configured_r; // set by reg 0x6B (slot reconfig strobe)
     reg [RST_CW-1:0]  rst_hold_cnt_r;
     always @(posedge clk or negedge rst_n) begin
         if (!rst_n)
@@ -218,8 +220,16 @@ module bl616_spi_connector #(
     end
     wire rst_mcu_absent_w = !mcu_ready_r &&
                             (rst_hold_cnt_r >= RST_MCU_ALIVE_WAIT[RST_CW-1:0]);
+    // RESET CONTRACT: Apple /RES releases only after the slot map has been
+    // loaded and the virtual cards know which slots they occupy -- i.e. on the
+    // firmware's 0x6B reconfig strobe (slots_configured_r). Fallbacks keep a
+    // machine bootable in every failure mode: explicit 0x2E release (legacy /
+    // manual), MCU-absent (standalone Apple, 3 s), and the 15 s absolute
+    // backstop (MCU alive but never configures). Note the release only reaches
+    // the wire once the bridge SM is running (`ready` below), so the effective
+    // earliest release is max(bridge start, slot strobe).
     assign a2bus_control_if.reset_hold =
-        !(a2_rst_release_r || rst_mcu_absent_w ||
+        !(slots_configured_r || a2_rst_release_r || rst_mcu_absent_w ||
           rst_hold_cnt_r >= RST_HOLD_BACKSTOP[RST_CW-1:0]);
 
     // -------------------------------------------------------
@@ -319,12 +329,17 @@ module bl616_spi_connector #(
     // -------------------------------------------------------
     // Interface assignments -- A2 bus control
     // -------------------------------------------------------
-    // Bus-ready: normally the firmware's explicit reg 0x30 write (or the
-    // standalone fallback when no MCU exists). The reset-hold backstop also
-    // forces it so a crashed MCU that latched mcu_ready can never leave the
-    // Apple bus interface parked in IO_INIT forever.
+    // Bus-ready: the firmware's explicit reg 0x30 write, the standalone
+    // fallback, or the ~250 ms native timer. The bridge SM parks in IO_INIT
+    // (driving nothing -- Apple /RES stays held by the CPLD's power-on
+    // default) until `ready`; the 0x30 write is issued in early main() where
+    // SPI writes are occasionally LOST, and falling all the way to the 15 s
+    // backstop wedged startup. The native timer starts the bridge (and thus
+    // makes /RES release reachable) independent of that fragile write; the
+    // actual release still waits for the slot-map strobe per the reset
+    // contract above.
     assign a2bus_control_if.ready = a2bus_ready_r || standalone_r ||
-                                    (rst_hold_cnt_r >= RST_HOLD_BACKSTOP[RST_CW-1:0]);
+                                    (rst_hold_cnt_r >= RST_NATIVE_HOLD[RST_CW-1:0]);
     assign cardrom_release_o = cardrom_release_r;
 
     // -------------------------------------------------------
@@ -994,6 +1009,7 @@ module bl616_spi_connector #(
             keycode_r         <= 8'd0;
             a2bus_ready_r     <= 1'b0;
             a2_rst_release_r  <= 1'b0;
+            slots_configured_r <= 1'b0;
             cardrom_release_r <= 1'b0;
             a2_reset_r        <= 1'b0;
             a2_cmd_r          <= 8'd0;
@@ -1151,7 +1167,10 @@ module bl616_spi_connector #(
                     end
                     7'h68: led_o    <= reg_wdata[4:0];
                     7'h69: ws2812_o <= reg_wdata[0];
-                    7'h6B: slot_reconfig_r <= 1'b1;
+                    7'h6B: begin
+                        slot_reconfig_r    <= 1'b1;
+                        slots_configured_r <= 1'b1;  // reset contract: slot map is in -> /RES may release
+                    end
 
                     // SD card registers
                     7'h6C: begin

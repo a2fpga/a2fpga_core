@@ -15,6 +15,7 @@
 typedef enum {
     BT_FPGA_READY = 0,   /* fpga_spi_wait_ready() returned (config + SDRAM ready) */
     BT_A2BUS_READY,      /* REG_A2BUS_READY (0x30) written -> FPGA grabs Apple /RES */
+    BT_SLOTS_APPLIED,    /* slot map written + 0x6B strobed -> /RES may release    */
     BT_MOUNT_FOUND,      /* first storage volume mounted (any floppy/HDD)          */
     BT_RST_WRITE,        /* A2_RST_RELEASE (0x2E) write first issued               */
     BT_RST_RELEASED,     /* reg 0x06 bit5 (A2BUS_RESET_N) observed high = released */
