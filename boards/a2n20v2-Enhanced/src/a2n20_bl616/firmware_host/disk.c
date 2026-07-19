@@ -28,6 +28,7 @@
 #include "usbh_hub.h"      /* port power-cycle kick for stalled hubs */
 #include "bl616_glb.h"
 #include "bl616_pds.h"
+#include "boot_timeline.h" /* boot-milestone timeline (mount / reset-release) */
 
 /* ---- Volume register map (must match bl616_spi_connector.sv 0x40-0x5F) ---- */
 #define VOL_BASE(v)       (0x40u + (v) * 0x10u)
@@ -852,6 +853,15 @@ static int usb_leaf_count(struct usbh_hub *hub)
 }
 void disk_poll(void)
 {
+    /* Stamp the actual Apple /RES release the moment it is observable -- the
+     * FPGA can release on its own native timer (v2+ gateware) BEFORE any 0x2E
+     * write, so poll from the top of every tick rather than from the release
+     * path (which made the stamp an upper bound). One reg read per 2 ms tick,
+     * and only until the release is seen. */
+    if (!bt_reset_released() &&
+        (fpga_spi_reg_read(0x06) & FPGA_STATUS_A2BUS_RESET_N))
+        bt_mark(BT_RST_RELEASED);
+
     if (g_remount_req) {
         g_remount_req = false;
         g_remounting  = true;
@@ -877,6 +887,7 @@ void disk_poll(void)
             bool any = false;
             for (int v = 0; v < NDRV; v++) any = any || g_mounted[v];
             for (int u = 0; u < NHDD; u++) any = any || g_hdd_mounted[u];
+            if (any) bt_mark(BT_MOUNT_FOUND);   /* first volume seen (pre-release) */
             if ((any && !g_remount_req) ||
                 bflb_mtimer_get_time_us() > 7000000u) {
                 /* Program the slot map JUST before the release — this late in
@@ -905,11 +916,26 @@ void disk_poll(void)
                  * reset. (The CardROM is also parameter-disabled in HDL
                  * until the keyboard-snoop bootstrap is finished.) */
                 fpga_spi_reg_write(REG_CARDROM_REL, 1);
-                fpga_spi_reg_write(0x2E, 1);   /* A2_RST_RELEASE */
+
+                /* Robust A2_RST_RELEASE: the single 0x2E write has been observed
+                 * to get LOST on the SPI link -> the FPGA never sees it and
+                 * falls through to its 15 s backstop instead of releasing here.
+                 * Write, read back reg 0x2E bit0 (a2_rst_release_r), and retry
+                 * until it sticks. Bounded, one-time, microsecond-scale. */
+                bt_mark(BT_RST_WRITE);
+                int rst_ok = 0;
+                for (int a = 0; a < 5; a++) {
+                    fpga_spi_reg_write(0x2E, 1);        /* A2_RST_RELEASE */
+                    if (fpga_spi_reg_read(0x2E) & 0x01) { rst_ok = 1; break; }
+                    bflb_mtimer_delay_us(50);
+                }
                 s_released = true;
-                osd_log("A2: RESET RELEASED%s", any ? "" : " (NO MEDIA)");
+                osd_log("A2: RESET RELEASED%s%s", any ? "" : " (NO MEDIA)",
+                        rst_ok ? "" : " (0x2E UNCONFIRMED)");
             }
         }
+        /* (BT_RST_RELEASED is stamped at the top of disk_poll, independent of
+         * this release path -- the FPGA may release on its own timer.) */
     }
 
     /* Async directory listing for the menu (FatFS is not re-entrant, so the

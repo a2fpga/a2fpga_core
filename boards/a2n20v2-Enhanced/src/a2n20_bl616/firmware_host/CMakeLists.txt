@@ -41,6 +41,7 @@ target_sources(app PRIVATE
     telnetd.c
     sscbridge.c
     ftpd.c
+    boot_timeline.c
     ../firmware/gcr_dsk.c
     ../firmware/fpga_spi.c
     ../firmware/fpga_screen.c
