@@ -180,6 +180,19 @@ module drive_ii (
     // CPU cycle). The READ head no longer uses this — see below.
     wire q3_tick_w = a2bus_if.phi0_posedge | a2bus_if.phi1_posedge;
 
+    // A track-window SDRAM op is in flight from the rd/wr pulse until the
+    // port's completion pulse returns. On a dedicated port (classic build)
+    // that is a handful of SDRAM clocks; on the fb build's shared, arbitrated
+    // lowest-priority port a heavily contended fetch can in principle still be
+    // pending at the next nibble tick — consuming q then would serve a stale
+    // word. Tracked here so the read head can hold instead.
+    reg fetch_pend_r;
+    always @(posedge a2bus_if.clk_logic or negedge a2bus_if.system_reset_n) begin
+        if (!a2bus_if.system_reset_n)     fetch_pend_r <= 1'b0;
+        else if (track_rd_r | track_we_r) fetch_pend_r <= 1'b1;
+        else if (ram_disk_if.ready)       fetch_pend_r <= 1'b0;
+    end
+
     always @(posedge a2bus_if.clk_logic or negedge a2bus_if.system_reset_n) begin : read_head
         static reg [5:0] byte_delay_r;
         if (!a2bus_if.system_reset_n) begin
@@ -227,7 +240,12 @@ module drive_ii (
                 if (a2bus_if.phi0_posedge & volume_if.ready & drive_active) begin
                     if (byte_delay_r == 0) begin
                         byte_delay_r = 6'd31;   // 32 phi0 ticks = 32 CPU cycles
-                        if (track_resident_w) begin
+                        // ~fetch_pend_r: only consume q if the previous word
+                        // fetch actually completed; otherwise hold place and
+                        // serve a $FF sync byte (same as non-resident), rather
+                        // than latching a stale word. Advance stays exclusively
+                        // on phi0_posedge — this only qualifies, never moves it.
+                        if (track_resident_w & ~fetch_pend_r) begin
                             data_r <= track_do_w;
                             if (track_byte_addr_r == 13'h19ff) track_byte_addr_r <= 13'b0;
                             else track_byte_addr_r <= 13'(track_byte_addr_r + 1'b1);

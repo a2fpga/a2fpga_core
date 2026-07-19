@@ -22,11 +22,20 @@
 // where 54 MHz is derived from 108 MHz, guaranteeing that every 54 MHz rising
 // edge coincides with a 108 MHz rising edge.
 //
-// Request path (54 MHz → 108 MHz): registered in 108 MHz domain. All request
-// signals are captured on the same 108 MHz edge, guaranteeing consistency
-// regardless of individual routing delays or CLKDIV2 phase. A 54 MHz wr/rd
-// pulse spans 2 cycles at 108 MHz; the register delays it by 1 cycle (still
-// 2 cycles wide), and the SDRAM controller's edge detection triggers once.
+// Request path (54 MHz → 108 MHz): 4-entry gray-code FIFO, mirroring the
+// response path. The whole request tuple {addr, data, byte_en, wr, rd, burst}
+// is written atomically in the 54 MHz domain and read in the 108 MHz domain
+// only after the gray-coded write pointer has passed through a 2FF
+// synchronizer — by which time the FIFO word is long stable. Atomicity
+// therefore does not depend on routing delays. (The previous single-edge
+// re-registration required every request bit to arrive within the same
+// 9.26 ns half-cycle bucket; with set_false_path on the crossing that budget
+// was never verified by timing analysis, and a single slow-routed bit could
+// tear a request — wrong-word/wrong-address transactions at 32-bit-word
+// granularity.) The pop side re-shapes each request into a 1-cycle wr/rd
+// assert followed by a 1-cycle gap, so the SDRAM controller's edge detection
+// triggers exactly once per request; peak client rate (one request per 54 MHz
+// cycle) matches the 2-cycles-per-pop drain rate at 108 MHz.
 //
 // Available path (108 MHz → 54 MHz): registered in 54 MHz domain. Prevents
 // combinational consumers from seeing transient 108 MHz transitions.
@@ -57,49 +66,97 @@ module mem_port_cdc #(
 );
 
     // =========================================================================
-    // Request path: 54 MHz → 108 MHz (registered)
+    // Request path: 54 MHz → 108 MHz (4-entry gray-code FIFO, self-timed)
     // =========================================================================
-    // All request signals are registered in the 108 MHz domain to guarantee
-    // they are captured on the same clock edge. This eliminates sensitivity
-    // to routing delay differences between addr/data and wr/rd signals, and
-    // to CLKDIV2 initial phase randomness.
+    // The request tuple is written atomically in the launch (54 MHz) domain
+    // and read in the 108 MHz domain only after the gray-coded write pointer
+    // clears a 2FF synchronizer, so the FIFO word is guaranteed stable at
+    // read time — correctness does not depend on routing delays, matching
+    // the response path's design (and the SDC's blanket false_path on this
+    // crossing remains sound). See header for the tearing hazard this fixes.
     //
-    // With CLKDIV2 alignment, 54 MHz signals are stable for 2 full 108 MHz
-    // cycles. The register captures them within that window (tolerating up
-    // to ~18.5 ns of routing delay). The registered wr/rd pulse is still
-    // 2 cycles wide, so the SDRAM controller's edge detection triggers once.
+    // Pop side: each request is presented as a 1-cycle wr/rd assert plus a
+    // 1-cycle gap, so the controller's rising-edge detect fires once per
+    // request (the controller latches {byte_en, addr, data} on that edge).
+    // Drain rate (2 clk_sdram cycles/request) equals the peak client rate
+    // (1 request per clk_client cycle); depth 4 absorbs the 2FF latency.
 
-    reg [PORT_ADDR_WIDTH-1:0] req_addr_r;
-    reg [DATA_WIDTH-1:0]      req_data_r;
-    reg [DQM_WIDTH-1:0]       req_byte_en_r;
-    reg                       req_wr_r;
-    reg                       req_rd_r;
-    reg                       req_burst_r;
+    localparam REQ_W      = PORT_ADDR_WIDTH + DATA_WIDTH + DQM_WIDTH + 3;
+    localparam RQ_B_BURST = 0;
+    localparam RQ_B_RD    = 1;
+    localparam RQ_B_WR    = 2;
+    localparam RQ_B_BE    = 3;                        // [RQ_B_BE +: DQM_WIDTH]
+    localparam RQ_B_DATA  = RQ_B_BE + DQM_WIDTH;      // [RQ_B_DATA +: DATA_WIDTH]
+    localparam RQ_B_ADDR  = RQ_B_DATA + DATA_WIDTH;   // [RQ_B_ADDR +: PORT_ADDR_WIDTH]
 
-    always @(posedge clk_sdram or negedge rst_n) begin
+    localparam RQ_DEPTH = 4;
+    localparam RQ_ABITS = 2;
+    localparam RQ_PTRW  = RQ_ABITS + 1;               // extra bit for wrap
+
+    reg [REQ_W-1:0]   req_fifo_mem [0:RQ_DEPTH-1];
+    reg [RQ_PTRW-1:0] req_wr_ptr;                     // 54 MHz domain
+    reg [RQ_PTRW-1:0] req_rd_ptr;                     // 108 MHz domain
+
+    wire [RQ_PTRW-1:0] req_wr_gray = req_wr_ptr ^ (req_wr_ptr >> 1);
+    wire [RQ_PTRW-1:0] req_rd_gray = req_rd_ptr ^ (req_rd_ptr >> 1);
+
+    // --- Push side (54 MHz): capture the whole tuple on any request event ---
+    always @(posedge clk_client or negedge rst_n) begin
         if (!rst_n) begin
-            req_addr_r    <= '0;
-            req_data_r    <= '0;
-            req_byte_en_r <= '0;
-            req_wr_r      <= 1'b0;
-            req_rd_r      <= 1'b0;
-            req_burst_r   <= 1'b0;
-        end else begin
-            req_addr_r    <= client.addr;
-            req_data_r    <= client.data;
-            req_byte_en_r <= client.byte_en;
-            req_wr_r      <= client.wr;
-            req_rd_r      <= client.rd;
-            req_burst_r   <= client.burst;
+            req_wr_ptr <= '0;
+        end else if (client.wr || client.rd) begin
+            req_fifo_mem[req_wr_ptr[RQ_ABITS-1:0]] <=
+                {client.addr, client.data, client.byte_en,
+                 client.wr, client.rd, client.burst};
+            req_wr_ptr <= req_wr_ptr + 1'd1;
         end
     end
 
-    assign sdram.addr    = req_addr_r;
-    assign sdram.data    = req_data_r;
-    assign sdram.byte_en = req_byte_en_r;
-    assign sdram.wr      = req_wr_r;
-    assign sdram.rd      = req_rd_r;
-    assign sdram.burst   = req_burst_r;
+    // --- 2FF synchronizer: write pointer → 108 MHz (for empty detection) ---
+    (* syn_preserve=1 *) reg [RQ_PTRW-1:0] req_wr_gray_sync1, req_wr_gray_sync2;
+    always @(posedge clk_sdram or negedge rst_n) begin
+        if (!rst_n) begin
+            req_wr_gray_sync1 <= '0;
+            req_wr_gray_sync2 <= '0;
+        end else begin
+            req_wr_gray_sync1 <= req_wr_gray;
+            req_wr_gray_sync2 <= req_wr_gray_sync1;
+        end
+    end
+
+    wire req_fifo_empty = (req_wr_gray_sync2 == req_rd_gray);
+
+    // No full check needed: depth 4 vs a 2-entry worst-case in-flight window
+    // (drain matches peak push rate; only 2FF latency can accumulate), and —
+    // as with the response FIFO — a full flag seeded by metastable reset
+    // deassertion in the other domain could wedge the port permanently.
+
+    // --- Pop side (108 MHz): 1-cycle assert + 1-cycle gap per request ---
+    reg               req_assert_r;
+    reg [REQ_W-1:0]   req_cur_r;
+
+    always @(posedge clk_sdram or negedge rst_n) begin
+        if (!rst_n) begin
+            req_rd_ptr   <= '0;
+            req_assert_r <= 1'b0;
+            req_cur_r    <= '0;
+        end else if (req_assert_r) begin
+            req_assert_r <= 1'b0;             // gap: guarantees a fresh edge per request
+        end else if (!req_fifo_empty) begin
+            req_cur_r    <= req_fifo_mem[req_rd_ptr[RQ_ABITS-1:0]];
+            req_rd_ptr   <= req_rd_ptr + 1'd1;
+            req_assert_r <= 1'b1;
+        end
+    end
+
+    assign sdram.addr    = req_cur_r[RQ_B_ADDR +: PORT_ADDR_WIDTH];
+    assign sdram.data    = req_cur_r[RQ_B_DATA +: DATA_WIDTH];
+    assign sdram.byte_en = req_cur_r[RQ_B_BE   +: DQM_WIDTH];
+    assign sdram.wr      = req_assert_r & req_cur_r[RQ_B_WR];
+    assign sdram.rd      = req_assert_r & req_cur_r[RQ_B_RD];
+    // burst is held (like addr/data) until the next pop — same lifetime the
+    // old registered path provided.
+    assign sdram.burst   = req_cur_r[RQ_B_BURST];
 
     // =========================================================================
     // Available path: 108 MHz → 54 MHz (registered)

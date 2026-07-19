@@ -27,12 +27,14 @@ set_false_path -from [get_clocks {spi_sclk}] -to [get_clocks {clk_logic}]
 set_false_path -from [get_clocks {clk_logic}] -to [get_clocks {spi_sclk}]
 
 // clk_sdram (108 MHz) and clk_logic (54 MHz) are synchronous via CLKDIV2.
-// Binary pointer CDC relies on CLKDIV2 alignment guarantee.
 // NOTE: set_multicycle_path is broken on Gowin (relaxes ALL domain paths).
 // NOTE: set_max_delay squeezes Fmax to 0.3% margin, destabilizing SDRAM.
-// false_path is the only viable SDC constraint; CDC robustness must come
-// from the HDL design (gray-code FIFO) rather than from routing constraints.
-// (Same rationale as the a2n20v2-GS board.)
+// false_path is the only viable SDC constraint, which means these crossings
+// are NEVER timing-verified — so every one of them must be self-timed in
+// HDL. Both directions of mem_port_cdc now are: the response path is an
+// 8-entry gray-code FIFO and the request path a 4-entry gray-code FIFO
+// (the request path previously relied on unverified routing luck — see
+// mem_port_cdc.sv header). (Same rationale as the a2n20v2-GS board.)
 set_false_path -from [get_clocks {clk_logic}] -to [get_clocks {clk_sdram}]
 set_false_path -from [get_clocks {clk_sdram}] -to [get_clocks {clk_logic}]
 
