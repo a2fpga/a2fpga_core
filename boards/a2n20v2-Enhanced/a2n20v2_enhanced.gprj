@@ -8,8 +8,6 @@
         <File path="../../hdl/bus/a2bus_if.sv" type="file.verilog" enable="1"/>
         <File path="../../hdl/bus/a2bus_control_if.sv" type="file.verilog" enable="1"/>
         <File path="../../hdl/bus/a2bus_timing.sv" type="file.verilog" enable="1"/>
-        <File path="../../hdl/cardrom/cardrom.sv" type="file.verilog" enable="1"/>
-        <File path="../../hdl/cardrom/cardrom.hex" type="file.other" enable="1"/>
         <File path="../../hdl/debug/debugoverlay.sv" type="file.verilog" enable="1"/>
         <File path="../../hdl/disk/apple_disk.sv" type="file.verilog" enable="1"/>
         <File path="../../hdl/disk/drive_ii.sv" type="file.verilog" enable="1"/>

@@ -37,6 +37,12 @@
 #include "usbh_asix.h"      /* stock vendor driver for ASIX AX88772x adapters */
 #include "w5100.h"          /* emulated W5100 (Uthernet II) MACRAW bridge */
 #include "disk.h"           /* Disk II image serving (track-on-demand) */
+#include "boot_timeline.h"  /* boot-milestone timeline (FPGA sys_time capture) */
+
+/* True once the early slot-map apply (below, in main()) has been confirmed by
+ * readback and strobed -- disk_poll's mount-time slot programming then skips
+ * its (re-)apply so the slotmaker is never re-strobed while the Apple runs. */
+bool g_slots_applied_early = false;
 #include "diskio_host.h"    /* SD/USB FatFS backend (g_msc_class) */
 #include "usbh_msc.h"       /* USB Mass Storage host class */
 #include "osd_console.h"    /* shared boot/status console */
@@ -1185,6 +1191,7 @@ int main(void)
     bool ready = fpga_spi_wait_ready(2000);
     dbg_stage(STG_FPGA_READY);
     if (ready) dbg_set(F_FPGA_READY);
+    bt_mark(BT_FPGA_READY);   /* config + SDRAM ready: FPGA-facing work can begin */
 
     /* Assert bus-ready NOW, as early as possible: this lets apple_bus run
      * its bridge init and grab the Apple II's RESET (hold-until-mounted).
@@ -1193,6 +1200,7 @@ int main(void)
      * 0x30 would leave the Apple bus interface parked. Ready means "grab
      * the bus now"; the mount-gated 0x2E release means "boot for real". */
     fpga_spi_reg_write(REG_A2BUS_READY, 1);
+    bt_mark(BT_A2BUS_READY);   /* FPGA now grabs+holds the Apple II /RES */
 
     /* Persisted preferences, then the gamepad menu that edits them. */
     settings_init();
@@ -1203,6 +1211,37 @@ int main(void)
         settings_debug_line(dbg, sizeof(dbg));
         osd_log("SETTINGS: %s  %s",
                 settings_loaded_from_flash() ? "FLASH" : "DEFAULTS", dbg);
+    }
+
+    /* Apply the persisted slot map EARLY -- the gateware gates the Apple II
+     * /RES release on the 0x6B reconfig strobe (reset contract: the Apple
+     * never boots before the virtual cards know their slots), so this is what
+     * lets the machine boot at native-like speed instead of waiting for
+     * storage mounts. Early-main SPI writes are occasionally LOST (same
+     * failure mode as the 0x2E release), so verify every register by readback
+     * and only strobe once the whole map is confirmed; on failure, leave the
+     * strobe to the mount-time path in disk_poll (reset then releases later
+     * but still slot-correct). */
+    {
+        int ok = 1;
+        for (int i = 0; i < 8; i++) {
+            uint8_t c = settings()->slot_cards[i];
+            if (c == 0xFF)
+                c = settings_slot_hw_defaults[i];
+            int good = 0;
+            for (int a = 0; a < 5 && !good; a++) {
+                fpga_spi_reg_write((uint8_t)(0x60 + i), c);
+                good = (fpga_spi_reg_read((uint8_t)(0x60 + i)) == c);
+            }
+            ok &= good;
+        }
+        if (ok) {
+            fpga_spi_reg_write(0x6B, 1);   /* reconfig strobe -> /RES may release */
+            g_slots_applied_early = true;
+            bt_mark(BT_SLOTS_APPLIED);
+        } else {
+            osd_log("SLOTS: EARLY APPLY UNCONFIRMED (deferred to mount path)");
+        }
     }
     osd_log("USB HOST: WAITING FOR DEVICE...");
     dbg_stage(STG_PRE_USB);

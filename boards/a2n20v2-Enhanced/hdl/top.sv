@@ -596,40 +596,17 @@ module top #(
     // BL616 SPI Controller (replaces PicoSOC)
     // -------------------------------------------------------
 
-    wire cardrom_release_w;
-    wire [0:7] cardrom_d_w;
-    wire cardrom_rd;
-    wire cardrom_rd_raw_w;
-    wire cardrom_inh_n_raw_w;
     wire standalone_w;   // from bl616_spi_connector: no BL616 detected
 
-    // Disabled by default: the keyboard-snoop bootstrap is unfinished, and
-    // with mcu_ready now latching (standalone no longer suppressing it) the
-    // live CardROM has a cold-boot trap — its INH release handshake races
-    // the first $FFFC fetch, and losing the race strands the CPU in the
-    // keyboard stub until a manual reset. Re-enable only together with the
-    // full firmware handshake.
-    CardROM #(
-        .ENABLE(1'b0)
-    ) cardrom (
-        .a2bus_if(a2bus_if),
-        .data_o(cardrom_d_w),
-        .rd_en_o(cardrom_rd_raw_w),
-        .inh_n_o(cardrom_inh_n_raw_w),
-        .req_rom_release_i(cardrom_release_w)
-    );
-
-    // Neutralize the CardROM (force INH inactive, no bus drive) when either:
-    //   - standalone_w: no BL616, so no bootstrap handshake exists to release
-    //     the card ROM — it would otherwise keep INH asserted and overlay the
-    //     Apple monitor ROM at $F8xx, crashing the Apple during disk boot.
-    //     standalone_w engages with a2bus_control_if.ready (bridge init), so
-    //     INH is forced inactive before the bridge ever drives it.
-    //   - sw_gs (Apple IIgs): the INH-based ROM-overlay bootstrap mechanism
-    //     does not work on the IIgs, so the card ROM must never activate there.
-    wire cardrom_disable_w = standalone_w || a2bus_if.sw_gs;
-    assign inh_n_w    = cardrom_disable_w ? 1'b1 : cardrom_inh_n_raw_w;
-    assign cardrom_rd = cardrom_disable_w ? 1'b0 : cardrom_rd_raw_w;
+    // CardROM excised: when active it overlaid the Apple $F8xx monitor ROM
+    // region (driving the data bus and asserting /INH). That collided with an
+    // Apple Language Card's own F8 ROM — both drove $F800-$FFFF at the reset
+    // vector / DOS cold-start, corrupting the fetch and hanging the machine
+    // (deterministic; a pure-RAM language card had no F8 ROM so was immune).
+    // The mechanism also never worked on the IIgs. Removed entirely rather
+    // than parameter-disabled so no stale/optimized-away logic can linger.
+    // /INH is left permanently released (open-drain high via the bridge).
+    assign inh_n_w = 1'b1;
 
     video_control_if video_control_if();
     f18a_gpu_if f18a_gpu_if();
@@ -731,6 +708,11 @@ module top #(
     wire        fifo_pop_w;
     wire [2:0]  capture_mode_w;
     wire        capture_enable_w;
+    wire        trig_enable_w;
+    wire [15:0] trig_addr_w;
+    wire [15:0] trig_mask_w;
+    wire        trig_matched_w;
+    wire        oneshot_w;
 
     a2bus_event_fifo #(
         .ENABLE(1'b1)
@@ -742,7 +724,12 @@ module top #(
         .fifo_rdata(fifo_rdata_w),
         .fifo_pop(fifo_pop_w),
         .capture_enable(capture_enable_w),
-        .capture_mode(capture_mode_w)
+        .capture_mode(capture_mode_w),
+        .trig_enable(trig_enable_w),
+        .trig_addr(trig_addr_w),
+        .trig_mask(trig_mask_w),
+        .trig_matched(trig_matched_w),
+        .oneshot(oneshot_w)
     );
 
     // BL616 SPI connector -- drives LED and WS2812 internally
@@ -792,8 +779,8 @@ module top #(
         .standalone_o(standalone_w),
         .mcu_access_stb_o(mcu_access_stb_w),
         .scratch_o(mcu_scratch_w),
-        .cardrom_active_i(!inh_n_w),
-        .cardrom_release_o(cardrom_release_w),
+        .cardrom_active_i(1'b0),        // CardROM excised
+        .cardrom_release_o(),           // CardROM excised
         .button_i(s2),
         .led_o(mcu_led_w),
         .ws2812_o(mcu_ws2812_w),
@@ -808,6 +795,11 @@ module top #(
         .fifo_pop(fifo_pop_w),
         .capture_mode_o(capture_mode_w),
         .capture_enable_o(capture_enable_w),
+        .oneshot_o(oneshot_w),
+        .trig_enable_o(trig_enable_w),
+        .trig_addr_o(trig_addr_w),
+        .trig_mask_o(trig_mask_w),
+        .trig_matched_i(trig_matched_w),
         .w5100_host_wr(u2_host_wr_w),
         .w5100_host_addr(u2_host_addr_w),
         .w5100_host_wdata(u2_host_wdata_w),
@@ -899,9 +891,7 @@ module top #(
 
     assign a2bus_control_if.ready = 1'b1;
 
-    wire [0:7] cardrom_d_w = 8'b0;
-    wire cardrom_rd = 1'b0;
-    assign inh_n_w = 1'b1;
+    assign inh_n_w = 1'b1;   // CardROM excised
 
 
     assign spi_miso = 1'b1;
@@ -1652,7 +1642,7 @@ module top #(
 
     // Data output
 
-    assign data_out_en_w = ssp_rd || mb_rd || ssc_rd || u2_rd || diskii_rd || hdd_rd || cardrom_rd;
+    assign data_out_en_w = ssp_rd || mb_rd || ssc_rd || u2_rd || diskii_rd || hdd_rd;
 
     assign data_out_w = ssc_rd ? ssc_d_w :
         ssp_rd ? ssp_d_w :
@@ -1660,7 +1650,6 @@ module top #(
         u2_rd ? u2_d_w :
         diskii_rd ? diskii_d_w :
         hdd_rd ? hdd_d_w :
-        cardrom_rd ? cardrom_d_w :
         a2bus_if.data;
 
     // Interrupts
