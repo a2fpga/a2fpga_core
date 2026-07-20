@@ -29,6 +29,7 @@ static const char *bt_name(bt_stage_t s)
     switch (s) {
     case BT_FPGA_READY:   return "FPGA_READY(cfg+sdram)";
     case BT_A2BUS_READY:  return "A2BUS_READY";
+    case BT_SLOTS_APPLIED:return "SLOTS_APPLIED";
     case BT_MOUNT_FOUND:  return "MOUNT_FOUND";
     case BT_RST_WRITE:    return "RST_0x2E_WRITE";
     case BT_RST_RELEASED: return "RST_RELEASED";
