@@ -1,0 +1,671 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//ENhttp://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html>
+<head>
+<title>Power Analysis Report</title>
+<style type="text/css">
+body { font-family: Verdana, Arial, sans-serif; font-size: 12px; }
+div#main_wrapper { width: 100%; }
+div#content { margin-left: 350px; margin-right: 30px; }
+div#catalog_wrapper {position: fixed; top: 30px; width: 350px; float: left; }
+div#catalog ul { list-style-type: none; }
+div#catalog li { text-align: left; list-style-type:circle; color: #0084ff; margin-top: 3px; margin-bottom: 3px; }
+div#catalog a { display:inline-block; text-decoration: none; color: #0084ff; font-weight: bold; padding: 3px; }
+div#catalog a:visited { color: #0084ff; }
+div#catalog a:hover { color: #fff; background: #0084ff; }
+hr { margin-top: 30px; margin-bottom: 30px; }
+h1, h3 { text-align: center; }
+h1 {margin-top: 50px; }
+table, th, td {white-space:pre;  border: 1px solid #aaa; }
+table { border-collapse:collapse; margin-top: 10px; margin-bottom: 20px; width: 100%; }
+th, td { padding: 5px 5px 5px 5px; }
+th { color: #fff; font-weight: bold; background-color: #0084ff; }
+table.summary_table td.label { width: 24%; min-width: 200px; background-color: #dee8f4; }
+table.thermal_table td.label { width: 24%; min-width: 200px; background-color: #dee8f4; }
+table.Configure_table td.label { width: 24%; min-width: 200px; background-color: #dee8f4; }
+table.detail_table th.label {  min-width: 8%; width: 8%; }
+</style>
+</head>
+<body>
+<div id="main_wrapper">
+<div id="catalog_wrapper">
+<div id="catalog">
+<ul>
+<li><a href="#Message" style=" font-size: 16px;">Power Messages</a>
+<ul>
+<li><a href="#Configure_Info" style=" font-size: 14px;">Configure Information</a></li>
+</ul>
+</li>
+<li><a href="#Summary" style=" font-size: 16px;">Power Summary</a>
+<ul>
+<li><a href="#Power_Info" style=" font-size: 14px;">Power Information</a></li>
+<li><a href="#Thermal_Info" style=" font-size: 14px;">Thermal Information</a></li>
+<li><a href="#Supply_Summary" style=" font-size: 14px;">Supply Information</a></li>
+</ul>
+</li>
+<li><a href="#Detail" style=" font-size: 16px;">Power Details</a>
+<ul>
+<li><a href="#By_Block_Type" style=" font-size: 14px;">Power By Block Type</a></li>
+<li><a href="#By_Hierarchy" style=" font-size: 14px;">Power By Hierarchy</a></li>
+<li><a href="#By_Clock_Domain" style=" font-size: 14px;">Power By Clock Domain</a></li>
+</ul>
+</li>
+</ul>
+</div><!-- catalog -->
+</div><!-- catalog_wrapper -->
+<div id="content">
+<h1><a name="Message">Power Messages</a></h1>
+<table class="summary_table">
+<tr>
+<td class="label">Report Title</td>
+<td>Power Analysis Report</td>
+</tr>
+<tr>
+<td class="label">Design File</td>
+<td>/private/tmp/claude-501/-Users-edanuff-GitHub-a2fpga-core/f88145ba-fb00-4de4-af84-ea06563f9cb7/scratchpad/wt-combined-rebuild/boards/a2n20v2-Enhanced/impl/gwsynthesis/a2n20v2_enhanced_dualrate.vg</td>
+</tr>
+<tr>
+<td class="label">Physical Constraints File</td>
+<td>/private/tmp/claude-501/-Users-edanuff-GitHub-a2fpga-core/f88145ba-fb00-4de4-af84-ea06563f9cb7/scratchpad/wt-combined-rebuild/boards/a2n20v2-Enhanced/hdl/a2n20v2_enhanced.cst</td>
+</tr>
+<tr>
+<td class="label">Timing Constraints File</td>
+<td>/private/tmp/claude-501/-Users-edanuff-GitHub-a2fpga-core/f88145ba-fb00-4de4-af84-ea06563f9cb7/scratchpad/wt-combined-rebuild/boards/a2n20v2-Enhanced/hdl/a2n20v2_enhanced_dualrate.sdc</td>
+</tr>
+<tr>
+<td class="label">Tool Version</td>
+<td>V1.9.12.01</td>
+</tr>
+<tr>
+<td class="label">Part Number</td>
+<td>GW2AR-LV18QN88C8/I7</td>
+</tr>
+<tr>
+<td class="label">Device</td>
+<td>GW2AR-18</td>
+</tr>
+<tr>
+<td class="label">Device Version</td>
+<td>C</td>
+</tr>
+<tr>
+<td class="label">Created Time</td>
+<td>Sun Jul 19 21:32:32 2026
+</td>
+</tr>
+<tr>
+<td class="label">Legal Announcement</td>
+<td>Copyright (C)2014-2025 Gowin Semiconductor Corporation. All rights reserved.</td>
+</tr>
+</table>
+<h2><a name="Configure_Info">Configure Information:</a></h2>
+<table class="summary_table">
+<tr>
+<td class="label">Grade</td>
+<td>Commercial</td>
+</tr>
+<tr>
+<td class="label">Process</td>
+<td>Typical</td>
+</tr>
+<tr>
+<td class="label">Ambient Temperature</td>
+<td>25.000
+</tr>
+<tr>
+<td class="label">Use Custom Theta JA</td>
+<td>false</td>
+</tr>
+<tr>
+<td class="label">Heat Sink</td>
+<td>None</td>
+</tr>
+<tr>
+<td class="label">Air Flow</td>
+<td>LFM_0</td>
+</tr>
+<tr>
+<td class="label">Use Custom Theta SA</td>
+<td>false</td>
+</tr>
+<tr>
+<td class="label">Board Thermal Model</td>
+<td>None</td>
+</tr>
+<tr>
+<td class="label">Use Custom Theta JB</td>
+<td>false</td>
+</tr>
+<tr>
+<td class="label">Related Vcd File</td>
+<td></td>
+</tr>
+<tr>
+<td class="label">Related Saif File</td>
+<td></td>
+</tr>
+<tr>
+<td class="label">Filter Glitches</td>
+<td>false</td>
+</tr>
+<tr>
+<td class="label">Default IO Toggle Rate</td>
+<td>0.125</td>
+</tr>
+<tr>
+<td class="label">Default Remain Toggle Rate</td>
+<td>0.125</td>
+</tr>
+</table>
+<h1><a name="Summary">Power Summary</a></h1>
+<h2><a name="Power_Info">Power Information:</a></h2>
+<table class="summary_table">
+<tr>
+<td class="label">Total Power (mW)</td>
+<td>329.702</td>
+</tr>
+<tr>
+<td class="label">Quiescent Power (mW)</td>
+<td>122.800</td>
+</tr>
+<tr>
+<td class="label">Dynamic Power (mW)</td>
+<td>206.902</td>
+</tr>
+</table>
+<h2><a name="Thermal_Info">Thermal Information:</a></h2>
+<table class="summary_table">
+<tr>
+<td class="label">Junction Temperature</td>
+<td>34.838</td>
+</tr>
+<tr>
+<td class="label">Theta JA</td>
+<td>29.840</td>
+</tr>
+<tr>
+<td class="label">Max Allowed Ambient Temperature</td>
+<td>75.162</td>
+</tr>
+</table>
+<h2><a name="Supply_Summary">Supply Information:</a></h2>
+<table class="summary_table">
+<tr>
+<th class="label">Voltage Source</th>
+<th class="label">Voltage</th>
+<th class="label">Dynamic Current(mA)</th>
+<th class="label">Quiescent Current(mA)</th>
+<th class="label">Power(mW)</th>
+</tr>
+<tr>
+<td>VCC</td>
+<td>1.000</td>
+<td>158.488</td>
+<td>70.000</td>
+<td>228.488</td>
+</tr>
+<tr>
+<td>VCCX</td>
+<td>3.300</td>
+<td>7.335</td>
+<td>15.000</td>
+<td>73.707</td>
+</tr>
+<tr>
+<td>VCCIO33</td>
+<td>3.300</td>
+<td>7.335</td>
+<td>1.000</td>
+<td>27.507</td>
+</tr>
+</table>
+<h1><a name="Detail">Power Details</a></h1>
+<h2><a name="By_Block_Type">Power By Block Type:</a></h2>
+<table class="detail_table">
+<tr>
+<th class="label">Block Type</th>
+<th class="label">Total Power(mW)</th>
+<th class="label">Static Power(mW)</th>
+<th class="label">Average Toggle Rate(millions of transitions/sec)</th>
+</tr>
+<tr>
+<td>Logic</td>
+<td>12.588</td>
+<td>NA</td>
+<td>6.423</td>
+</tr>
+<tr>
+<td>IO</td>
+<td>74.964
+<td>19.164
+<td>11.105
+</tr>
+<tr>
+<td>BSRAM</td>
+<td>111.695
+<td>NA</td>
+<td>NA</td>
+</tr>
+<tr>
+<td>PLL</td>
+<td>23.539
+<td>NA</td>
+<td>NA</td>
+</tr>
+<tr>
+<td>DSP</td>
+<td>3.220
+<td>NA</td>
+<td>2.493
+</tr>
+</table>
+<h2><a name="By_Hierarchy">Power By Hierarchy:</a></h2>
+<table class="detail_table">
+<tr>
+<th class="label">Hierarchy Entity</th>
+<th class="label">Total Power(mW)</th>
+<th class="label">Block Dynamic Power(mW)</th>
+</tr>
+<tr>
+<td>top</td>
+<td>151.042</td>
+<td>151.042(150.592)</td>
+<tr>
+<td>top/a2bus_event_fifo/</td>
+<td>8.776</td>
+<td>8.776(0.000)</td>
+<tr>
+<td>top/apple_bus/</td>
+<td>0.220</td>
+<td>0.220(0.010)</td>
+<tr>
+<td>top/apple_bus/a2bus_timing_inst/</td>
+<td>0.010</td>
+<td>0.010(0.010)</td>
+<tr>
+<td>top/apple_bus/a2bus_timing_inst/gen_denoise.cdc_7M/</td>
+<td>0.003</td>
+<td>0.003(0.000)</td>
+<tr>
+<td>top/apple_bus/a2bus_timing_inst/gen_denoise.cdc_phi0/</td>
+<td>0.003</td>
+<td>0.003(0.000)</td>
+<tr>
+<td>top/apple_bus/a2bus_timing_inst/gen_denoise.cdc_phi1/</td>
+<td>0.003</td>
+<td>0.003(0.000)</td>
+<tr>
+<td>top/apple_memory/</td>
+<td>0.708</td>
+<td>0.708(0.000)</td>
+<tr>
+<td>top/apple_speaker/</td>
+<td>0.027</td>
+<td>0.027(0.000)</td>
+<tr>
+<td>top/audio_out/</td>
+<td>3.260</td>
+<td>3.260(3.167)</td>
+<tr>
+<td>top/audio_out/IIR_filter/</td>
+<td>2.634</td>
+<td>2.634(0.551)</td>
+<tr>
+<td>top/audio_out/IIR_filter/iir_tap_0/</td>
+<td>0.258</td>
+<td>0.258(0.000)</td>
+<tr>
+<td>top/audio_out/IIR_filter/iir_tap_1/</td>
+<td>0.190</td>
+<td>0.190(0.000)</td>
+<tr>
+<td>top/audio_out/IIR_filter/iir_tap_2/</td>
+<td>0.103</td>
+<td>0.103(0.000)</td>
+<tr>
+<td>top/audio_out/dcb_l/</td>
+<td>0.267</td>
+<td>0.267(0.000)</td>
+<tr>
+<td>top/audio_out/dcb_r/</td>
+<td>0.267</td>
+<td>0.267(0.000)</td>
+<tr>
+<td>top/audio_timing/</td>
+<td>0.020</td>
+<td>0.020(0.000)</td>
+<tr>
+<td>top/bl616_spi/</td>
+<td>26.979</td>
+<td>26.979(0.336)</td>
+<tr>
+<td>top/bl616_spi/debounce_a2reset/</td>
+<td>0.019</td>
+<td>0.019(0.000)</td>
+<tr>
+<td>top/bl616_spi/fpga_sd_spi_inst/</td>
+<td>0.034</td>
+<td>0.034(0.000)</td>
+<tr>
+<td>top/bl616_spi/proto/</td>
+<td>0.282</td>
+<td>0.282(0.000)</td>
+<tr>
+<td>top/bl616_spi/system_reset_release/</td>
+<td>0.001</td>
+<td>0.001(0.000)</td>
+<tr>
+<td>top/cdc_a2reset/</td>
+<td>0.001</td>
+<td>0.001(0.000)</td>
+<tr>
+<td>top/clk_hdmi_inst/</td>
+<td>14.121</td>
+<td>14.121(0.000)</td>
+<tr>
+<td>top/clk_logic_inst/</td>
+<td>9.417</td>
+<td>9.417(0.000)</td>
+<tr>
+<td>top/debug_overlay/</td>
+<td>0.051</td>
+<td>0.051(0.000)</td>
+<tr>
+<td>top/diskii/</td>
+<td>1.103</td>
+<td>1.103(1.054)</td>
+<tr>
+<td>top/diskii/diskrom/</td>
+<td>0.758</td>
+<td>0.758(0.000)</td>
+<tr>
+<td>top/diskii/drive_1/</td>
+<td>0.146</td>
+<td>0.146(0.000)</td>
+<tr>
+<td>top/diskii/drive_2/</td>
+<td>0.143</td>
+<td>0.143(0.000)</td>
+<tr>
+<td>top/diskii/ram_disk_mux/</td>
+<td>0.007</td>
+<td>0.007(0.000)</td>
+<tr>
+<td>top/gen_pixel_stream_video.apple_direct/</td>
+<td>0.044</td>
+<td>0.044(0.000)</td>
+<tr>
+<td>top/gen_pixel_stream_video.apple_video_gen/</td>
+<td>1.204</td>
+<td>1.204(0.000)</td>
+<tr>
+<td>top/gen_pixel_stream_video.vgc_direct/</td>
+<td>0.008</td>
+<td>0.008(0.000)</td>
+<tr>
+<td>top/gen_pixel_stream_video.vgc_gen/</td>
+<td>0.230</td>
+<td>0.230(0.000)</td>
+<tr>
+<td>top/hdd/</td>
+<td>4.066</td>
+<td>4.066(0.000)</td>
+<tr>
+<td>top/hdmi/</td>
+<td>0.493</td>
+<td>0.493(0.454)</td>
+<tr>
+<td>top/hdmi/tmds_gen[0].tmds_channel/</td>
+<td>0.053</td>
+<td>0.053(0.000)</td>
+<tr>
+<td>top/hdmi/tmds_gen[1].tmds_channel/</td>
+<td>0.047</td>
+<td>0.047(0.000)</td>
+<tr>
+<td>top/hdmi/tmds_gen[2].tmds_channel/</td>
+<td>0.048</td>
+<td>0.048(0.000)</td>
+<tr>
+<td>top/hdmi/true_hdmi_output.packet_assembler/</td>
+<td>0.107</td>
+<td>0.107(0.000)</td>
+<tr>
+<td>top/hdmi/true_hdmi_output.packet_picker/</td>
+<td>0.199</td>
+<td>0.199(0.048)</td>
+<tr>
+<td>top/hdmi/true_hdmi_output.packet_picker/audio_clock_regeneration_packet/</td>
+<td>0.048</td>
+<td>0.048(0.000)</td>
+<tr>
+<td>top/mcu_status_led_inst/</td>
+<td>0.162</td>
+<td>0.162(0.000)</td>
+<tr>
+<td>top/mem_cdc[0].cdc_inst/</td>
+<td>0.062</td>
+<td>0.062(0.000)</td>
+<tr>
+<td>top/mem_cdc[1].cdc_inst/</td>
+<td>0.040</td>
+<td>0.040(0.000)</td>
+<tr>
+<td>top/mem_cdc[2].cdc_inst/</td>
+<td>0.060</td>
+<td>0.060(0.000)</td>
+<tr>
+<td>top/mem_cdc[3].cdc_inst/</td>
+<td>0.053</td>
+<td>0.053(0.000)</td>
+<tr>
+<td>top/mem_cdc[4].cdc_inst/</td>
+<td>0.086</td>
+<td>0.086(0.000)</td>
+<tr>
+<td>top/mem_cdc[5].cdc_inst/</td>
+<td>0.067</td>
+<td>0.067(0.000)</td>
+<tr>
+<td>top/mem_cdc[6].cdc_inst/</td>
+<td>0.076</td>
+<td>0.076(0.000)</td>
+<tr>
+<td>top/mockingboard/</td>
+<td>1.075</td>
+<td>1.075(1.073)</td>
+<tr>
+<td>top/mockingboard/m6522_left/</td>
+<td>0.210</td>
+<td>0.210(0.000)</td>
+<tr>
+<td>top/mockingboard/m6522_right/</td>
+<td>0.208</td>
+<td>0.208(0.000)</td>
+<tr>
+<td>top/mockingboard/psg_left/</td>
+<td>0.326</td>
+<td>0.326(0.000)</td>
+<tr>
+<td>top/mockingboard/psg_right/</td>
+<td>0.330</td>
+<td>0.330(0.000)</td>
+<tr>
+<td>top/sdram_ports/</td>
+<td>0.876</td>
+<td>0.876(0.876)</td>
+<tr>
+<td>top/sdram_ports/sdram_inst/</td>
+<td>0.876</td>
+<td>0.876(0.000)</td>
+<tr>
+<td>top/sg/</td>
+<td>1.166</td>
+<td>1.166(1.043)</td>
+<tr>
+<td>top/sg/doc5503/</td>
+<td>1.043</td>
+<td>1.043(0.122)</td>
+<tr>
+<td>top/sg/doc5503/acc_ram/</td>
+<td>0.038</td>
+<td>0.038(0.000)</td>
+<tr>
+<td>top/sg/doc5503/control_ram/</td>
+<td>0.013</td>
+<td>0.013(0.000)</td>
+<tr>
+<td>top/sg/doc5503/fh_ram/</td>
+<td>0.013</td>
+<td>0.013(0.000)</td>
+<tr>
+<td>top/sg/doc5503/fl_ram/</td>
+<td>0.013</td>
+<td>0.013(0.000)</td>
+<tr>
+<td>top/sg/doc5503/rts_ram/</td>
+<td>0.010</td>
+<td>0.010(0.000)</td>
+<tr>
+<td>top/sg/doc5503/vol_ram/</td>
+<td>0.013</td>
+<td>0.013(0.000)</td>
+<tr>
+<td>top/sg/doc5503/wds_ram/</td>
+<td>0.009</td>
+<td>0.009(0.000)</td>
+<tr>
+<td>top/sg/doc5503/wtp_ram/</td>
+<td>0.013</td>
+<td>0.013(0.000)</td>
+<tr>
+<td>top/slotmaker/</td>
+<td>0.016</td>
+<td>0.016(0.000)</td>
+<tr>
+<td>top/superserial/</td>
+<td>0.864</td>
+<td>0.864(0.857)</td>
+<tr>
+<td>top/superserial/COM2/</td>
+<td>0.162</td>
+<td>0.162(0.116)</td>
+<tr>
+<td>top/superserial/COM2/uart_rx_inst/</td>
+<td>0.063</td>
+<td>0.063(0.000)</td>
+<tr>
+<td>top/superserial/COM2/uart_tx_inst/</td>
+<td>0.054</td>
+<td>0.054(0.000)</td>
+<tr>
+<td>top/superserial/rom/</td>
+<td>0.695</td>
+<td>0.695(0.000)</td>
+<tr>
+<td>top/supersprite/</td>
+<td>41.533</td>
+<td>41.533(41.447)</td>
+<tr>
+<td>top/supersprite/ssp_psg/</td>
+<td>0.327</td>
+<td>0.327(0.000)</td>
+<tr>
+<td>top/supersprite/vdp/</td>
+<td>41.119</td>
+<td>41.119(41.119)</td>
+<tr>
+<td>top/supersprite/vdp/f18a_core/</td>
+<td>41.119</td>
+<td>41.119(41.117)</td>
+<tr>
+<td>top/supersprite/vdp/f18a_core/inst_color/</td>
+<td>0.036</td>
+<td>0.036(0.000)</td>
+<tr>
+<td>top/supersprite/vdp/f18a_core/inst_counters/</td>
+<td>0.064</td>
+<td>0.064(0.000)</td>
+<tr>
+<td>top/supersprite/vdp/f18a_core/inst_cpu/</td>
+<td>0.596</td>
+<td>0.596(0.000)</td>
+<tr>
+<td>top/supersprite/vdp/f18a_core/inst_sprites/</td>
+<td>8.544</td>
+<td>8.544(0.000)</td>
+<tr>
+<td>top/supersprite/vdp/f18a_core/inst_tiles/</td>
+<td>2.167</td>
+<td>2.167(0.314)</td>
+<tr>
+<td>top/supersprite/vdp/f18a_core/inst_tiles/inst_linebuf/</td>
+<td>0.314</td>
+<td>0.314(0.000)</td>
+<tr>
+<td>top/supersprite/vdp/f18a_core/inst_vga_cont/</td>
+<td>0.002</td>
+<td>0.002(0.000)</td>
+<tr>
+<td>top/supersprite/vdp/f18a_core/inst_vram/</td>
+<td>29.707</td>
+<td>29.707(29.643)</td>
+<tr>
+<td>top/supersprite/vdp/f18a_core/inst_vram/inst_ram/</td>
+<td>29.643</td>
+<td>29.643(0.000)</td>
+<tr>
+<td>top/uthernet2/</td>
+<td>33.624</td>
+<td>33.624(0.000)</td>
+<tr>
+<td>top/ws2812_inst/</td>
+<td>0.105</td>
+<td>0.105(0.000)</td>
+</table>
+<h2><a name="By_Clock_Domain">Power By Clock Domain:</a></h2>
+<table class="detail_table">
+<tr>
+<th class="label">Clock Domain</th>
+<th class="label">Clock Frequency(Mhz)</th>
+<th class="label">Total Dynamic Power(mW)</th>
+</tr>
+<tr>
+<td>clk_logic</td>
+<td>54.000</td>
+<td>122.377</td>
+</tr>
+<tr>
+<td>spi_sclk</td>
+<td>4.000</td>
+<td>0.002</td>
+</tr>
+<tr>
+<td>clk_pixel</td>
+<td>27.000</td>
+<td>18.172</td>
+</tr>
+<tr>
+<td>clk_sdram</td>
+<td>108.000</td>
+<td>1.124</td>
+</tr>
+<tr>
+<td>NO CLOCK DOMAIN</td>
+<td>0.000</td>
+<td>0.000</td>
+</tr>
+<tr>
+<td>clk_hdmi</td>
+<td>135.000</td>
+<td>0.009</td>
+</tr>
+<tr>
+<td>clk</td>
+<td>27.000</td>
+<td>9.417</td>
+</tr>
+</table>
+</div><!-- content -->
+</div><!-- main_wrapper -->
+</body>
+</html>
