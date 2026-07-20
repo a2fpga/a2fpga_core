@@ -16,7 +16,21 @@ module a2bus_event_fifo #(
 
     // Control
     input  wire        capture_enable,
-    input  wire [2:0]  capture_mode
+    input  wire [2:0]  capture_mode,
+
+    // Trigger: when armed, freeze the rolling buffer on the first cycle whose
+    // address matches (addr & trig_mask) == (trig_addr & trig_mask), so the
+    // buffer holds the ~512 cycles leading up to (and including) that event.
+    input  wire        trig_enable,
+    input  wire [15:0] trig_addr,
+    input  wire [15:0] trig_mask,
+    output wire        trig_matched,
+
+    // Oneshot: when set, the FIFO fills once and FREEZES when full (keeps the
+    // FIRST 512 captured cycles) instead of rolling (keeping the last 512).
+    // Armed at config it captures the first 512 bus cycles after /RES release
+    // -- the reset-vector fetch and boot run-up -- with no trigger needed.
+    input  wire        oneshot
 );
 
     // Bus capture timing
@@ -46,18 +60,45 @@ module a2bus_event_fifo #(
         endcase
     end
 
-    wire capture_trigger_w = bus_cycle_w & capture_this_cycle;
+    wire capture_trigger_cond_w = bus_cycle_w & capture_this_cycle;
 
-    // Packet formation: [ADDR:16][DATA:8][FLAGS:8]
+    // Trigger / freeze: once armed and a matching address is seen, latch
+    // frozen_r to stop capture -- the rolling buffer then holds the run-up to
+    // the event. Disarming (trig_enable=0) clears it (that's how firmware
+    // re-arms). The matching cycle itself is still captured (frozen_r updates
+    // the cycle after the hit).
+    reg  frozen_r;
+    wire trig_hit_w = trig_enable & capture_trigger_cond_w & ~frozen_r &
+                      (((a2bus_if.addr ^ trig_addr) & trig_mask) == 16'h0000);
+    always @(posedge a2bus_if.clk_logic) begin
+        if (!a2bus_if.system_reset_n) frozen_r <= 1'b0;
+        else if (!trig_enable)        frozen_r <= 1'b0;
+        else if (trig_hit_w)          frozen_r <= 1'b1;
+    end
+    assign trig_matched = frozen_r;
+
+    // Effective capture strobe: gated off once frozen, and (in oneshot mode)
+    // once full -- which also disables the rolling oldest-drop below, so the
+    // buffer holds the FIRST 512 cycles until drained.
+    wire capture_trigger_w = capture_trigger_cond_w & ~frozen_r &
+                             ~(oneshot & fifo_full);
+
+    // Packet formation: [ADDR:16][DATA:8][CTRL:8]
+    // CTRL byte captures the full Apple II control-line set per cycle so the
+    // event FIFO doubles as a logic analyzer (no external scope needed):
+    //   [7]=rw_n(1=rd) [6]=/INH [5]=/RESET [4]=/IRQ [3]=/NMI [2]=/DMA
+    //   [1]=/RDY [0]=m2sel_n .  The control lines are active-low (0=asserted).
     wire [31:0] packet_data_w = {
         a2bus_if.addr,
         a2bus_if.data,
         a2bus_if.rw_n,
-        a2bus_if.m2sel_n,
-        a2bus_if.m2b0,
-        a2bus_if.sw_gs,
-        3'b000,
-        1'b0
+        a2bus_if.control_inh_n,
+        a2bus_if.control_reset_n,
+        a2bus_if.control_irq_n,
+        a2bus_if.control_nmi_n,
+        a2bus_if.control_dma_n,
+        a2bus_if.control_rdy_n,
+        a2bus_if.m2sel_n
     };
 
     // -------------------------------------------------------
@@ -86,22 +127,29 @@ module a2bus_event_fifo #(
     end
     assign fifo_rdata = fifo_rdata_r;
 
-    // Write port
+    // Write port -- ROLLING: always writes; when full it overwrites the oldest
+    // (rd_ptr advances below). This keeps the LAST FIFO_DEPTH cycles, so after
+    // the CPU halts/hangs the buffer holds the run-up to the stall (the jump
+    // target + the halting opcode), rather than the start of capture.
     always @(posedge a2bus_if.clk_logic) begin
         if (!a2bus_if.system_reset_n) begin
             wr_ptr_r <= 0;
-        end else if (capture_trigger_w && !fifo_full) begin
+        end else if (capture_trigger_w) begin
             fifo_mem[wr_addr] <= packet_data_w;
             wr_ptr_r <= wr_ptr_r + 1;
         end
     end
 
-    // Read port (pop)
+    // Read pointer: during rolling capture, drop the oldest when full; during
+    // read-out (capture disabled -> capture_trigger_w=0) advance on pop. The
+    // two never fire together (firmware freezes capture before draining).
     always @(posedge a2bus_if.clk_logic) begin
         if (!a2bus_if.system_reset_n) begin
             rd_ptr_r <= 0;
+        end else if (capture_trigger_w && fifo_full) begin
+            rd_ptr_r <= rd_ptr_r + 1;          // rolling: overwrite oldest
         end else if (fifo_pop && !fifo_empty) begin
-            rd_ptr_r <= rd_ptr_r + 1;
+            rd_ptr_r <= rd_ptr_r + 1;          // read-out pop
         end
     end
 

@@ -37,6 +37,7 @@
 #include "usbh_asix.h"      /* stock vendor driver for ASIX AX88772x adapters */
 #include "w5100.h"          /* emulated W5100 (Uthernet II) MACRAW bridge */
 #include "disk.h"           /* Disk II image serving (track-on-demand) */
+#include "boot_timeline.h"  /* boot-milestone timeline (FPGA sys_time capture) */
 #include "diskio_host.h"    /* SD/USB FatFS backend (g_msc_class) */
 #include "usbh_msc.h"       /* USB Mass Storage host class */
 #include "osd_console.h"    /* shared boot/status console */
@@ -1185,6 +1186,7 @@ int main(void)
     bool ready = fpga_spi_wait_ready(2000);
     dbg_stage(STG_FPGA_READY);
     if (ready) dbg_set(F_FPGA_READY);
+    bt_mark(BT_FPGA_READY);   /* config + SDRAM ready: FPGA-facing work can begin */
 
     /* Assert bus-ready NOW, as early as possible: this lets apple_bus run
      * its bridge init and grab the Apple II's RESET (hold-until-mounted).
@@ -1193,6 +1195,7 @@ int main(void)
      * 0x30 would leave the Apple bus interface parked. Ready means "grab
      * the bus now"; the mount-gated 0x2E release means "boot for real". */
     fpga_spi_reg_write(REG_A2BUS_READY, 1);
+    bt_mark(BT_A2BUS_READY);   /* FPGA now grabs+holds the Apple II /RES */
 
     /* Persisted preferences, then the gamepad menu that edits them. */
     settings_init();

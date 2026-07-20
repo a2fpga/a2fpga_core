@@ -73,6 +73,11 @@ module bl616_spi_connector #(
     output wire        fifo_pop,
     output reg  [2:0]  capture_mode_o,
     output reg         capture_enable_o,
+    output reg         oneshot_o,
+    output reg         trig_enable_o,
+    output reg  [15:0] trig_addr_o,
+    output reg  [15:0] trig_mask_o,
+    input  wire        trig_matched_i,
 
     // Uthernet2 (W5100) backing store -- SPI memory SPACE 3 (port B of the card)
     output wire        w5100_host_wr,
@@ -844,6 +849,13 @@ module bl616_spi_connector #(
             7'h17: reg_rdata = {7'b0, col80_r};
             7'h18: reg_rdata = {7'b0, altchar_r};
             7'h19: reg_rdata = {7'b0, shrg_mode_r};
+            // bus-event FIFO trigger (freeze-on-match)
+            7'h1A: reg_rdata = {6'b0, trig_matched_i, trig_enable_o};
+            7'h1B: reg_rdata = trig_addr_o[7:0];
+            7'h1C: reg_rdata = trig_addr_o[15:8];
+            7'h1D: reg_rdata = trig_mask_o[7:0];
+            7'h1E: reg_rdata = trig_mask_o[15:8];
+            7'h1F: reg_rdata = {7'b0, oneshot_o};
 
             // Page 2: Video colors & keyboard
             7'h20: reg_rdata = {4'b0, text_color_r};
@@ -1009,7 +1021,16 @@ module bl616_spi_connector #(
             led_o            <= 5'd0;
             ws2812_o         <= 1'b0;
             capture_mode_o   <= 3'd0;
-            capture_enable_o <= 1'b0;
+            // Debug-friendly defaults: capture armed from config with oneshot
+            // set, so the FIFO always holds the FIRST 512 bus cycles after
+            // /RES release (reset-vector fetch + boot run-up) with no MCU
+            // involvement -- free field boot-forensics. Firmware/telnet can
+            // flip to rolling (0x1F=0) or disable capture (0x79=0) at will.
+            capture_enable_o <= 1'b1;
+            oneshot_o        <= 1'b1;
+            trig_enable_o    <= 1'b0;
+            trig_addr_o      <= 16'd0;
+            trig_mask_o      <= 16'd0;
             fifo_reg_pop_r   <= 1'b0;
             sd_cs_n_r        <= 1'b1;
             sd_slow_clk_r    <= 1'b1;
@@ -1146,6 +1167,12 @@ module bl616_spi_connector #(
                     7'h77: fifo_reg_pop_r  <= 1'b1;  // FIFO_POP
                     7'h78: capture_mode_o   <= reg_wdata[2:0];
                     7'h79: capture_enable_o <= reg_wdata[0];
+                    7'h1A: trig_enable_o     <= reg_wdata[0];
+                    7'h1B: trig_addr_o[7:0]  <= reg_wdata;
+                    7'h1C: trig_addr_o[15:8] <= reg_wdata;
+                    7'h1D: trig_mask_o[7:0]  <= reg_wdata;
+                    7'h1E: trig_mask_o[15:8] <= reg_wdata;
+                    7'h1F: oneshot_o         <= reg_wdata[0];
 
                     // Uthernet2 doorbell clear (write-1-to-clear sockets 0-3)
                     7'h7A: w5100_cmd_clr_r <= reg_wdata[3:0];
