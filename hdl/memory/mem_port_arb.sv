@@ -80,10 +80,33 @@ module mem_port_arb #(
             assign cl_addr_w[gi] = clients[gi].addr;
             assign cl_data_w[gi] = clients[gi].data;
             assign cl_be_w[gi] = clients[gi].byte_en;
-            assign clients[gi].q = controller.q;
             assign clients[gi].ready = controller.ready && busy_r &&
                                        (owner_r == ($clog2(NUM_CLIENTS))'(gi));
             assign clients[gi].available = controller.available && !busy_r;
+        end
+    endgenerate
+
+    // Per-client private read-data latch. controller.q is a single register in
+    // the controller that is overwritten by whichever client's read completes
+    // next, but clients consume q well AFTER their completion pulse (drive_ii
+    // holds a fetched track word for up to ~32 CPU cycles before reading its
+    // byte lanes) — with a shared q, another client's read landing in that
+    // window silently substitutes the wrong word. Latch q per client on that
+    // client's own READ completion and hold it until its next read; pass
+    // controller.q through combinationally on the completion cycle itself
+    // (sdram.sv registers port_q and port_ready together, so q is valid
+    // exactly when ready pulses and a client may sample it that same cycle).
+    // Write completions must NOT latch (q is stale then and would clobber the
+    // client's previously fetched word).
+    reg [DATA_WIDTH-1:0] client_q_r [NUM_CLIENTS-1:0];
+    generate
+        for (genvar gq = 0; gq < NUM_CLIENTS; gq++) begin : client_q
+            wire own_rd_done_w = controller.ready && busy_r && !req_is_wr_r &&
+                                 (owner_r == ($clog2(NUM_CLIENTS))'(gq));
+            always @(posedge clk_i) begin
+                if (own_rd_done_w) client_q_r[gq] <= controller.q;
+            end
+            assign clients[gq].q = own_rd_done_w ? controller.q : client_q_r[gq];
         end
     endgenerate
 
@@ -114,6 +137,11 @@ module mem_port_arb #(
 
             if (busy_r) begin
                 if (controller.ready) begin
+                    // LATENT: a burst-2 read returns TWO ready pulses; clearing
+                    // busy on the first would hand the second beat (and the
+                    // owner's q latch) to the next grant. Safe today because
+                    // every client ties burst=0 — add a beat counter here
+                    // before ever enabling bursts through this arbiter.
                     busy_r <= 1'b0;
                     req_r  <= 1'b0;   // dead cycle before the next grant
                 end
