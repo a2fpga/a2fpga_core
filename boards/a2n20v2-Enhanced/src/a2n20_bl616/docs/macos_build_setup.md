@@ -49,6 +49,60 @@ export PATH=$(brew --prefix)/opt/coreutils/libexec/gnubin:$PATH
 make newlib -j$(sysctl -n hw.ncpu)
 ```
 
+### Newer macOS / recent Xcode build fixes
+
+The `--enable-gdb` + `make newlib` recipe above works on older Command Line
+Tools, but on a recent macOS with current Xcode CLT (Apple clang 16/17+) the
+vendored GCC 10.4.0 tree fails to build in three independent ways. If `make
+newlib` errors out, apply these and build the compiler target directly.
+
+1. **Bundled zlib won't compile** (in `binutils`, and `gdb`).
+   ```
+   zutil.c:133:16: error: expected identifier or '('
+     133 | const char * ZEXPORT zError(err)
+   make[3]: *** [libz_a-zutil.o] Error 1
+   ```
+   Only the top-level `gcc` configure passes `--with-system-zlib`; the
+   `binutils`/`gdb` sub-builds don't. Fix: in the generated `Makefile`, add
+   `--with-system-zlib` to the `configure` invocation under
+   `stamps/build-binutils-newlib:` (and `stamps/build-gdb-newlib:` if you build
+   gdb).
+
+2. **GCC's host C++ won't compile against Apple's libc++.**
+   ```
+   .../c++/v1/__locale:477:3: error: '__abi_tag__' attribute only applies to
+     structs, variables, functions, and namespaces
+   ```
+   Fix: build the host tools with Homebrew GCC instead of Apple clang
+   (`brew install gcc`), e.g. `export CC=gcc-16 CXX=g++-16` (match your installed
+   version).
+
+3. **A `.` on your `$PATH` shadows the assembler.**
+   GCC's build tree contains wrapper scripts literally named `as`/`ld`; if `.`
+   (or `./`) is on `$PATH`, they are picked up instead of the system assembler.
+   ```
+   Assembler messages:
+   Fatal error: invalid listing option `r'
+   ```
+   Fix: build with a `$PATH` that has no `.`/`./` entries.
+
+Target `gdb` is **not needed** to build firmware, and it does not compile against
+the current libc++ even with fix (1). Skip it: drop `--enable-gdb` and build the
+compiler stamp directly rather than the `newlib` meta-target (which depends on
+gdb).
+
+Working recipe (after the clone + newlib patch + `config.host` edits above, and
+after adding `--with-system-zlib` to the binutils recipe in the `Makefile`):
+
+```bash
+# GNU coreutils first; NO '.' anywhere on PATH
+export PATH="$(brew --prefix)/opt/coreutils/libexec/gnubin:/opt/homebrew/bin:/usr/bin:/bin"
+export CC=gcc-16 CXX=g++-16          # Homebrew GCC as the host compiler
+
+./configure --prefix=/opt/riscv-toolchain/xuantie --with-cmodel=medany --enable-multilib
+make stamps/build-gcc-newlib-stage2 -j$(sysctl -n hw.ncpu)   # builds gcc + newlib, skips gdb
+```
+
 ### Verify installation
 
 ```bash
@@ -114,6 +168,25 @@ PATH=/opt/riscv-toolchain/xuantie/bin:$PATH BL_SDK_BASE=/path/to/bouffalo_sdk \
 Expected: a clean run ends with `Built target combine` and the `.bin` exists.
 
 ## Flashing
+
+### Flashing-tool prerequisites (`a2n20-mcu-program`)
+
+The recommended flasher, `tools/a2n20-mcu-program`, is a Python wrapper around
+`bflb-iot-tool`. Two things bite on macOS:
+
+- It needs the `pyserial` and `bflb-iot-tool` Python packages.
+- `bflb-iot-tool` imports `telnetlib`, which was **removed in Python 3.13**.
+  Homebrew's default `python3` is now 3.13/3.14, so use **Python 3.12 or older**.
+
+A self-contained venv avoids touching system Python:
+
+```bash
+cd boards/a2n20v2-Enhanced/src/a2n20_bl616
+/opt/homebrew/bin/python3.12 -m venv .venv        # brew install python@3.12 if needed
+.venv/bin/pip install pyserial bflb-iot-tool
+# run with the venv's bin on PATH so the wrapper can find bflb-iot-tool:
+PATH="$PWD/.venv/bin:$PATH" .venv/bin/python tools/a2n20-mcu-program --detect
+```
 
 ### Enter boot mode
 

@@ -1,6 +1,7 @@
 .vscode/
 .obsidian/
 *.user
+.venv/
 impl/gwsynthesis/*
 !impl/gwsynthesis/*.cfg
 impl/temp/*
