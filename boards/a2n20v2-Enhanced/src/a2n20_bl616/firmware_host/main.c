@@ -1231,9 +1231,7 @@ int main(void)
     {
         int ok = 1;
         for (int i = 0; i < 8; i++) {
-            uint8_t c = settings()->slot_cards[i];
-            if (c == 0xFF)
-                c = settings_slot_hw_defaults[i];
+            uint8_t c = settings_slot_effective(i);
             int good = 0;
             for (int a = 0; a < 5 && !good; a++) {
                 fpga_spi_reg_write((uint8_t)(0x60 + i), c);
