@@ -36,15 +36,9 @@ assign sub[3] = subs[packet_type][3];
 
 // NULL packet
 // "An HDMI Sink shall ignore bytes HB1 and HB2 of the Null Packet Header and all bytes of the Null Packet Body."
-`ifdef MODEL_TECH
-assign headers[0] = {8'd0, 8'd0, 8'd0}; assign subs[0] = '{56'd0, 56'd0, 56'd0, 56'd0};
-`else
-assign headers[0] = {8'dX, 8'dX, 8'd0};
-assign subs[0][0] = 56'dX;
-assign subs[0][1] = 56'dX;
-assign subs[0][2] = 56'dX;
-assign subs[0][3] = 56'dX;
-`endif
+// Use deterministic zero values so BCH ECC is consistent in synthesis.
+assign headers[0] = {8'd0, 8'd0, 8'd0};
+assign subs[0] = '{56'd0, 56'd0, 56'd0, 56'd0};
 
 // Audio Clock Regeneration Packet
 logic clk_audio_counter_wrap;
@@ -135,7 +129,19 @@ audio_sample_packet #(.SAMPLING_FREQUENCY(SAMPLING_FREQUENCY), .WORD_LENGTH({{WO
 
 auxiliary_video_information_info_frame #(
     .VIDEO_ID_CODE(7'(VIDEO_ID_CODE)),
-    .IT_CONTENT(IT_CONTENT)
+    .IT_CONTENT(IT_CONTENT),
+    // CTA-861 requires PICTURE_ASPECT_RATIO to match the VIC.
+    // VIC 2 = 4:3, VIC 3 = 16:9.  Leaving this at "no data" (2'b00)
+    // caused some HDMI sinks (e.g. Ingnok) to reject the signal.
+    .PICTURE_ASPECT_RATIO(VIDEO_ID_CODE == 3 ? 2'b10 : 2'b01),
+    // Samsung TVs require ACTIVE_FORMAT_INFO_PRESENT=1 with R3-R0=1000
+    // ("same as coded frame") or they may reject the signal.
+    .ACTIVE_FORMAT_INFO_PRESENT(1'b1),
+    // Tell the sink this is underscan content (pixel-accurate, no overscan).
+    .SCAN_INFO(2'b10),
+    // Explicitly signal full-range RGB (0-255). Samsung TVs need this
+    // rather than relying on the IT_CONTENT flag to imply full range.
+    .RGB_QUANTIZATION_RANGE(2'b10)
 ) auxiliary_video_information_info_frame(.header(headers[130]), .sub(subs[130]));
 
 
@@ -160,7 +166,7 @@ begin
         audio_info_frame_sent <= 1'b0;
         auxiliary_video_information_info_frame_sent <= 1'b0;
         source_product_description_info_frame_sent <= 1'b0;
-        packet_type <= 8'dx;
+        packet_type <= 8'd0;
     end
     else if (packet_enable)
     begin

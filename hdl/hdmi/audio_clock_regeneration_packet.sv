@@ -57,11 +57,8 @@ begin
 end
 
 // "An HDMI Sink shall ignore bytes HB1 and HB2 of the Audio Clock Regeneration Packet header."
-`ifdef MODEL_TECH
+// Use deterministic zero values so BCH ECC is consistent in synthesis.
 assign header = {8'd0, 8'd0, 8'd1};
-`else
-assign header = {8'dX, 8'dX, 8'd1};
-`endif
 
 // "The four Subpackets each contain the same Audio Clock regeneration Subpacket."
 genvar i;
