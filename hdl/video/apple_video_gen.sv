@@ -85,9 +85,13 @@ module apple_video_gen #(
     reg [7:0] viderom_d_r;
     always @(posedge clk_i) viderom_d_r <= ~viderom_r[viderom_a_r];
 
-    reg [22:0] flash_cnt_r;
-    always @(posedge clk_i) flash_cnt_r <= flash_cnt_r + 1'b1;
-    wire flash_clk_w = flash_cnt_r[22];
+    // Text FLASH: frame-locked, toggling every 16 frames (~1.875 Hz at 60 Hz),
+    // matching a real Apple II. Previously a free-running clock counter
+    // (flash_cnt_r[22]); on clk_logic (54 MHz) that blinked ~6.4 Hz, twice the
+    // legacy 27 MHz generator and over 3x a real machine.
+    reg [4:0] flash_frames_r = 5'd0;
+    always @(posedge clk_i) if (pixel_stream.vsync) flash_frames_r <= flash_frames_r + 5'd1;
+    wire flash_clk_w = flash_frames_r[4];
 
     // ----------------------------------------------------------------------------------------------------------------
     // Utility functions — verbatim from apple_video.sv

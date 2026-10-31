@@ -141,9 +141,17 @@ module apple_video (
     reg [7:0] viderom_d_r;
     always @(posedge a2bus_if.clk_pixel) viderom_d_r <= ~viderom_r[viderom_a_r];
 
-    reg [22:0] flash_cnt_r;
-    always @(posedge a2bus_if.clk_pixel) flash_cnt_r <= flash_cnt_r + 1'b1;
-    wire flash_clk_w = flash_cnt_r[22];
+    // Text FLASH: frame-locked, toggling every 16 HDMI frames (~1.875 Hz at
+    // 60 Hz), matching a real Apple II. Previously flash_cnt_r[22] of a
+    // free-running 27 MHz counter (~3.2 Hz).
+    reg       flash_vblank_r = 1'b0;
+    reg [4:0] flash_frames_r = 5'd0;
+    always @(posedge a2bus_if.clk_pixel) begin
+        flash_vblank_r <= (screen_y_i >= SCREEN_HEIGHT);
+        if ((screen_y_i >= SCREEN_HEIGHT) && !flash_vblank_r)
+            flash_frames_r <= flash_frames_r + 5'd1;
+    end
+    wire flash_clk_w = flash_frames_r[4];
 
     // ----------------------------------------------------------------------------------------------------------------
     //
