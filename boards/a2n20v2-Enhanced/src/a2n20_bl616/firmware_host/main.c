@@ -1188,9 +1188,15 @@ int main(void)
     dbg_stage(STG_SPI_INIT);
     dbg_set(F_SPI_INIT);
 
-    bool ready = fpga_spi_wait_ready(2000);
+    /* From a cold power-up the FPGA is still loading its bitstream (~2.9 s at
+     * the 2.5 MHz MSPI rate) long after the BL616 reaches main(). Every
+     * FPGA-facing write below (bus-ready, slot map, /RES release) is lost if
+     * issued before config-done, so wait for a genuine answer (device ID +
+     * status, see fpga_spi_wait_ready) with generous margin over the load. */
+    bool ready = fpga_spi_wait_ready(8000);
     dbg_stage(STG_FPGA_READY);
     if (ready) dbg_set(F_FPGA_READY);
+    else printf("FPGA SPI: not ready after 8 s -- continuing degraded\r\n");
     bt_mark(BT_FPGA_READY);   /* config + SDRAM ready: FPGA-facing work can begin */
 
     /* Assert bus-ready NOW, as early as possible: this lets apple_bus run

@@ -237,16 +237,38 @@ uint8_t fpga_spi_read_status(void)
     return fpga_spi_reg_read(0x06);
 }
 
+/* True only when a configured FPGA is genuinely answering: the status bits
+ * alone are NOT proof. While the FPGA is still loading its bitstream (~2.9 s
+ * from a cold power-up at the 2.5 MHz MSPI rate, vs ~0.6 s for the BL616 to
+ * reach main) MISO floats high and every read returns 0xFF -- which has both
+ * CONFIGURED (bit 7) and SDRAM_READY (bit 6) set. Trusting that sent the
+ * bus-ready, slot-map and /RES-release writes into an unconfigured FPGA, so
+ * the Apple sat in reset until the 15 s gateware backstop and the saved slot
+ * map never applied. Require the "A2FP" device ID and the status register's
+ * always-zero bits [4:2] as well. */
+static bool fpga_spi_alive_and_ready(void)
+{
+    uint8_t id[4];
+    fpga_spi_read_device_id(id);
+    if (id[0] != 'A' || id[1] != '2' || id[2] != 'F' || id[3] != 'P')
+        return false;
+    uint8_t status = fpga_spi_read_status();
+    return (status & 0x1C) == 0 &&
+           (status & FPGA_STATUS_FPGA_CONFIGURED) &&
+           (status & FPGA_STATUS_SDRAM_READY);
+}
+
 bool fpga_spi_wait_ready(uint32_t timeout_ms)
 {
     uint64_t deadline = bflb_mtimer_get_time_ms() + timeout_ms;
+    int good = 0;
 
     while (bflb_mtimer_get_time_ms() < deadline) {
-        uint8_t status = fpga_spi_read_status();
-        if ((status & FPGA_STATUS_FPGA_CONFIGURED) &&
-            (status & FPGA_STATUS_SDRAM_READY)) {
+        /* Two consecutive good polls: a single read during config-done
+         * edges could still be marginal. */
+        good = fpga_spi_alive_and_ready() ? good + 1 : 0;
+        if (good >= 2)
             return true;
-        }
         bflb_mtimer_delay_ms(10);
     }
     return false;
