@@ -53,8 +53,19 @@ unitnum   = $43
 memblock  = $44
 diskblock = $46
 
-floppy_slot = $C500   ; Disk II boot ROM (slot 5 on a2n20v2-Enhanced;
-                      ; slot 6 is THIS card - jumping there would loop)
+; No image mounted (or button 0 held): don't boot a fixed slot. Resume the
+; Monitor's autostart slot scan (SLOOP at $FABA on the ][+ autostart and IIe
+; ROMs) at the slot BELOW this card, exactly as if this card weren't
+; bootable. SLOOP walks (LOC0) = $Cn00 downward: it decrements LOC1 first,
+; checks the $20/$00/$03/$3C signature, and drops to BASIC at $C0. This used
+; to be "jmp $C500", which crashed to the Monitor whenever slot 5 held
+; anything other than a Disk II (e.g. the Disk II in its usual slot 6).
+; A ROM without that loop (the original ][ Monitor, or anything unexpected)
+; goes to BASIC instead: SLOOP+2 must be DEC LOC1 ($C6).
+SLOOP = $FABA
+BASIC = $E000
+LOC0  = $00
+LOC1  = $01
 OS      = $0801
 BUTTON0 = $C061
 
@@ -89,11 +100,7 @@ Bootstrap2
  sta hd_command,x
  lda hd_execute,x     ; STATUS is immediate (no busy)
  ror hd_status,x      ; C = error (no device)
- bcc hdboot
-
-; no image ready, boot the floppy instead
-BootFloppy
- jmp floppy_slot
+ bcs BootNext         ; no image ready: boot the next slot down
 
 ;======================================
 
@@ -138,7 +145,42 @@ GetSlotInX
 
  plp                  ; restore entry C (and int status)
  bcc Bootstrap2
- ; C=1: fall through to cmdproc for Entrypoint_ProDOS
+ bcs cmdproc          ; C=1 (always, here): Entrypoint_ProDOS
+
+;--------------------------------------
+
+; Boot-only code. It sits mid-ROM so both the STATUS probe (near the top)
+; and xferdone (near the bottom) can reach it with a relative branch; this
+; ROM is position-independent, so it can't JMP to itself.
+
+; no bootable image: continue the Monitor's autostart scan below this slot
+; Pre: X = Slot# << 4
+BootNext
+ lda SLOOP+2          ; autostart ROM? (SLOOP: LDY #n / DEC LOC1 = $C6 $01)
+ cmp #$C6
+ bne NoScan
+ txa                  ; $n0 -> $Cn
+ lsr
+ lsr
+ lsr
+ lsr
+ ora #$C0
+ sta LOC1             ; SLOOP decrements this before checking a slot
+ lda #$00
+ sta LOC0
+ jmp SLOOP
+NoScan
+ jmp BASIC
+
+; boot path (C=0 from cmdproc): block 0 is at $0800; run it unless error /
+; button 0
+; Pre: X = Slot# << 4
+BootTail
+ ror hd_status,x      ; C = error
+ bcs BootNext
+ bit BUTTON0          ; button 0 pressed? boot the next slot down instead
+ bmi BootNext
+ jmp OS               ; Pre: X = Slot# << 4
 
 ;--------------------------------------
 
@@ -211,15 +253,7 @@ notwrite
 xferdone
 
  plp                  ; restore C from cmdproc entry
- bcs done
-; boot path (C=0): block 0 is at $0800; run it unless error / button 0
- ror hd_status,x      ; C = error
- bcs BootFloppyB
- bit BUTTON0          ; button 0 pressed? boot the floppy instead
- bmi BootFloppyB
- jmp OS               ; Pre: X = Slot# << 4
-BootFloppyB
- jmp floppy_slot
+ bcc BootTail         ; C=0: boot path
 
 done
  ror hd_status,x      ; C = error
