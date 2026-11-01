@@ -33,9 +33,11 @@
 //
 // A Videx only ever works in SLOT 3 of an Apple ][+:
 //   - The card enables only when the slot map places it in slot 3.
-//   - On a IIe/IIgs (a2mem_if.IS_IIE) it is inert: slot 3 there belongs to
-//     the built-in 80-column firmware, and answering $C3xx would fight the
-//     internal ROM.
+//   - It is deliberately NOT gated on a runtime ][+/IIe detector: one keyed on
+//     $C00x writes (like the INTC8ROM guard in apple_memory) is tripped by
+//     ][+ software -- with it, SoftCard CP/M 2.23 came up in 40 columns; without
+//     it, CP/M boots in 80 columns (hardware-verified). Keeping a Videx off a
+//     IIe is the OSD's job (VIDEX is a slot-3 choice labelled ][+ ONLY).
 //
 // Mode: videx_mode_o = enabled && TEXT && AN0 ($C059 on / $C058 off), as on
 // the real card. Ctrl-Reset clears AN0 via the Autostart ROM.
@@ -84,7 +86,7 @@ module videx_card #(
         end
     end
 
-    wire live = card_enable && !a2mem_if.IS_IIE;
+    wire live = card_enable;
 
     wire card_sel       = live && (slot_if.card_id == ID) && a2bus_if.phi0;
     wire card_dev_sel   = card_sel && !slot_if.dev_select_n;   // $C0Bx
