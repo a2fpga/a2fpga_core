@@ -47,10 +47,6 @@ interface a2mem_if;
 
     logic [2:0] SLOTROM;
 
-    // 1 once IIe/IIgs soft-switch traffic has been seen since reset; 0 on a
-    // ][+ (see apple_memory INTC8ROM gating). Undriven boards read 0.
-    logic IS_IIE;
-
     // IIgs configuration
     logic [3:0] TEXT_COLOR;
     logic [3:0] BACKGROUND_COLOR;
@@ -87,7 +83,6 @@ interface a2mem_if;
         output INTC8ROM,
 
         output SLOTROM,
-        output IS_IIE,
 
         output TEXT_COLOR,
         output BACKGROUND_COLOR,
@@ -125,7 +120,6 @@ interface a2mem_if;
         input INTC8ROM,
 
         input SLOTROM,
-        input IS_IIE,
 
         input TEXT_COLOR,
         input BACKGROUND_COLOR,

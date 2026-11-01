@@ -111,7 +111,6 @@ module apple_memory #(
                  (a2bus_if.addr[15:4] == 12'hC00) && !a2bus_if.m2sel_n)
             is_iie <= 1'b1;
     end
-    assign a2mem_if.IS_IIE = is_iie;
 
     reg [2:0] SLOTROM;
     assign a2mem_if.SLOTROM = SLOTROM;
