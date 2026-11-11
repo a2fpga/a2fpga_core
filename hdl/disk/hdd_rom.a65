@@ -67,7 +67,8 @@ BASIC = $E000
 LOC0  = $00
 LOC1  = $01
 OS      = $0801
-BUTTON0 = $C061
+BUTTON0 = $C061       ; Open-Apple (IIe/IIc/IIgs); pushbutton 0 on a ][/][+
+MACHID  = $FBB3       ; Monitor ID: $06 = IIe/IIc/IIgs
 
 ;======================================
 
@@ -178,9 +179,17 @@ NoScan
 BootTail
  ror hd_status,x      ; C = error
  bcs BootNext
- bit BUTTON0          ; button 0 pressed? boot the next slot down instead
+; The skip key is only read on a //e-class machine. $C061 is Open-Apple on
+; the IIe/IIc/IIgs (driven, reads clear when up) but game-port pushbutton 0
+; on a ][/][+, which floats HIGH with nothing plugged in: there the skip
+; fired on every boot and the HDD never booted. Monitor ID byte $FBB3 is $06
+; on the IIe/IIc/IIgs, $EA on the ][+, $38 on the original ][.
+ lda MACHID
+ cmp #$06
+ bne +
+ bit BUTTON0          ; Open-Apple held? boot the next slot down instead
  bmi BootNext
- jmp OS               ; Pre: X = Slot# << 4
++ jmp OS              ; Pre: X = Slot# << 4
 
 ;--------------------------------------
 
