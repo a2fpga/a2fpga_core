@@ -111,6 +111,7 @@ module mem_port_arb #(
     endgenerate
 
     integer i;
+    reg granted;   // blocking scan flag: one grant per arbitration cycle
     always @(posedge clk_i) begin
         if (!rst_n_i) begin
             for (i = 0; i < NUM_CLIENTS; i = i + 1) begin
@@ -146,8 +147,19 @@ module mem_port_arb #(
                     req_r  <= 1'b0;   // dead cycle before the next grant
                 end
             end else if (!req_r) begin
-                for (i = NUM_CLIENTS - 1; i >= 0; i = i - 1) begin
-                    if (pend_rd_r[i] || pend_wr_r[i]) begin
+                // Grant exactly ONE pending client, lowest index first, and
+                // clear only that client's pending flag. (A downward loop that
+                // relied on "last assignment wins" for priority also cleared
+                // every OTHER pending client's flag, silently dropping its
+                // request: that client never saw ready. drive_ii's fetch_pend_r
+                // then stuck high -- the read head served $FF gap bytes forever
+                // -- whenever its track fetch collided with another client's
+                // access; matches the cold-boot autoboot hang, where the Disk II
+                // boot ROM races the first USB mount.)
+                granted = 1'b0;
+                for (i = 0; i < NUM_CLIENTS; i = i + 1) begin
+                    if (!granted && (pend_rd_r[i] || pend_wr_r[i])) begin
+                        granted      = 1'b1;
                         busy_r      <= 1'b1;
                         req_r       <= 1'b1;
                         req_is_wr_r <= pend_wr_r[i];
