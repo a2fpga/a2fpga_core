@@ -93,6 +93,25 @@ module apple_memory #(
     reg INTC8ROM;
     assign a2mem_if.INTC8ROM = INTC8ROM;
 
+    // Apple ][+ vs IIe/IIgs detection. INTC8ROM is a IIe MMU feature: $C3xx
+    // with SLOTC3ROM=0 maps the internal 80-column firmware over $C800-$CFFF.
+    // A ][+ has no SLOTC3ROM switch, so it reads 0 here and every $C3xx access
+    // would set INTC8ROM -- gating io_strobe for ALL emulated cards (slotmaker)
+    // until the next $CFFF. A slot-3 card that runs out of $C8xx (Videx) keeps
+    // re-arming it. IIe/IIgs software writes the $C00x soft switches almost
+    // immediately; a ][+ treats those writes as no-ops, so a false positive
+    // only restores the previous behavior. Derived from Brent Rector's fork
+    // (docs/UPSTREAM_FIXES.md, Fix 2) minus its non-$CFFF clear, which does
+    // not match the IIe MMU (INTC8ROM clears only on $CFFF or RESET).
+    reg is_iie;
+    always @(posedge a2bus_if.clk_logic or negedge a2bus_if.system_reset_n) begin
+        if (!a2bus_if.system_reset_n)
+            is_iie <= 1'b0;
+        else if (!a2bus_if.rw_n && a2bus_if.phi1_posedge &&
+                 (a2bus_if.addr[15:4] == 12'hC00) && !a2bus_if.m2sel_n)
+            is_iie <= 1'b1;
+    end
+
     reg [2:0] SLOTROM;
     assign a2mem_if.SLOTROM = SLOTROM;
 
@@ -165,7 +184,8 @@ module apple_memory #(
             INTC8ROM <= 1'b0;
             SLOTROM <= 3'b0;
         end else if ((a2bus_if.phi1_posedge) && (a2bus_if.addr >= 16'hC100) && (a2bus_if.addr < 16'hC800) && !a2bus_if.m2sel_n) begin
-            if (!a2mem_if.SLOTC3ROM && (a2bus_if.addr[15:8] == 8'hC3)) INTC8ROM <= 1'b1; // Slot C3 ROM  
+            if (is_iie && !a2mem_if.SLOTC3ROM && (a2bus_if.addr[15:8] == 8'hC3))
+                INTC8ROM <= 1'b1; // Slot C3 ROM (IIe/IIgs only)
             SLOTROM <= a2bus_if.addr[10:8];
         end
     end
