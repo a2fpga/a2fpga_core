@@ -60,3 +60,6 @@ src/cardrom/cardrom
 *.m4a
 *.wav
 *.mov
+
+# Verilator build output of the simulation benches
+sim/**/obj_dir/
