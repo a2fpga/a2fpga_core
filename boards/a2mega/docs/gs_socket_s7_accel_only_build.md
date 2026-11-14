@@ -15,8 +15,11 @@ tests 36 to 38.**
 Built since and not on the card (section 3h): a copy of the Mega II's RAM
 below `$C000` (banks E0/E1) kept in the DDR3, read in place of the socket
 when a request bit asks, switchable at any step. Simulated in full; **at
-105 MHz five placements of ten have no violation, which is not closure:
-not flashed.**
+105 MHz five placements of ten have no violation, which is not closure.**
+One clean placement (x0) is on the card since 2026-11-14 15:39 as an
+experiment, by Ed's decision: the floating point tests go from 37.81 and
+35.76 to 45.91 and 44.22, the average from 44.02 to 46.92; the switch
+works while the machine runs.
 Parents: [`gs_socket_s7_accelerator_scoping.md`](gs_socket_s7_accelerator_scoping.md)
 (what the accelerator is) and
 [`gs_socket_s7_fast_core_exploration.md`](gs_socket_s7_fast_core_exploration.md)
@@ -1185,7 +1188,7 @@ of E0/E1 then start from the registered decode with the switch on).
 The source in the tree is round y's (the regression and the mutations
 above are of it). `ACC_NO_SLOW_COPY` in the defines builds without the
 feature; that build has not been placed since `rtag_q` and the new
-constraints went in. The card runs t0.
+constraints went in. (The card ran t0 until the experiment below.)
 
 Size: 13,236 logic cells, 11,929 FF, 182 of 340 block RAMs (t0: 13,088
 logic cells, the same 182).
@@ -1196,6 +1199,63 @@ ticks and the average to about 49: an estimate from 120 samples). How
 the copy compares with the real machine's Mega II RAM: the paced verify
 has not been run. Whether anything the machine does writes that RAM
 behind the processor's back (a card that does DMA would).
+
+### On the machine: x0, as an experiment (2026-11-14 afternoon)
+
+Ed's decision: flash one placement that has no violation, to learn what
+the copy is worth before more time goes into the timing. x0 is round x's
+first placement (+0.000 ns; that source closed two of three), so **this
+is a build that does not meet the three-placement rule, on the card as a
+measurement and nothing more.** Its source is the tree's without
+`rtag_q` (the full regression passed on it too). Flashed 15:39 with the
+machine off.
+
+Ladder: word 13 reads `0C` (built with the copy, the copy whole); ROM
+copy, sum `7EE8`; paced verify of banks 00/01 for 40 s, no mismatch;
+then paced verify with the copy (`1A`): 60 s at the benchmark's prompt
+and through part of a base pass, word 13's count 0 and word 14 0, with
+E0 and E1 among the sampled socket addresses. (Part, because the card
+was put in fast mode for a minute in the middle of that base pass by
+mistake - told the prompt was up when it was not. A whole base pass in
+`1A` is still owed, and that run's base times are not the machine's.)
+
+Fast with the copy (`1B`), 52.5 entered, one run, against section 3f's
+one run without it:
+
+| test | ticks without | ticks with | Actual MHz without | with |
+|---|---|---|---|---|
+| sieve | 21 | 21 | 49.65 | 49.65 |
+| string sort | 60 | 59 | 48.72 | 49.55 |
+| floating point, 100 iterations | 34 | 28 | 37.81 | 45.91 |
+| 15,000 Gamm units | 115 | 93 | 35.76 | 44.22 |
+| Fibonacci | 110 | 110 | 46.31 | 46.31 |
+| integer math | 86 | 86 | 45.88 | 45.88 |
+| average | | | 44.02 | 46.92 |
+
+The two tests that wait for the slow memory gain 21 and 24 %; the others
+do not move. Less than section 3g's arithmetic gave (24 to 26 and 81 to
+85 ticks): that took every socket cycle in E0/E1 away, and what the
+telemetry shows in the Gamm stretch is 43.5 M steps a second where it
+was 34.9, socket cycles 0.052 M a second where they were 0.219 (so about
+a fifth of them remain: writes, and whatever is at `$C000` and up), and
+read misses up from 3.8 to 5.3 for each thousand steps: about three in
+ten of the reads that moved to the copy go to the DDR3 for their line.
+
+The switch while the machine runs, at the report's keypress prompt,
+register 29 changed `1B`, `0B`, `1B` with eight seconds in each:
+
+| | copy read | not | copy read again |
+|---|---|---|---|
+| core steps, M/s | 30.93 | 15.64 | 30.93 |
+| socket cycles for the core, M/s | 0.151 | 0.460 | 0.151 |
+| read misses, M/s | 0.459 | 0.183 | 0.459 |
+
+That loop runs twice as fast with it. The E0/E1 mismatch count is still
+0 after it.
+
+Not done: a whole base pass in paced verify with the copy; a ten-run
+report; what the remaining socket cycles of the floating point tests
+are; and the timing, which is where section 3h left it.
 
 ## 4. What is verified, and what is not
 
@@ -1300,6 +1360,13 @@ The a2mega directory holds many projects: always name the project, and
 check the build stamp (`CORE:` line) before trusting a hardware test.
 Regenerate the constraints with `python3 hdl/accel_probe_138b/gen_sdc.py`
 and `python3 hdl/accel_probe_138b/gen_floorplan.py accel`.
+
+Provenance of x0 (the copy of the Mega II's RAM, section 3h; an
+experiment, one clean placement of a source that closed two of three;
+flashed 2026-11-14 15:39): sources = commit `7ab26835` without `rtag_q`
+and with the `mc(2, NMQ, nh_dq)` line in `gen_sdc.py`; the same tool and
+device; build stamp `20261114124800`; bitstream sha256
+`308790d3bf5d88f2…6e5418a29d98`.
 
 Provenance of t0 (the line memory, section 3e; flashed 2026-11-14 08:53):
 sources = the
