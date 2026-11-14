@@ -890,6 +890,67 @@ tests are the ones with socket cycles in the counters above, and they
 hold the average down: 34 and 115 ticks where two clks a step would give
 24 and 78.
 
+## 3g. What the floating point tests wait for (2026-11-14, t0 on the card)
+
+A second run, ten rounds, the card in fast mode throughout. The program's
+times: sieve 20.8, sort 59.4, floating point 33.9, Gamm 115.1, Fibonacci
+109.8, integer 85.6; average 44.24 MHz. (Its base column in that run is
+not a pass the counters saw - one pass of 88 s is all that ran - and
+means nothing.)
+
+During the run the console read the address of the last cycle the card
+put on the socket about ten times a second (`last_addr` in `gs`), with
+the telemetry words between. A park cycle is a read of `FF/0000`, so
+bank FF in a sample is an idle socket and any other bank is a cycle of
+the core's. The three address bytes are read one after another and come
+from different cycles: the bank is a fair sample of where the socket's
+time goes, a whole address is not.
+
+| stretch | steps, M/s | socket cycles, M/s | misses, M/s | PHY cycles, M/s | bank of the sample |
+|---|---|---|---|---|---|
+| Fibonacci, integer (18 s, 168 samples) | 45.8 | 0.008 | 0.001 | 2.83 | FF 100 % |
+| floating point, Gamm (13 s, 120 samples) | 34.9 | 0.219 | 0.132 | 2.31 | FF 74 %, E1 21 %, E0 5 % |
+| between tests (15 s, 136 samples) | 28.4 | 0.288 | 0.014 | 2.11 | FF 60 %, E1 38 %, E0 2 % |
+| the prompt (220 s, 2,040 samples) | 15.6 | 0.461 | 0.183 | 1.63 | FF 41 %, E1 31 %, E0 26 % |
+
+What it says:
+
+- **The core's socket cycles in the floating point tests are in banks E1
+  and E0, and nowhere else.** Those are the machine's slow memory: the
+  machine stretches each such cycle to its 1 MHz side. From the PHY
+  count, an idle cycle is 351 ns and a cycle of the core's in these
+  tests 1.2 us.
+- **They are the whole of what the floating point tests lose.** The
+  socket is the core's for 26 % of the time (the samples), 0.26 s in a
+  second (the counts), and the core also waits for the idle cycle in
+  progress before each one. 105 M clks less 30 % leaves 2.1 clks a step
+  for the 34.9 M steps: the same step the computing tests have.
+- The page and low bytes that are not a park cycle's fall in page 00
+  (`00` to `03`, `64` to `6A`, `C0`, `C1`, `DE`, `EF`, `FF`), page 03
+  (`C0`, `C8`, `CA`) and page 1D. That is the look of the tool
+  dispatcher: `JSL $E10000`, the vector there, the tool locator's
+  pointers at `E1/03C0` and up, a table in `E1/1Dxx`. SANE is a tool
+  set, and every floating point operation is a tool call. It is a
+  reading of torn samples, not a trace.
+- Between tests the cycles are spread over `E1/2000` to `9FFF`: the
+  program drawing on the super hi-res screen. Not in any test's time.
+- The computing tests take 2.29 clks a step with no socket cycle and no
+  miss to speak of: one step in seven or so is longer than two clks, and
+  the counters do not say which.
+
+Two things would raise the average, then:
+
+1. The card holding a copy of the RAM of banks E0/E1 and answering
+   reads from it, writes still going to the machine. The replica already
+   has the Mega II's side of the map (`gs_mmu_decode`, `slowram_*`), the
+   posted write already exists, and paced card memory would verify the
+   copy as it verifies banks 00/01. It makes memory fast that is slow on
+   the machine and on a TransWarp GS: a decision, so a request bit. By
+   the arithmetic above the two floating point tests would come to 24
+   to 26 and 81 to 85 ticks and the average to about 49.
+2. Finding the steps of plain computing code that take more than two
+   clks (the bench has a histogram of step lengths).
+
 ## 4. What is verified, and what is not
 
 Verified in simulation (the broker suite, `hdl/twgs/sim/broker`):
