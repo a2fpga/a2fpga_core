@@ -257,7 +257,7 @@ def generate_near(PERIOD, fname, pfx="", board=False):
     note("""
         ---- (stated, not relaxed) the core's clock enable is one gate behind registers,
         and reaches the core in one clk""")
-    out.append(f"set_max_delay {PERIOD:.3f} -from {regs(*b('ce_c', 'ce_r', 'fa_c', 'fb_c', 'fh_c'))} -to {CORE}")
+    out.append(f"set_max_delay {PERIOD:.3f} -from {regs(*b('ce_c', 'ce_r', 'fa_c', 'fb_c', 'fh_c', *X('fx_c')))} -to {CORE}")
     note("""
         ---- the full decode of a step: from the step registers (and the memory-map
         switches, which change three clks and more before it is used) to its registered
@@ -298,6 +298,9 @@ def generate_near(PERIOD, fname, pfx="", board=False):
             two clks from the memories like the byte, and the near memory is filled from that.
             And the near memory's byte is picked from its line by a register loaded when the
             core steps""")
+        # (the broker's copy of the card's byte for the verify compare: steady long before it is used)
+        mc(2, NMQ, regs(*b("vfy_d")))
+        mc(2, regs(f"{pfx}g_line.nlo*"), regs(*b("vfy_d")))
         FLQ = regs(f"{pfx}g_far16.fline_q*")
         mc(2, regs(f"{pfx}g_far16.far_lo*"), ALT)
         mc(2, FARQ, FLQ)

@@ -76,7 +76,7 @@ set_multicycle_path 1 -hold  -end -from [get_regs {u_acc/u_brk/irq_h* u_acc/u_br
 
 // ---- (stated, not relaxed) the core's clock enable is one gate behind registers,
 // and reaches the core in one clk
-set_max_delay 9.524 -from [get_regs {u_acc/u_brk/ce_c* u_acc/u_brk/ce_r* u_acc/u_brk/fa_c* u_acc/u_brk/fb_c* u_acc/u_brk/fh_c*}] -to [get_regs {u_acc/u_cpu/* u_acc/u_cpu/MCode/* u_acc/u_cpu/AddrGen/*}]
+set_max_delay 9.524 -from [get_regs {u_acc/u_brk/ce_c* u_acc/u_brk/ce_r* u_acc/u_brk/fa_c* u_acc/u_brk/fb_c* u_acc/u_brk/fh_c* u_acc/u_brk/fx_c*}] -to [get_regs {u_acc/u_cpu/* u_acc/u_cpu/MCode/* u_acc/u_cpu/AddrGen/*}]
 
 // ---- the full decode of a step: from the step registers (and the memory-map
 // switches, which change three clks and more before it is used) to its registered
@@ -115,6 +115,10 @@ set_multicycle_path 1 -hold  -end -from [get_regs {*ram_sel_* *rom_sel_*}] -to [
 // two clks from the memories like the byte, and the near memory is filled from that.
 // And the near memory's byte is picked from its line by a register loaded when the
 // core steps
+set_multicycle_path 2 -setup -end -from [get_pins {*nmem_*_s/CLKB *nmem/bram/CLKB}] -to [get_regs {u_acc/u_brk/vfy_d*}]
+set_multicycle_path 1 -hold  -end -from [get_pins {*nmem_*_s/CLKB *nmem/bram/CLKB}] -to [get_regs {u_acc/u_brk/vfy_d*}]
+set_multicycle_path 2 -setup -end -from [get_regs {u_acc/g_line.nlo*}] -to [get_regs {u_acc/u_brk/vfy_d*}]
+set_multicycle_path 1 -hold  -end -from [get_regs {u_acc/g_line.nlo*}] -to [get_regs {u_acc/u_brk/vfy_d*}]
 set_multicycle_path 2 -setup -end -from [get_regs {u_acc/g_far16.far_lo*}] -to [get_regs {u_acc/u_brk/alt_q*}]
 set_multicycle_path 1 -hold  -end -from [get_regs {u_acc/g_far16.far_lo*}] -to [get_regs {u_acc/u_brk/alt_q*}]
 set_multicycle_path 2 -setup -end -from [get_pins {*mram_*_s/CLKB *mrom_*_s/CLKB *mram/bram/CLKB *mrom/bram/CLKB}] -to [get_regs {u_acc/g_far16.fline_q*}]

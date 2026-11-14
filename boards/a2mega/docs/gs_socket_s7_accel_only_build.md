@@ -724,6 +724,91 @@ pass, two of them fail without the change, and three are in the suite
 (155 runs, all passing). **m0, on the card, has the defect; the change is
 not built.**
 
+## 3e. The near memory as lines of sixteen bytes (2026-11-13/14, not flashed)
+
+The DDR3 answers every read with sixteen bytes, and the near memory of
+sections 3b to 3d kept one of them. It also kept an 11-bit tag beside
+every byte: 19 bits a byte, nineteen blocks for 16 KB, and nineteen blocks
+on the core's next address are what the two-clk step of section 3d could
+not carry on every placement. This build (`NEAR_LINE` in the broker and
+`gs_accel`; the default of the board top, `ACC_BYTE_CACHE` in the defines
+goes back) makes the near memory lines.
+
+**What it is.** 1,024 lines of 16 bytes, one tag for a line: eight blocks
+of 1K x 16 for the eight words of a line, one block of tags. Nine blocks,
+with ten or eleven address bits each where the entries had nineteen with
+fourteen. A hit is as it was: the tag read with the core's next address,
+compared whole in the step's first clk. Each data block's read port is a
+byte wide (the primitive's ports need not be one width) and gives its
+word's byte; which word is picked by address bits 3 to 1, a register.
+
+**A miss brings the line.** Every far read is of sixteen bytes:
+
+- the DDR3's through the arbiter's burst read, which is one read of the
+  memory handed over as its four words (the top collects them; the queue,
+  `gs_accel_exp` with `LINE`, is otherwise as it was, writes one byte each);
+- the block memories' (banks 00/01, the ROM image) because they are now
+  sixteen bytes wide: for each word of a line as many blocks of 1K x 16
+  as there were blocks of 16K x 1 for a bit, a byte write being one byte
+  of one of them. The same 64 + 64 blocks.
+
+The broker takes its byte as before and the line is written into the near
+memory in one clk, the clk before the step ends, through a register (the
+far memories' two thousand outputs are muxed where they are; 128 bits go
+to the blocks beside the core).
+
+**A line is there whole or not at all, and always equal to the far
+memory.** A write always goes to the far memory. In the near memory it
+changes its byte if the line is there - the tag read at the launch of the
+write's own step says so - and does nothing if it is not: there is no
+write that installs. Two cases empty the line instead: the tag read at the
+launch is not to be trusted (it was written at or since the launch), and
+the byte lives under another index ($Cxxx of banks 00/01, kept under the
+$Dxxx index as before). A read launched in the clk of, or before, any
+write to its line is not used. The ROM copy empties 1,024 tags.
+
+**`gs_bram16be`.** Written as an array with two write enables, a 1K x 16
+memory became two blocks under GowinSynthesis, one a byte: the first build
+used 318 of the 340. The primitive (SDPB) has the byte enables in the low
+address bits of its write port; the module instantiates it and simulation
+has the array.
+
+**In the bench** (the test program, 126 banks, fast mode, against the
+whole-tag byte memory of section 3d): 545 far reads where there were
+4,213; 249 reads of the expansion memory where there were 2,338; 98.6 %
+of local steps two clks. The ROM 01 boot fills 225 lines where it filled
+2,433 bytes and reaches the same step hash with the identical write
+stream, on the DDR3 build and on two builds with block RAM alone.
+176 runs pass (21 new), the decode sweep and the other benches are as they
+were. Eight mutations of the line logic, all detected - one (a write made
+in the very clk the next read of its byte is launched) after the test
+program gained self-modifying code in a page whose writes are not the
+cheap view's ($6200).
+
+**Not in any bench:** the top's collecting of the four words (the order of
+the arbiter's beats is read from its source, `ddr3_ports`). On hardware
+the PHI2-paced card memory of the ladder checks it: every byte the DDR3
+returns is compared with the machine's. A PHI2-paced step fills no line
+(a line is filled by a fast step), so in that mode every read of an
+expansion bank goes to the DDR3 - slower, and a longer test of it.
+
+**Timing: two of three placements at 105 MHz, so not closed.** Rounds:
+the array form (318 blocks, no floorplan) failed by 7.6 ns; with the
+primitive and the nine blocks placed (R46 / R64 sites 18 and 19, the tags
+in R46[20]) 34 paths failed by up to 0.18 ns and the build took half an
+hour; then the fill register, the byte-wide read port, a copy of the far
+write data for each word (14 paths, 0.18 ns), the first-clk compare in two
+registers (`fh_q`: the tag's address bits against the address register;
+`fx_q`: the four bits the cheap view makes) and the verify copy of the
+card's byte declared the two-clk path it is. Three placements of that
+source: +0.001, +0.025, and 97 paths short by up to 1.31 ns. The failing
+placement is no different in the large (the same centroids of core,
+broker, PHY and DDR3 as a passing one) and fails across the design, the
+PHY's and the ROM copy's short paths among them, as the failing placements
+of section 3d did. 13,088 logic cells, 11,842 FF, 182 block RAMs.
+Not flashed.
+
+
 ## 4. What is verified, and what is not
 
 Verified in simulation (the broker suite, `hdl/twgs/sim/broker`):

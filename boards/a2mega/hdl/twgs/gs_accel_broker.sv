@@ -728,11 +728,16 @@ module gs_accel_broker #(
     // it completes; fb_q: it completes if its byte is in the near memory; fh_q: it
     // is) and completes in this, its second: fast_q.  The strobe is the other steps'
     // and never comes before the third clk in fast mode.
-    logic fa_q, fb_q, fh_q;
+    // (the byte is there: in two registers - fh_q for the tag bits that are address bits
+    // of the step, compared straight from its address register, fx_q for the four the
+    // cheap view makes ({ROM, A12 moved}, A16, A17), which come late - so that the two
+    // compares do not meet before a register; the clock enable is still one gate)
+    logic fa_q, fb_q, fh_q, fx_q;
     logic [CE_COPIES-1:0] fa_c /* synthesis syn_preserve = 1 */;
     logic [CE_COPIES-1:0] fb_c /* synthesis syn_preserve = 1 */;
     logic [CE_COPIES-1:0] fh_c /* synthesis syn_preserve = 1 */;
-    wire  fast_q = fa_q | (fb_q & fh_q);
+    logic [CE_COPIES-1:0] fx_c /* synthesis syn_preserve = 1 */;
+    wire  fast_q = fa_q | (fb_q & fh_q & fx_q);
     logic pre_q;                 // the step's socket request was raised in its first clk (fast_pre, below)
     wire strobe = dec_g & (st == ST_ADDR) & (ph >= t_dec) &
                   ~(post & pw_valid) & (mode_native | rw_c | (rdy_c & pre_q));
@@ -888,7 +893,7 @@ module gs_accel_broker #(
     wire  pf_launch = DATA_LATE & local_ce;                       // launch the next step's read
 
     assign cpu_ce_o = ce_r | fast_q;
-    assign cpu_ce_c_o = ce_c | fa_c | (fb_c & fh_c);
+    assign cpu_ce_c_o = ce_c | fa_c | (fb_c & fh_c & fx_c);
     wire  ce_n = sync_done | (strobe & ~need_sock & (ph_i == 4'd0)) | ((st == ST_DATA) & (ph == 4'd1));
     // Near memory: the first clk of the step.  The cheap view says the step is the
     // card's alone; a read also needs the entry launched for it to be the byte.
@@ -903,8 +908,19 @@ module gs_accel_broker #(
     wire  fb0       = go0 & ~internal & ~eff_we;
     // (NEAR_SPLIT: the cheap view's tag has no address bit above the low four set, and an
     // entry that has one is marked in the low part - nm_tag - so the low part decides)
-    wire  fh0       = nl_good & (!NEAR_SPLIT ? (nm_rtag_i == f_tag) :
+    // (not NEAR_SPLIT: fhd0 the address bits, from the address register - f_dtag; fhx0
+    // the cheap view's four)
+    localparam logic [NTW-1:0] FX_MASK = NTW'((3 << NEAR_KW) | 12);
+    wire  [NTW-1:0] f_dtag;
+    if (NEAR_KW > 4) begin : g_fd
+        assign f_dtag = {2'b00, ea_r[18 +: NEAR_KW-4] & {(NEAR_KW-4){~ea_r[23]}}, 2'b00, ea_r[15:14]};
+    end else begin : g_fdm
+        assign f_dtag = {2'b00, 2'b00, ea_r[15:14]};
+    end
+    wire  fhd0      = nl_good & (!NEAR_SPLIT ? (((nm_rtag_i ^ f_dtag) & ~FX_MASK) == '0) :
                                  ({nm_rtag_i[NTW-1:NTW-2], nm_rtag_i[3:0]} == {f_tag[NTW-1:NTW-2], f_tag[3:0]}));
+    wire  fhx0      = NEAR_SPLIT | (((nm_rtag_i ^ f_tag) & FX_MASK) == '0);
+    wire  fh0       = fhd0 & fhx0;
     wire [7:0] far_rdata = rom_r ? lm_rom_rdata_i : lm_ram_rdata_i;
     wire [7:0] lm_rdata  = !NEAR ? far_rdata : near_r ? nm_rdata_i : alt_q;
     assign cpu_d_in_o = NEAR ? lm_rdata : use_lm_r ? far_rdata : d_f;
@@ -1142,6 +1158,7 @@ module gs_accel_broker #(
             ev_hit <= 1'b0; ev_miss <= 1'b0; ev_pww <= 1'b0;
             near_r <= 1'b0; fill_pend <= 1'b0; nfill_r <= 1'b0;
             fa_q <= 1'b0; fb_q <= 1'b0; fh_q <= 1'b0; fa_c <= '0; fb_c <= '0; fh_c <= '0; nh_dq <= 1'b0; nl_ok <= 1'b0;
+            fx_q <= 1'b0; fx_c <= '0;
             nl_tk <= 1'b0; thit_q <= 1'b0; tunk_q <= 1'b0;
         end else if (!run_now) begin
             // core in reset (or the socket is not ours): nothing pending
@@ -1156,6 +1173,7 @@ module gs_accel_broker #(
             wen_r <= NEAR & wen_set;  wen_c <= WEN_ONE ? '0 : {RA_COPIES{NEAR & wen_set}};
             ren_r <= 1'b0; ren_c <= '0; rexp_r <= 1'b0;
             fa_q <= 1'b0; fb_q <= 1'b0; fh_q <= 1'b0; fa_c <= '0; fb_c <= '0; fh_c <= '0; nh_dq <= 1'b0; nl_ok <= 1'b0;
+            fx_q <= 1'b0; fx_c <= '0;
             nl_tk <= 1'b0; thit_q <= 1'b0; tunk_q <= 1'b0;
             ce_r <= 1'b0; ce_c <= '0; sc <= '0; pl_fresh <= 1'b0; sw_touch_q <= 1'b0;
             ev_hit <= 1'b0; ev_miss <= 1'b0; ev_pww <= 1'b0;
@@ -1193,7 +1211,8 @@ module gs_accel_broker #(
             rexp_r   <= NEAR & ren_next & ~ml_isrom & (|ml_phys[23:17]) & ~(mode_native & mode_bypass);
             fa_q     <= fa0;  fa_c <= {CE_COPIES{fa0}};
             fb_q     <= fb0;  fb_c <= {CE_COPIES{fb0}};
-            fh_q     <= fh0;  fh_c <= {CE_COPIES{fh0}};
+            fh_q     <= fhd0; fh_c <= {CE_COPIES{fhd0}};
+            fx_q     <= fhx0; fx_c <= {CE_COPIES{fhx0}};
             nh_dq    <= nh_d;
             // what the near memory's output register holds: good from a launch the
             // core took, until that index is written
@@ -1473,6 +1492,10 @@ module gs_accel_broker #(
         $display("ERROR: broker cheap-view tag with a high address bit: %h @%0t", f_tag, $time); $finish;
     end
     // the cheap view's tag, its high address bits taken from the address register, is the tag the functions give
+    // (and the address bits of it are f_dtag's)
+    always @(posedge clk) if (rst_n && NEAR && (fa0 | fb0) && !internal && ((f_tag ^ f_dtag) & ~FX_MASK) !== '0) begin
+        $display("ERROR: broker cheap-view tag %h, its address bits %h (ea_r %06h) @%0t", f_tag, f_dtag, ea_r, $time); $finish;
+    end
     always @(posedge clk) if (rst_n && NEAR && (fa0 | fb0) && !internal && f_tag !== f_tag_m) begin
         $display("ERROR: broker cheap-view tag %h, the functions give %h (ea_r %06h) @%0t", f_tag, f_tag_m, ea_r, $time); $finish;
     end
