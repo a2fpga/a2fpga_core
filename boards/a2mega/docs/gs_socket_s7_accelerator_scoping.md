@@ -14,8 +14,8 @@ benchmark is 12 to 14 times the machine's speed (the program's average
 33 MHz); the run found a defect in the near memory's empty entry, fixed,
 flashed and run the same day (§10.7). 2026-11-14: the near memory as
 16-byte lines with a two-clk step in every bank, built, flashed 08:53 and
-run: card memory verifies, the benchmark's computing stretches step 45 to
-49 M times a second (§10.7).**
+run: card memory verifies, the benchmark's average 44.02 MHz (33.34
+before), the sieve 49.65 and the sort 48.72 (§10.7).**
 
 ## 0. Summary
 
@@ -1005,5 +1005,7 @@ on a hit. 176 bench runs, three placements at 105 MHz with no violation.
 Flashed 2026-11-14 08:53 and run on the machine the same morning: card
 memory verify with no mismatch (bank 04 through the DDR3's line read), the
 benchmark's fast pass at 45 to 49 M steps a second on its computing
-stretches and about 35 M where the core takes socket cycles (the build
-page, section 3f).
+stretches and about 35 M where the core takes socket cycles. The
+benchmark's own figures: average 44.02 MHz (33.34 before), sieve 49.65,
+sort 48.72, Fibonacci 46.31, integer 45.88, floating point 37.81, Gamm
+35.76 (the build page, section 3f).

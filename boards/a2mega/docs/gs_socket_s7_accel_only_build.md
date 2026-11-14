@@ -9,8 +9,9 @@ Built since (t0, section 3e): the near memory as lines of sixteen bytes, a
 DDR3 read filling a whole line, and every step in the expansion banks two
 clks on a hit; three placements at 105 MHz with no violation. **Flashed
 2026-11-14 08:53 and run the same morning (section 3f): card memory
-verifies with no mismatch, the benchmark's fast pass runs, and its
-computing stretches step 45 to 49 M times a second where m0 had 31 to 34.**
+verifies with no mismatch, and the benchmark's average is 44.02 MHz where
+m0 had 33.34; the sieve and the sort are above 48, the floating point
+tests 36 to 38.**
 Parents: [`gs_socket_s7_accelerator_scoping.md`](gs_socket_s7_accelerator_scoping.md)
 (what the accelerator is) and
 [`gs_socket_s7_fast_core_exploration.md`](gs_socket_s7_fast_core_exploration.md)
@@ -865,9 +866,29 @@ Counters over the pass, sampled each 0.42 s:
 So the computing stretches run at 45 to 49 M steps a second where m0 had
 31 to 34 (section 3d), and the stretches with socket cycles are where m0
 had them, about 35. One round is too short to give each test its own
-rate: a test lasts one to six samples. The program's own times for this
-pass are not recorded here yet. At the prompt the rate is 15.6 M a
+rate: a test lasts one to six samples. At the prompt the rate is 15.6 M a
 second as before (the prompt's loop is socket cycles).
+
+The program's report for the same pass (TML Pascal benchmark, one run,
+times in its ticks; the base pass with register 29 = `08`, the fast pass
+with 52.5 entered; m0's column is section 3c's):
+
+| test | base | t0 | m0 | t0 against base | "Actual MHz" t0 | m0 |
+|---|---|---|---|---|---|---|
+| sieve, 10 iterations | 413 | 21 | 33 | 19.7 | 49.65 | 31.6 |
+| selection sort, 500 strings | 1159 | 60 | 88 | 19.3 | 48.72 | 33.2 |
+| floating point, 100 iterations | 476 | 34 | 35 | 14.0 | 37.81 | 36.7 |
+| Gamm, 15000 units | 1546 | 115 | 130 | 13.4 | 35.76 | 31.6 |
+| Fibonacci calls, 10 iterations | 2020 | 110 | 158 | 18.4 | 46.31 | 32.2 |
+| integer math, 5000 iterations | 1564 | 86 | 114 | 18.2 | 45.88 | 34.6 |
+| the program's average | | | | | **44.02** | 33.34 |
+
+(m0's "Actual MHz" here is 52.5 x expected / measured from its times, as
+the program computes it.) Two tests are above 48 and the average is 84 %
+of the 52.5 MHz step rate, where m0 had 64 %. The two floating point
+tests are the ones with socket cycles in the counters above, and they
+hold the average down: 34 and 115 ticks where two clks a step would give
+24 and 78.
 
 ## 4. What is verified, and what is not
 
