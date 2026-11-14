@@ -488,4 +488,4 @@ INS_LOC "u_acc/g_line.g_nb[4].nmem/bram" BSRAM_R46[19][A];
 INS_LOC "u_acc/g_line.g_nb[5].nmem/bram" BSRAM_R64[19][A];
 INS_LOC "u_acc/g_line.g_nb[6].nmem/bram" BSRAM_R46[19][B];
 INS_LOC "u_acc/g_line.g_nb[7].nmem/bram" BSRAM_R64[19][B];
-INS_LOC "u_acc/g_line.g_nt.nmem_g_line.g_nt.nmem_0_0_s" BSRAM_R46[20];
+INS_LOC "u_acc/g_line.g_nt.nmem_g_line.g_nt.nmem_0_0_s" BSRAM_R64[20];

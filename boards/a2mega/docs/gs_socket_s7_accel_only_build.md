@@ -5,6 +5,10 @@ section 3b ran on 2026-11-13 and runs the benchmark 12 to 14 times faster
 than the machine (section 3c). That run found a defect in the near
 memory's empty entry; the build with the fix (m0) is on the card since
 18:21 the same day and ran the same benchmark without it (section 3c).
+Built since and **not flashed** (t0, section 3e): the near memory as lines
+of sixteen bytes, a DDR3 read filling a whole line, and every step in the
+expansion banks two clks on a hit; three placements at 105 MHz with no
+violation.
 Parents: [`gs_socket_s7_accelerator_scoping.md`](gs_socket_s7_accelerator_scoping.md)
 (what the accelerator is) and
 [`gs_socket_s7_fast_core_exploration.md`](gs_socket_s7_fast_core_exploration.md)
@@ -792,22 +796,34 @@ returns is compared with the machine's. A PHI2-paced step fills no line
 (a line is filled by a fast step), so in that mode every read of an
 expansion bank goes to the DDR3 - slower, and a longer test of it.
 
-**Timing: two of three placements at 105 MHz, so not closed.** Rounds:
-the array form (318 blocks, no floorplan) failed by 7.6 ns; with the
-primitive and the nine blocks placed (R46 / R64 sites 18 and 19, the tags
-in R46[20]) 34 paths failed by up to 0.18 ns and the build took half an
-hour; then the fill register, the byte-wide read port, a copy of the far
-write data for each word (14 paths, 0.18 ns), the first-clk compare in two
-registers (`fh_q`: the tag's address bits against the address register;
-`fx_q`: the four bits the cheap view makes) and the verify copy of the
-card's byte declared the two-clk path it is. Three placements of that
-source: +0.001, +0.025, and 97 paths short by up to 1.31 ns. The failing
-placement is no different in the large (the same centroids of core,
-broker, PHY and DDR3 as a passing one) and fails across the design, the
-PHY's and the ROM copy's short paths among them, as the failing placements
-of section 3d did. 13,088 logic cells, 11,842 FF, 182 block RAMs.
-Not flashed.
+**Timing: three placements at 105 MHz with no violation, after six
+rounds.** The array form (318 blocks, no floorplan) failed by 7.6 ns.
+With the primitive and the nine blocks placed (R46 / R64 sites 18 and 19,
+the tags in R46[20]) 34 paths failed by up to 0.18 ns and the build took
+half an hour. Then the fill register, the byte-wide read port and a copy
+of the far write data for each word: 14 paths, 0.18 ns. Then the first-clk
+compare in two registers (`fh_q`: the tag's address bits against the
+address register; `fx_q`: the four bits the cheap view makes) and the
+verify copy of the card's byte declared the two-clk path it is: two
+placements of three clean, the third 1.31 ns short on 97 paths; the same
+source at 100 MHz (`ACC_CLK_100`), two of three, the third 0.22 ns short.
+That one named the cause: its worst path, the tag block to the compare,
+was 2.0 ns of logic and 5.6 ns of wire - the tags were in R46 beside the
+core and the broker is placed below it, twenty rows away. With the tag
+block in R64[20], on the core's second copy of its next address like the
+odd words there:
 
+| placement | 0 | 1 | 2 |
+|---|---|---|---|
+| worst slack, ns | +0.000 | +0.002 | +0.006 |
+
+(The tool stops when the constraint is met.) 13,088 logic cells, 11,842
+FF, 182 of 340 block RAMs. Build t0: stamp `20261114020946`, bitstream
+sha256 `dd5d16229b2438a8…6339edea96909e7720`. **Not flashed.** It carries
+everything since m0: the line memory, the two-clk step in every bank the
+card holds, and the ROM copy's grant across a second copy (section 3d).
+What to expect of it on the benchmark is section 3d's arithmetic - about
+2.05 clks a step where the computing tests have 3.2 - and is not measured.
 
 ## 4. What is verified, and what is not
 
@@ -912,6 +928,11 @@ The a2mega directory holds many projects: always name the project, and
 check the build stamp (`CORE:` line) before trusting a hardware test.
 Regenerate the constraints with `python3 hdl/accel_probe_138b/gen_sdc.py`
 and `python3 hdl/accel_probe_138b/gen_floorplan.py accel`.
+
+Provenance of t0 (the line memory, section 3e; not flashed): sources = the
+commit that adds this paragraph; the same tool and device; build stamp
+`20261114020946`; bitstream sha256
+`dd5d16229b2438a8…6339edea96909e7720`.
 
 Provenance of m0 (the empty-entry fix, section 3c; on the card): sources
 = the commit that adds this paragraph; the same tool and device; build

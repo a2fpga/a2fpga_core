@@ -12,7 +12,9 @@ RAM as a stopgap for S7d (§10.6), then S7d itself on the DDR3 (§10.7), built
 at 105 MHz.** **2026-11-13: S7d ran on the machine. Every test of the
 benchmark is 12 to 14 times the machine's speed (the program's average
 33 MHz); the run found a defect in the near memory's empty entry, fixed,
-flashed and run the same day (§10.7).**
+flashed and run the same day (§10.7). 2026-11-14: the near memory as
+16-byte lines with a two-clk step in every bank, built and not flashed
+(§10.7).**
 
 ## 0. Summary
 
@@ -989,3 +991,14 @@ code in bank 04 nine times faster than with two banks of block RAM. The
 fixed source meets timing on three placements at 105 MHz. Flashed the
 same evening, it ran card memory under GS/OS straight after the ROM copy
 with a verify count of 0, and the benchmark with the same times.
+
+**The near memory as lines (2026-11-14, build page sections 3d and 3e).**
+Measured on that build: the benchmark's MHz is the step rate, and in its
+computing tests a hit in banks 04 to 7F took four clks, 37 % of the time.
+And a miss brought one byte of the DDR3's sixteen. The near memory is now
+1,024 lines of sixteen bytes under one tag each, nine blocks for
+nineteen; every far read is a line (the DDR3's burst, the block memories
+sixteen wide) and fills it; a write changes a byte of a line that is
+there and installs nothing; a step in any bank the card holds is two clks
+on a hit. 176 bench runs, three placements at 105 MHz with no violation.
+Not flashed.

@@ -113,10 +113,12 @@ NEAR_SITES = ["R46[18][A]", "R46[18][B]", "R64[18][A]", "R64[18][B]",      # dat
               "R64[22]"]                                                   # bit 18     19 blocks)
 
 # The line cache's blocks (gs_accel NEAR_LINE): the eight words of a line - even words on the
-# core's first copy of its next address, in R46, odd words on the second, in R64 - and the tags.
+# core's first copy of its next address, in R46, odd words on the second, in R64 - and the tags,
+# in R64 too: the broker, which compares them in a step's first clk, is placed below the core,
+# and from R46 that compare was more wire than logic.
 LINE_SITES = ([(f"u_acc/g_line.g_nb[{w}].nmem/bram", f"{'R64' if w % 2 else 'R46'}[{18 + w // 4}][{'AB'[(w // 2) % 2]}]")
                for w in range(8)]
-              + [("u_acc/g_line.g_nt.nmem_g_line.g_nt.nmem_0_0_s", "R46[20]")])
+              + [("u_acc/g_line.g_nt.nmem_g_line.g_nt.nmem_0_0_s", "R64[20]")])
 
 def write_accel():
     """hdl/accel_only/accel_only_138b.cst, the accelerator-only board build: the pin

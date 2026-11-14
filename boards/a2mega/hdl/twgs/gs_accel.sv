@@ -452,7 +452,9 @@ module gs_accel #(
         begin : g_nt
             logic [NTW-1:0] nmem [0:(1<<(NEAR_AW-4))-1];
             logic [NTW-1:0] ntq;
-            always_ff @(posedge clk) if (nm_ren) ntq <= nmem[nm_ra[NEAR_AW-1:4]];
+            // (in the second row, with the odd words, on the core's second copy of its next
+            // address: the row the broker's compare of it is placed beside)
+            always_ff @(posedge clk) if (nm_ren) ntq <= nmem[cpu_na_b[NEAR_AW-1:4]];
             always_ff @(posedge clk) if (nm_wen) nmem[nm_wa[NEAR_AW-1:4]] <= ~nm_wtag;
 `ifdef VERILATOR
             initial begin for (int i = 0; i < (1<<(NEAR_AW-4)); i++) nmem[i] = '0; ntq = '0; end
