@@ -951,6 +951,27 @@ Two things would raise the average, then:
 2. Finding the steps of plain computing code that take more than two
    clks (the bench has a histogram of step lengths).
 
+### A second benchmark: A2Desktop's (the same day)
+
+A2Desktop's benchmark desk accessory (`src/desk_acc/benchmark.s` in
+a2stuff/a2d) reads the card at about 36 MHz. Its loop counts passes in
+one video frame, and one pass is 176 cycles of plain code (a counter and
+a 32-turn spin, put there so that a IIgs's slow read is a small part)
+and **one read of `$C019`**, with 97 passes a frame taken as 1 MHz. On
+the card that is 176 local steps and one socket cycle in I/O space,
+which the machine fits to its 1 MHz side. So a pass can only be a whole
+number of the Mega II's cycles (0.98 us): 176 steps at 52.5 MHz are
+3.35 us, the read takes the rest of five cycles, 4.90 us, and the frame
+holds 3,406 passes: 35.1. Four cycles would read 43.9 and want the 176
+steps and the read inside 3.92 us, about 62 MHz of steps; six would
+read 29.3. The reading therefore says the loop's steps are two clks (at
+2.29 it would be six cycles), and says nothing finer: every step rate
+from the high 40s to about 60 MHz reads the same. This is arithmetic
+from the source and the counters above, not a measurement of the loop:
+with the accessory open the card shows the core's socket time in bank
+00's I/O page (`C019` the most common low byte), each such cycle about
+1.8 us of socket time.
+
 ## 4. What is verified, and what is not
 
 Verified in simulation (the broker suite, `hdl/twgs/sim/broker`):
