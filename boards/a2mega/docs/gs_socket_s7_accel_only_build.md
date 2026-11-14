@@ -8,7 +8,9 @@ memory's empty entry; the build with the fix (m0) is on the card since
 Built since (t0, section 3e): the near memory as lines of sixteen bytes, a
 DDR3 read filling a whole line, and every step in the expansion banks two
 clks on a hit; three placements at 105 MHz with no violation. **Flashed
-2026-11-14 08:53 (write verified); not yet run on the machine.**
+2026-11-14 08:53 and run the same morning (section 3f): card memory
+verifies with no mismatch, the benchmark's fast pass runs, and its
+computing stretches step 45 to 49 M times a second where m0 had 31 to 34.**
 Parents: [`gs_socket_s7_accelerator_scoping.md`](gs_socket_s7_accelerator_scoping.md)
 (what the accelerator is) and
 [`gs_socket_s7_fast_core_exploration.md`](gs_socket_s7_fast_core_exploration.md)
@@ -820,12 +822,52 @@ odd words there:
 (The tool stops when the constraint is met.) 13,088 logic cells, 11,842
 FF, 182 of 340 block RAMs. Build t0: stamp `20261114020946`, bitstream
 sha256 `dd5d16229b2438a8…6339edea96909e7720`. **Flashed 2026-11-14
-08:50 to 08:53, IIgs off, first attempt, write verified; not yet run on
-the machine.** It carries
+08:50 to 08:53, IIgs off, first attempt, write verified; section 3f is
+its run on the machine.** It carries
 everything since m0: the line memory, the two-clk step in every bank the
 card holds, and the ROM copy's grant across a second copy (section 3d).
 What to expect of it on the benchmark is section 3d's arithmetic - about
-2.05 clks a step where the computing tests have 3.2 - and is not measured.
+2.05 clks a step where the computing tests have 3.2; section 3f has what
+the machine gave.
+
+## 3f. The line memory on the machine (2026-11-14, t0 on the card)
+
+Flashed 08:50 to 08:53 with the IIgs off, the card power cycled, ROM 01.
+The ladder of section 3, in order:
+
+| step | result |
+|---|---|
+| DDR3 | word 12 = `057E` |
+| ROM copy (register 29 = `08`) | one copy, sum `7EE8` |
+| card memory, paced, verify (`0A`), 5 s | no mismatch |
+| the same, 60 s | no mismatch; the last bus address seen in banks 00, 02, 03, 04, E0, E1, FE, FF |
+| the same, 4 s, then fast (`0B`) at the benchmark's prompt | no mismatch; the machine runs on |
+
+Paced card memory fills no line, so every read of bank 04 in those holds
+went to the DDR3 through the top's four-beat line assembly and was
+compared with the machine's byte. That assembly has no bench; this is
+its first test, and it is a narrow one (what the machine read in 70 s at
+a prompt and through one base pass's start).
+
+The benchmark's fast pass (one round, 52.5 entered) ran to its report.
+Counters over the pass, sampled each 0.42 s:
+
+| | |
+|---|---|
+| the pass, first test to report | 8.74 s |
+| core steps | 315.1 M = 36.05 M a second = 2.91 clks a step |
+| socket cycles for the core | 1.564 M |
+| near memory hits / misses | 202.3 M / 0.359 M |
+| best samples (no socket cycles) | 45 to 49 M steps a second = 2.15 to 2.33 clks a step |
+| samples with socket cycles (0.2 M a second) | 30 to 37 M steps a second |
+| verify mismatches, word 7 | 0 |
+
+So the computing stretches run at 45 to 49 M steps a second where m0 had
+31 to 34 (section 3d), and the stretches with socket cycles are where m0
+had them, about 35. One round is too short to give each test its own
+rate: a test lasts one to six samples. The program's own times for this
+pass are not recorded here yet. At the prompt the rate is 15.6 M a
+second as before (the prompt's loop is socket cycles).
 
 ## 4. What is verified, and what is not
 
