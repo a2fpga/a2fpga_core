@@ -398,6 +398,23 @@ t2:     txa
         jsl $001100
         txa
         res                     ; $01
+        ;      ... and the same in a page that can be shadowed ($6200): a write there is
+        ;      not the cheap view's, and it is made in the very clk the fetch of the byte
+        ;      it changed is launched (a cache in front of the memory must not hand out
+        ;      what it read in that clk)
+        rep #$30
+        .a16
+        .i16
+        ldx #ramcode3
+        ldy #$6200
+        lda #ramcode3_end - ramcode3 - 1
+        .byte $54, $00, $FF     ; MVN FF -> 00
+        sep #$30
+        .a8
+        .i8
+        jsl $006200
+        txa
+        sta $E1610D             ; (on the socket: $01)
 
         ; ---- T16c an internal cycle aimed at I/O space straight after a LOCAL step:
         ;      abs,X with a 16-bit index always has one, here at $C0xx, and the
@@ -718,6 +735,14 @@ ramcode2:
 smc:    .byte $E7                       ; runs as INX
         rtl
 ramcode2_end:
+
+; copied to RAM at $6200 by T16b
+ramcode3:
+        ldx #$00
+        inc $6200 + smc3 - ramcode3     ; $E7 -> $E8
+smc3:   .byte $E7                       ; runs as INX
+        rtl
+ramcode3_end:
 
 ; interrupt handlers (bank FF, entered through the dispatch bytes)
 irq_handler:

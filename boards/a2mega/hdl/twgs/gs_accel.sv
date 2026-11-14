@@ -81,6 +81,8 @@ module gs_accel #(
     parameter int EXP_BANKS = 0,         // expansion banks held in block RAM: 0, or 2 (banks 02/03)
     parameter bit EXP_DDR   = 1'b0,      // 1 = the EXP_BANKS expansion banks (1..126) are in the memory at the m_* port
     parameter bit NEAR_SPLIT = 1'b0,     // EXP_DDR: the near-memory tag's address bits above A17 in blocks of their own
+    parameter bit NEAR_LINE  = 1'b0,     // the near memory holds 16-byte lines under one tag, and every far read is a line:
+                                         // the block memories sixteen bytes wide, m_rdata_i the DDR3's sixteen (not NEAR_SPLIT)
     parameter bit SIM_ROM_VALID = 1'b0   // SIMULATION ONLY: the bench loaded the ROM image (gs_accel_romcopy SIM_PRESET)
 ) (
     input  logic        clk,
@@ -105,7 +107,7 @@ module gs_accel #(
     output logic [22:0] m_addr_o,
     output logic [7:0]  m_wdata_o,
     input  logic        m_rvalid_i,
-    input  logic [7:0]  m_rdata_i,
+    input  logic [(NEAR_LINE ? 128 : 8)-1:0] m_rdata_i,   // (NEAR_LINE: the read's 16-byte line, byte k in bits 8k+7..8k)
 
     // socket pins
     input  logic        gs_ph2_i,
@@ -154,6 +156,7 @@ module gs_accel #(
     initial if (EXP_DDR && !(EXP_BANKS >= 1 && EXP_BANKS <= 126 && NEAR_KW >= 5 && NEAR_KW <= 9 && (2 + EXP_BANKS) <= (1 << (NEAR_KW - 2))))
         $fatal(1, "gs_accel: EXP_DDR needs 1..126 EXP_BANKS and a NEAR_KW (5..9) that reaches them");
     initial if (NEAR_SPLIT && !EXP_DDR) $fatal(1, "gs_accel: NEAR_SPLIT is for EXP_DDR");
+    initial if (NEAR_LINE && NEAR_SPLIT) $fatal(1, "gs_accel: NEAR_LINE is not for NEAR_SPLIT");
     localparam int NM_LO = NEAR_SPLIT ? 14 : 8 + NTW;         // near-memory entry bits read with the core's next address
     localparam int NM_HI = NEAR_SPLIT ? NEAR_KW - 4 : 0;      // ... and a clk later, at the step's address (NEAR_SPLIT)
 
@@ -217,6 +220,8 @@ module gs_accel #(
     logic [NTW-1:0]     nm_rtag, nm_wtag;
     logic        nm_ren_hi, lm_rexp;
     logic [NEAR_AW-1:0] nm_ra_hi;
+    logic        nm_dwen, nm_lfill, lm_risrom;   // (NEAR_LINE)
+    logic [127:0] far_line, x_rline;             // ... the line of the last far read; the expansion memory's
     logic        brk_fast, held, idle_stb, hold, nm_flush;
     logic [7:0]  idle_d;
     logic [23:0] idle_a, verify_addr;
@@ -226,7 +231,7 @@ module gs_accel #(
 
     gs_accel_broker #(.STEP_CLKS(STEP_CLKS), .ADDR_CLKS(ADDR_CLKS), .SLOW_CLKS(SLOW_CLKS), .DATA_LATE(1'b1), .RA_COPIES(8), .CE_COPIES(4),
                       .NEAR(1'b1), .NEAR_AW(NEAR_AW), .NEAR_KW(NEAR_KW), .ROM3(ROM3), .FAR_CLKS(2), .WEN_ONE(1'b1),
-                      .EXP_WAIT(EXP_DDR), .NEAR_SPLIT(NEAR_SPLIT)) u_brk (
+                      .EXP_WAIT(EXP_DDR), .NEAR_SPLIT(NEAR_SPLIT), .NEAR_LINE(NEAR_LINE)) u_brk (
         .clk(clk), .rst_n(rst_n),
         .native_i(~fast), .mem_bypass_i(~cardmem),
         .cxrom_local_i(cxrom), .exp_banks_i(7'(EXP_BANKS)),
@@ -248,6 +253,7 @@ module gs_accel #(
         .nm_ren_o(nm_ren), .nm_ra_o(nm_ra), .nm_rdata_i(nm_rdata), .nm_rtag_i(nm_rtag),
         .nm_wen_o(nm_wen), .nm_wa_o(nm_wa), .nm_wdata_o(nm_wdata), .nm_wtag_o(nm_wtag),
         .nm_ren_hi_o(nm_ren_hi), .nm_ra_hi_o(nm_ra_hi),
+        .nm_dwen_o(nm_dwen), .nm_lfill_o(nm_lfill), .lm_risrom_o(lm_risrom),
         .lm_rexp_o(lm_rexp), .lm_rwait_i(x_rwait), .lm_wbusy_i(x_wbusy),
         .fast_o(brk_fast), .step_evt_o(), .sock_evt_o(), .sock_idle_o(), .pw_busy_o(),
         .verify_miss_o(), .verify_addr_o(verify_addr), .verify_count_o(verify_count_o),
@@ -298,7 +304,7 @@ module gs_accel #(
 `else
     assign far_bad = 1'b0;
 `endif
-    for (genvar b = 0; b < 8; b++) begin : g_bit
+    for (genvar b = 0; b < (NEAR_LINE ? 0 : 8); b++) begin : g_bit
         logic [RAM_SELW-1:0] ram_sel;
         logic [ROM_SELW-1:0] rom_sel;
         logic [RAM_BLKS-1:0] ram_q;
@@ -335,6 +341,60 @@ module gs_accel #(
         assign lm_ram_rdata[b] = x_rsel ? x_rdata[b] : (ram_q[ram_sel] ^ far_bad);
         assign lm_rom_rdata[b] = rom_q[rom_sel] ^ far_bad;
     end
+    // (NEAR_LINE) The same memories sixteen bytes wide: for each of the eight 16-bit
+    // words of a line, the same number of blocks, 1K x 16 with a write enable for
+    // each byte - block k holds the words of the 16K bytes block k held above.  A read
+    // is of all eight words: the line, of which the broker's byte is one; the line is
+    // what a near-memory miss is filled with.  (As many blocks as before, and as
+    // free to be anywhere.)
+    if (NEAR_LINE) begin : g_far16
+        logic [3:0]   far_lo;                // the byte of the line that was asked for
+        logic [127:0] ram_line, rom_line;
+        always_ff @(posedge clk) if (lm_ren[0]) far_lo <= lm_ram_ra[3:0];
+        for (genvar w = 0; w < 8; w++) begin : g_w
+            logic [RAM_SELW-1:0] ram_sel;
+            logic [ROM_SELW-1:0] rom_sel;
+            logic [15:0]         ram_q [0:RAM_BLKS-1];
+            logic [15:0]         rom_q [0:ROM_BLKS-1];
+            // this word's copy of a RAM write, a clk after the broker's
+            logic                   wq_we /* synthesis syn_preserve = 1 */;
+            logic [13+RAM_SELW:0]   wq_a  /* synthesis syn_preserve = 1 */;
+            logic [7:0]             wq_d  /* synthesis syn_preserve = 1 */;
+            always_ff @(posedge clk) begin
+                wq_we <= lm_wen[w] & ram_bank & (lm_waddr[3:1] == 3'(w));
+                wq_a  <= lm_waddr[13+RAM_SELW:0];
+                wq_d  <= lm_wdata;
+            end
+            always_ff @(posedge clk) if (lm_ren[w]) begin
+                ram_sel <= lm_raddr[14 +: RAM_SELW];
+                rom_sel <= lm_rom_ra[14 +: ROM_SELW];
+            end
+            for (genvar k = 0; k < RAM_BLKS; k++) begin : g_blk
+                wire we = wq_we && wq_a[14 +: RAM_SELW] == RAM_SELW'(k);
+                gs_bram16be mram (.clk(clk), .wa_i(wq_a[13:4]), .we_i({we & wq_a[0], we & ~wq_a[0]}), .wd_i({2{wq_d}}),
+                                  .re_i(lm_ren[w]), .ra_i({lm_ram_ra[13:4], 1'b0}), .q_o(ram_q[k]));
+            end
+            for (genvar k = 0; k < ROM_BLKS; k++) begin : g_rblk
+                wire we = rom_we && rom_wa[14 +: ROM_SELW] == ROM_SELW'(k) && rom_wa[3:1] == 3'(w);
+                gs_bram16be mrom (.clk(clk), .wa_i(rom_wa[13:4]), .we_i({we & rom_wa[0], we & ~rom_wa[0]}), .wd_i({2{rom_wd}}),
+                                  .re_i(lm_ren[w]), .ra_i({lm_rom_ra[13:4], 1'b0}), .q_o(rom_q[k]));
+            end
+            assign ram_line[16*w +: 16] = ram_q[ram_sel];
+            assign rom_line[16*w +: 16] = rom_q[rom_sel];
+        end
+        assign lm_ram_rdata = x_rsel ? x_rdata : (ram_line[8*far_lo +: 8] ^ {8{far_bad}});
+        assign lm_rom_rdata = rom_line[8*far_lo +: 8] ^ {8{far_bad}};
+        // The line a miss is filled with, through a register: the far memories' two
+        // thousand outputs are muxed wherever they are, and what reaches the near
+        // memory's blocks, beside the core, is 128 registers' worth.  The far data has
+        // its two clks to this register as it has to the broker's alt_q, and the fill is
+        // a clk and more after that (it is made the clk before the step ends).
+        logic [127:0] fline_q;
+        always_ff @(posedge clk) fline_q <= (lm_risrom ? rom_line : x_rsel ? x_rline : ram_line) ^ {128{far_bad}};
+        assign far_line = fline_q;
+    end else begin : g_far8
+        assign far_line = '0;
+    end
 
     // ---- near memory: one 16K x 1 block per entry bit, no output mux.  The read
     // address is the core's next address, its latest output; the blocks sit in two
@@ -356,7 +416,7 @@ module gs_accel #(
     wire [NM_LO-1:0]  nm_wv  = NEAR_SPLIT ? {~nm_wtag[NTW-1:NTW-2], ~nm_wtag[3:0], nm_wdata}
                                           : (NM_LO)'({~nm_wtag, nm_wdata});
     logic [NM_LO-1:0] nm_q;
-    for (genvar b = 0; b < NM_LO; b++) begin : g_nb
+    for (genvar b = 0; b < (NEAR_LINE ? 0 : NM_LO); b++) begin : g_nb
         localparam bit SECOND = (NM_LO <= 19) ? ROW_B[b] : ((b % 4) >= 2);
         logic nmem [0:(1<<NEAR_AW)-1];
         wire [NEAR_AW-1:0] ra = SECOND ? cpu_na_b[NEAR_AW-1:0] : nm_ra;
@@ -366,8 +426,44 @@ module gs_accel #(
         initial begin for (int i = 0; i < (1<<NEAR_AW); i++) nmem[i] = 1'b0; nm_q[b] = 1'b0; end
 `endif
     end
-    assign nm_rdata = nm_q[7:0];
-    if (NEAR_SPLIT) begin : g_split
+    // (NEAR_LINE) Lines of sixteen bytes: eight blocks of 1K x 16, one for each word of
+    // a line, with a write enable for each byte - a write of the core's is one byte of
+    // one of them, a fill is all of all eight in one clk, from the far memories' line -
+    // and ONE block of tags, a tag for a line.  Nine blocks where the entries above
+    // are nineteen, each with ten address bits where those have fourteen: that is
+    // what the core's next address has to reach.  Each block's read port is a byte
+    // wide and gives its word's byte of the address; which word's is picked by the
+    // address's bits 3 to 1, a register, on the way to the core (a path with the
+    // step's two clks).  The tag is stored inverted: zeros read as empty.
+    if (NEAR_LINE) begin : g_line
+        logic [3:1]  nlo;
+        logic [15:0] nq [0:7];
+        always_ff @(posedge clk) if (nm_ren) nlo <= nm_ra[3:1];
+        initial if (NEAR_AW != 14) $fatal(1, "gs_accel: NEAR_LINE is 1K lines of sixteen bytes (NEAR_AW = 14)");
+        for (genvar w = 0; w < 8; w++) begin : g_nb
+            wire [NEAR_AW-1:0] ra = (w % 2) ? cpu_na_b[NEAR_AW-1:0] : nm_ra;
+            wire         wsel = nm_lfill | (nm_dwen & (nm_wa[3:1] == 3'(w)));
+            wire [15:0]  wd   = nm_lfill ? far_line[16*w +: 16] : {2{nm_wdata}};
+            wire [1:0]   be   = nm_lfill ? 2'b11 : nm_wa[0] ? 2'b10 : 2'b01;
+            gs_bram16be #(.RD8(1'b1)) nmem (.clk(clk), .wa_i(nm_wa[13:4]), .we_i({2{wsel}} & be), .wd_i(wd),
+                                            .re_i(nm_ren), .ra_i({ra[13:4], ra[0]}), .q_o(nq[w]));
+        end
+        assign nm_rdata = nq[nlo][7:0];
+        begin : g_nt
+            logic [NTW-1:0] nmem [0:(1<<(NEAR_AW-4))-1];
+            logic [NTW-1:0] ntq;
+            always_ff @(posedge clk) if (nm_ren) ntq <= nmem[nm_ra[NEAR_AW-1:4]];
+            always_ff @(posedge clk) if (nm_wen) nmem[nm_wa[NEAR_AW-1:4]] <= ~nm_wtag;
+`ifdef VERILATOR
+            initial begin for (int i = 0; i < (1<<(NEAR_AW-4)); i++) nmem[i] = '0; ntq = '0; end
+`endif
+            assign nm_rtag = ~ntq;
+        end
+    end else begin : g_byte
+        assign nm_rdata = nm_q[7:0];
+    end
+    if (NEAR_LINE) begin : g_noq
+    end else if (NEAR_SPLIT) begin : g_split
         logic [NM_HI-1:0] nh_q;
         // (their write a clk after the rest of the entry's, from a register of its own:
         // they are read a clk after the rest, and an entry written in or since the clk
@@ -391,17 +487,17 @@ module gs_accel #(
 
     // ---- expansion memory (EXP_DDR): the queue the far path waits on
     if (EXP_DDR) begin : g_exp
-        gs_accel_exp #(.AW(23)) u_exp (
+        gs_accel_exp #(.AW(23), .LINE(NEAR_LINE)) u_exp (
             .clk(clk), .rst_n(rst_n), .run_i(cpu_rst_n),
             .rd_i(lm_ren[0] & lm_rexp), .rnx_i(lm_ren[0] & ~lm_rexp), .raddr_i(lm_raddr[22:0]),
             .wr_i(lm_wen[0] & (|lm_waddr[23:17])), .waddr_i(lm_waddr[22:0]), .wdata_i(lm_wdata),
-            .rwait_o(x_rwait), .rsel_o(x_rsel), .rdata_o(x_rdata), .wbusy_o(x_wbusy), .ovf_o(x_ovf), .busy_o(),
+            .rwait_o(x_rwait), .rsel_o(x_rsel), .rdata_o(x_rdata), .rline_o(x_rline), .wbusy_o(x_wbusy), .ovf_o(x_ovf), .busy_o(),
             .m_req_o(m_req_o), .m_ready_i(m_ready_i), .m_we_o(m_we_o), .m_addr_o(m_addr_o), .m_wdata_o(m_wdata_o),
             .m_rvalid_i(m_rvalid_i), .m_rdata_i(m_rdata_i)
         );
     end else begin : g_noexp
         assign {x_rwait, x_rsel, x_wbusy, x_ovf} = '0;
-        assign x_rdata = '0;
+        assign x_rdata = '0; assign x_rline = '0;
         assign m_req_o = 1'b0; assign m_we_o = 1'b0; assign m_addr_o = '0; assign m_wdata_o = '0;
     end
 

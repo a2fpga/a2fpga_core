@@ -84,6 +84,8 @@ module tb_gs_broker #(
                                        // gs_accel_exp (the DDR3): here gs_exp_mem_sim; the near memory's tag is split
     parameter bit NEAR_SPLIT = 1'b0,   // EXP_DDR: the near memory's tag is split, its address bits above A17 read
                                        // a clk late (the broker's and gs_accel's NEAR_SPLIT); else the tag is whole
+    parameter bit NEAR_LINE = 1'b0,    // the near memory holds 16-byte lines under one tag, and a far read brings
+                                       // a line (the broker's and gs_accel's NEAR_LINE)
     parameter int ACC_EXP   = 0,       // ACCEL_SHADOW: gs_accel's expansion banks; it is compared in runs with +exp= this
     parameter bit ROM_PRESET = 1'b1    // 1 = the bench loads the card's ROM image; 0 = it starts empty and
                                        // +mode=copy has the design read it through the socket
@@ -212,6 +214,13 @@ module tb_gs_broker #(
     logic [NTW-1:0]     nm_rtag, nm_wtag;
     logic               nm_ren_hi;
     logic [NEAR_AW-1:0] nm_ra_hi;
+    logic               nm_dwen, nm_lfill, lm_risrom;      // (NEAR_LINE)
+    logic [127:0]       ram_line, rom_line, xq_rline;      // ... the line of the last far read
+    // (through a register, as a build has it: the far memories' data has two clks to it -
+    // it reads WRONG in the clk after the launch, like their bytes - and a fill is made
+    // from the register)
+    logic [127:0]       far_line = '0;
+    always_ff @(posedge clk) far_line <= (lm_risrom ? rom_line : xq_rsel ? xq_rline : ram_line) ^ {128{far_bad}};
     // expansion memory behind gs_accel_exp (EXP_DDR)
     logic               lm_rexp, xq_rwait, xq_rsel, xq_wbusy, xq_ovf, xq_req, xq_skip_w;
     bit                 wb_en = 0;                    // +wbforce
@@ -250,7 +259,7 @@ module tb_gs_broker #(
 
     gs_accel_broker #(.STEP_CLKS(STEP_CLKS), .ADDR_CLKS(ADDR_CLKS), .PARK_ADDR(PARK), .DATA_LATE(DATA_LATE), .RA_COPIES(RA_COPIES), .CE_COPIES(4),
                       .NEAR(NEAR), .NEAR_AW(NEAR_AW), .NEAR_KW(NEAR_KW), .SOCK_PRE(SOCK_PRE), .FAR_CLKS(FAR_CLKS),
-                      .EXP_WAIT(EXP_DDR), .NEAR_SPLIT(NEAR_SPLIT)) u_brk (
+                      .EXP_WAIT(EXP_DDR), .NEAR_SPLIT(NEAR_SPLIT), .NEAR_LINE(NEAR_LINE)) u_brk (
         .clk(clk), .rst_n(rst_n),
         .native_i(native_w), .mem_bypass_i(bypass_w),
         .cxrom_local_i(cfg_cxrom[0]), .exp_banks_i(cfg_exp[6:0]),
@@ -270,6 +279,7 @@ module tb_gs_broker #(
         .lm_ram_rdata_i(xq_rsel ? xq_rdata : (lm_ram_rdata ^ {8{far_bad}})), .lm_rom_rdata_i(lm_rom_rdata ^ {8{far_bad}}),
         .lm_rexp_o(lm_rexp), .lm_rwait_i(xq_rwait), .lm_wbusy_i(xq_wbusy | wb_force),
         .nm_ren_hi_o(nm_ren_hi), .nm_ra_hi_o(nm_ra_hi),
+        .nm_dwen_o(nm_dwen), .nm_lfill_o(nm_lfill), .lm_risrom_o(lm_risrom),
         .lm_wen_o(lm_wen_c), .lm_waddr_o(lm_waddr), .lm_wdata_o(lm_wdata),
         .nm_ren_o(nm_ren), .nm_ra_o(nm_ra), .nm_rdata_i(nm_rdata), .nm_rtag_i(nm_rtag),
         .nm_wen_o(nm_wen), .nm_wa_o(nm_wa), .nm_wdata_o(nm_wdata), .nm_wtag_o(nm_wtag),
@@ -333,17 +343,18 @@ module tb_gs_broker #(
     //---------------------------------------------------------------- expansion memory of varying latency (EXP_DDR)
     logic        xm_req, xm_ready, xm_we, xm_rvalid;
     logic [22:0] xm_addr;
-    logic [7:0]  xm_wdata, xm_rdata;
+    logic [7:0]  xm_wdata;
+    logic [(NEAR_LINE ? 128 : 8)-1:0] xm_rdata;
     if (EXP_DDR) begin : g_x
-        gs_accel_exp #(.AW(23)) u_xq (
+        gs_accel_exp #(.AW(23), .LINE(NEAR_LINE)) u_xq (
             .clk(clk), .rst_n(rst_n), .run_i(cpu_rst_n),
             .rd_i(lm_ren & lm_rexp), .rnx_i(lm_ren & ~lm_rexp), .raddr_i(lm_raddr[22:0]),
             .wr_i(lm_wen & (|lm_waddr[23:17])), .waddr_i(lm_waddr[22:0]), .wdata_i(lm_wdata),
-            .rwait_o(xq_rwait), .rsel_o(xq_rsel), .rdata_o(xq_rdata), .wbusy_o(xq_wbusy), .ovf_o(xq_ovf), .busy_o(xq_req),
+            .rwait_o(xq_rwait), .rsel_o(xq_rsel), .rdata_o(xq_rdata), .rline_o(xq_rline), .wbusy_o(xq_wbusy), .ovf_o(xq_ovf), .busy_o(xq_req),
             .m_req_o(xm_req), .m_ready_i(xm_ready), .m_we_o(xm_we), .m_addr_o(xm_addr), .m_wdata_o(xm_wdata),
             .m_rvalid_i(xm_rvalid), .m_rdata_i(xm_rdata)
         );
-        gs_exp_mem_sim #(.AW(23)) u_xmem (
+        gs_exp_mem_sim #(.AW(23), .LINE(NEAR_LINE)) u_xmem (
             .clk(clk), .rst_n(rst_n), .m_req_i(xm_req), .m_ready_o(xm_ready), .m_we_i(xm_we), .m_addr_i(xm_addr),
             .m_wdata_i(xm_wdata), .m_rvalid_o(xm_rvalid), .m_rdata_o(xm_rdata)
         );
@@ -352,8 +363,12 @@ module tb_gs_broker #(
         always @(posedge clk) if (rst_n && xq_ovf) begin $display("ERROR: the expansion memory's queue overflowed"); $finish; end
         // every byte the broker takes from it is the byte the mirror holds
         always @(posedge clk) if (rst_n && xm_rvalid && u_xq.skip == 4'd0 && u_xq.pend) begin
-            if (xm_rdata !== lexp[23'(u_brk.ml_phys - 24'h020000)])
-                begin $display("ERROR: expansion memory gave %02h for %06h, the mirror has %02h", xm_rdata, u_brk.ml_phys, lexp[23'(u_brk.ml_phys - 24'h020000)]); $finish; end
+            for (int k = 0; k < (NEAR_LINE ? 16 : 1); k++) begin
+                logic [23:0] a;
+                a = NEAR_LINE ? {u_brk.ml_phys[23:4], 4'(k)} : u_brk.ml_phys;
+                if (xm_rdata[8*k +: 8] !== lexp[23'(a - 24'h020000)])
+                    begin $display("ERROR: expansion memory gave %02h for %06h, the mirror has %02h", xm_rdata[8*k +: 8], a, lexp[23'(a - 24'h020000)]); $finish; end
+            end
         end
         // at the end of the run: the memory holds what was written to it
         always @(posedge x_check) begin
@@ -363,7 +378,7 @@ module tb_gs_broker #(
         end
     end else begin : g_x
         assign {xq_rwait, xq_rsel, xq_wbusy, xq_ovf, xq_req, xq_skip_w} = '0;
-        assign xq_rdata = '0;
+        assign xq_rdata = '0; assign xq_rline = '0;
         assign {xm_req, xm_ready, xm_we, xm_rvalid} = '0;
         assign xm_addr = '0; assign xm_wdata = '0; assign xm_rdata = '0;
     end
@@ -394,6 +409,11 @@ module tb_gs_broker #(
             // RAM the physical address names, as a build's data mux will.)
             lm_rom_rdata <= lrom[lm_rom_ra];
             lm_ram_rdata <= (lm_raddr[23:17] == 7'd0) ? lram[lm_ram_ra] : lexp[lexp_ridx[22:0]];
+            // (NEAR_LINE) ... and the sixteen bytes of each one's line
+            for (int k = 0; k < 16; k++) begin
+                rom_line[8*k +: 8] <= lrom[{lm_rom_ra[17:4], 4'(k)}];
+                ram_line[8*k +: 8] <= (lm_raddr[23:17] == 7'd0) ? lram[{lm_ram_ra[16:4], 4'(k)}] : lexp[{lexp_ridx[22:4], 4'(k)}];
+            end
         end
         if (lm_wen) begin
             if (lm_waddr[23:17] == 7'd0) lram[lm_waddr[16:0]] <= lm_wdata;
@@ -457,7 +477,30 @@ module tb_gs_broker #(
         for (int i = 0; i < (1<<NEAR_AW); i++) begin nmd[i] = 8'hEE; nmt[i] = NM_EMPTY; end
         nm_rdata = 8'h00; nm_rtag = NM_EMPTY;
     end
-    always_ff @(posedge clk) begin
+    // (NEAR_LINE) Lines: the bytes as before, ONE tag for sixteen (nmt[line]).  A read
+    // launched in the clk of a write to the same 16-bit word of the data blocks, or of a
+    // write of its line's tag, returns the tag as it was and a wrong byte.
+    longint n_nm_inv = 0;
+    always_ff @(posedge clk) if (NEAR_LINE) begin
+        if (nm_ren) begin
+            nm_rdata <= ((nm_dwen && nm_wa[NEAR_AW-1:1] == nm_ra[NEAR_AW-1:1]) || (nm_lfill && nm_wa[NEAR_AW-1:4] == nm_ra[NEAR_AW-1:4]) ||
+                         (nm_wen && nm_wa[NEAR_AW-1:4] == nm_ra[NEAR_AW-1:4])) ? ~nmd[nm_ra] : nmd[nm_ra];
+            nm_rtag  <= nmt[nm_ra >> 4];
+        end
+        if (nm_dwen)  nmd[nm_wa] <= nm_wdata;
+        if (nm_lfill) for (int k = 0; k < 16; k++) nmd[{nm_wa[NEAR_AW-1:4], 4'(k)}] <= far_line[8*k +: 8];
+        if (nm_wen)   nmt[nm_wa >> 4] <= nm_wtag;
+        if (nm_lfill) n_nm_fill <= n_nm_fill + 1;
+        if (nm_dwen)  n_nm_wr   <= n_nm_wr + 1;
+        if (nm_wen && !nm_lfill && !copy_flush) n_nm_inv <= n_nm_inv + 1;
+        if (nm_wen && copy_flush && (nm_wtag != NM_EMPTY || nm_wa != copy_fidx || nm_lfill || nm_dwen)) begin
+            $display("ERROR: near memory flush wrote %04h tag %03h", nm_wa, nm_wtag); $finish;
+        end
+        if (nm_lfill && (lm_wen || clk_no - t_launch < 2)) begin
+            $display("ERROR: near memory filled %0d clks after the far launch", clk_no - t_launch); $finish;
+        end
+        if (nm_ren_hi) begin $display("ERROR: split near-memory read with NEAR_LINE"); $finish; end
+    end else begin
         if (nm_ren) begin
             nm_rdata <= (nm_wen && nm_wa == nm_ra) ? ~nm_wdata : nmd[nm_ra];
             if (!NEAR_SPLIT) nm_rtag <= (nm_wen && nm_wa == nm_ra) ? nm_wtag : nmt[nm_ra];
@@ -495,23 +538,28 @@ module tb_gs_broker #(
         logic [23:0] ph;
         logic [7:0]  want;
         n_bad = 0; n_valid = 0;
-        for (int i = 0; i < (1<<NEAR_AW); i++) if (nmt[i] != NM_EMPTY) begin
-            n_valid++;
-            if (nmt[i][NTW-1] && !(NEAR_SPLIT && nmt[i][NTW-2])) begin
-                want = lrom[{nmt[i][3:0], 14'(i)}];
-            end else begin
-                // (split tag: {1, 1} marks RAM above bank 03, where nothing moves A12)
-                a12  = (NEAR_SPLIT && nmt[i][NTW-1]) ? i[12] : i[12] ^ nmt[i][NTW-2];
-                ph   = 24'({nmt[i][NEAR_KW-1:0], 14'(i)});
-                ph[12] = a12[0];
-                want = (ph[23:17] == 7'd0) ? lram[ph[16:0]] : lexp[23'(ph - 24'h020000)];
-            end
-            if (nmd[i] !== want) begin
-                if (n_bad < 4) $display("   near memory entry %04h tag %03h = %02h, the card's memory has %02h", i, nmt[i], nmd[i], want);
-                n_bad++;
+        for (int i = 0; i < (1<<NEAR_AW); i++) begin
+            logic [NTW-1:0] tg;
+            tg = NEAR_LINE ? nmt[i >> 4] : nmt[i];      // (NEAR_LINE: every byte of a line that is there)
+            if (tg != NM_EMPTY) begin
+                n_valid++;
+                if (tg[NTW-1] && !(NEAR_SPLIT && tg[NTW-2])) begin
+                    want = lrom[{tg[3:0], 14'(i)}];
+                end else begin
+                    // (split tag: {1, 1} marks RAM above bank 03, where nothing moves A12)
+                    a12  = (NEAR_SPLIT && tg[NTW-1]) ? i[12] : i[12] ^ tg[NTW-2];
+                    ph   = 24'({tg[NEAR_KW-1:0], 14'(i)});
+                    ph[12] = a12[0];
+                    want = (ph[23:17] == 7'd0) ? lram[ph[16:0]] : lexp[23'(ph - 24'h020000)];
+                end
+                if (nmd[i] !== want) begin
+                    if (n_bad < 4) $display("   near memory entry %04h tag %03h = %02h, the card's memory has %02h", i, tg, nmd[i], want);
+                    n_bad++;
+                end
             end
         end
         if (n_bad != 0) err($sformatf("the near memory differs from the card's memory in %0d of %0d entries", n_bad, n_valid));
+        if (NEAR_LINE) $display("---- near memory lines: %0d line fills, %0d bytes written into lines that were there, %0d lines emptied by a write", n_nm_fill, n_nm_wr, n_nm_inv);
         $display("---- near memory: %0d of %0d entries in use, %0d fills, %0d writes; %0d two-clk steps, %0d other local steps (%.1f %% two-clk)",
                  n_valid, 1<<NEAR_AW, n_nm_fill, n_nm_wr, n_fast2, n_loc_other,
                  (n_fast2 + n_loc_other) ? 100.0 * real'(n_fast2) / real'(n_fast2 + n_loc_other) : 0.0);
@@ -1245,9 +1293,10 @@ module tb_gs_broker #(
     longint      n_acc_cmp = 0;
     logic        am_req, am_ready, am_we, am_rvalid;
     logic [22:0] am_addr;
-    logic [7:0]  am_wdata, am_rdata;
+    logic [7:0]  am_wdata;
+    logic [(NEAR_LINE ? 128 : 8)-1:0] am_rdata;
     if (EXP_DDR) begin : g_am
-        gs_exp_mem_sim #(.AW(23)) u_amem (
+        gs_exp_mem_sim #(.AW(23), .LINE(NEAR_LINE)) u_amem (
             .clk(clk), .rst_n(rst_n), .m_req_i(am_req), .m_ready_o(am_ready), .m_we_i(am_we), .m_addr_i(am_addr),
             .m_wdata_i(am_wdata), .m_rvalid_o(am_rvalid), .m_rdata_o(am_rdata)
         );
@@ -1255,7 +1304,7 @@ module tb_gs_broker #(
     end else begin : g_noam
         assign {am_ready, am_rvalid} = '0; assign am_rdata = '0;
     end
-    gs_accel #(.NEAR_KW(NEAR_KW), .EXP_BANKS(ACC_EXP), .EXP_DDR(EXP_DDR), .NEAR_SPLIT(NEAR_SPLIT), .SIM_ROM_VALID(ROM_PRESET)) u_acc (
+    gs_accel #(.NEAR_KW(NEAR_KW), .EXP_BANKS(ACC_EXP), .EXP_DDR(EXP_DDR), .NEAR_SPLIT(NEAR_SPLIT), .NEAR_LINE(NEAR_LINE), .SIM_ROM_VALID(ROM_PRESET)) u_acc (
         .exp_ready_i(1'b1), .m_req_o(am_req), .m_ready_i(am_ready), .m_we_o(am_we), .m_addr_o(am_addr),
         .m_wdata_o(am_wdata), .m_rvalid_i(am_rvalid), .m_rdata_i(am_rdata),
         .clk(clk), .rst_n(rst_n),
@@ -1272,12 +1321,23 @@ module tb_gs_broker #(
         .tele_idx_i(6'd0), .tele_word_o()
     );
     // the bench's ROM image into its block-shaped ROM memory
-    for (genvar b = 0; b < 8; b++) begin : g_accb
+    for (genvar b = 0; b < (NEAR_LINE ? 0 : 8); b++) begin : g_accb
         for (genvar k = 0; k < 8; k++) begin : g_acck
             initial begin
                 wait (rom_loaded);
                 #1;
                 if (ROM_PRESET) for (int i = 0; i < 16384; i++) u_acc.g_bit[b].g_rblk[k].mrom[i] = rom_ref[k * 16384 + i][b];
+            end
+        end
+    end
+    // (NEAR_LINE: sixteen bytes wide - word w of a line in block [w][k])
+    for (genvar w = 0; w < (NEAR_LINE ? 8 : 0); w++) begin : g_accw
+        for (genvar k = 0; k < 8; k++) begin : g_acck
+            initial begin
+                wait (rom_loaded);
+                #1;
+                if (ROM_PRESET) for (int i = 0; i < 1024; i++)
+                    u_acc.g_far16.g_w[w].g_rblk[k].mrom.mem[i] = {rom_ref[k * 16384 + i * 16 + 2 * w + 1], rom_ref[k * 16384 + i * 16 + 2 * w]};
             end
         end
     end

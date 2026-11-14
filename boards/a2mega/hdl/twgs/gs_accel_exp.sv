@@ -38,6 +38,10 @@
 //         step is never held: its writes come once per PHI2 cycle, far below
 //         what the memory takes.  ovf_o (sticky): something was queued with
 //         the queue full, and lost - it must never be seen.
+// Line:   with LINE the memory answers a read with the sixteen bytes of the
+//         address's line (m_rdata_i: byte k of the line in bits 8k+7..8k; the
+//         low four address bits of a read it is given mean nothing to it).
+//         rline_o holds them as rdata_o holds the byte, which is the one asked for.
 // Reset:  the queue is kept (its writes were made by steps that completed).
 //         A read whose step the reset cut short still comes back: it is counted
 //         and its byte dropped.
@@ -45,7 +49,8 @@
 module gs_accel_exp #(
     parameter int QLOG    = 4,           // queue depth 2^QLOG
     parameter int WMARGIN = 6,           // wbusy_o with this many entries or fewer free
-    parameter int AW      = 23           // address bits (8 MB)
+    parameter int AW      = 23,          // address bits (8 MB)
+    parameter bit LINE    = 1'b0         // a read is answered with its 16-byte line
 ) (
     input  logic          clk,
     input  logic          rst_n,
@@ -60,6 +65,7 @@ module gs_accel_exp #(
     output logic          rwait_o,
     output logic          rsel_o,
     output logic [7:0]    rdata_o,
+    output logic [127:0]  rline_o,       // (LINE)
     output logic          wbusy_o,
     output logic          ovf_o,
     output logic          busy_o,        // something is still in the queue (for a bench)
@@ -71,7 +77,7 @@ module gs_accel_exp #(
     output logic [AW-1:0] m_addr_o,
     output logic [7:0]    m_wdata_o,
     input  logic          m_rvalid_i,    // a read's byte, in the order the reads were taken
-    input  logic [7:0]    m_rdata_i
+    input  logic [(LINE ? 128 : 8)-1:0] m_rdata_i
 );
     localparam int D = 1 << QLOG;
     // The queue: a small RAM between two registers.  What the broker asks is
@@ -92,6 +98,7 @@ module gs_accel_exp #(
     wire             take  = out_v & m_ready_i;
 
     logic        pend;                   // a read of the running core is on its way
+    logic [3:0]  rlo;                    // (LINE) ... the byte of its line that it asked for
     logic [3:0]  skip;                   // reads on their way whose step is gone
 
     // (a read and a write are never made in the same clk by the broker: the write
@@ -106,6 +113,7 @@ module gs_accel_exp #(
         if (!rst_n) begin
             wp <= '0; rp <= '0; in_v <= 1'b0; out_v <= 1'b0;
             pend <= 1'b0; skip <= '0; rsel_o <= 1'b0; rdata_o <= '0; ovf_o <= 1'b0; wbusy_o <= 1'b0;
+            rlo <= '0; rline_o <= '0;
         end else begin
             in_v <= wr_i | rd_i;
             if (wr_i & rd_i) ovf_o <= 1'b1;                        // (never: see above)
@@ -125,9 +133,13 @@ module gs_accel_exp #(
             // the byte of a read: the running core's, or one to drop
             if (m_rvalid_i) begin
                 if (skip != 4'd0) skip <= skip - 4'd1;
-                else begin rdata_o <= m_rdata_i; pend <= 1'b0; end
+                else begin
+                    rdata_o <= LINE ? m_rdata_i[8 * rlo +: 8] : m_rdata_i[7:0];
+                    rline_o <= 128'(m_rdata_i);
+                    pend    <= 1'b0;
+                end
             end
-            if (rd_i) pend <= 1'b1;
+            if (rd_i) begin pend <= 1'b1; rlo <= raddr_i[3:0]; end
             // the core went into reset with a read on its way
             if (!run_i & pend & ~(m_rvalid_i & (skip == 4'd0))) begin
                 pend <= 1'b0;

@@ -8,7 +8,8 @@ module gs_exp_mem_sim #(
     parameter int AW   = 23,
     parameter int SEED = 16'hACE1,
     parameter int LMIN = 8,              // read latency, clks: LMIN .. LMIN + 31
-    parameter int GAP  = 3               // clks not ready after a request: 0 .. GAP
+    parameter int GAP  = 3,              // clks not ready after a request: 0 .. GAP
+    parameter bit LINE = 1'b0            // a read is answered with the 16 bytes of its line (byte k in bits 8k+7..8k)
 ) (
     input  logic          clk,
     input  logic          rst_n,
@@ -18,7 +19,7 @@ module gs_exp_mem_sim #(
     input  logic [AW-1:0] m_addr_i,
     input  logic [7:0]    m_wdata_i,
     output logic          m_rvalid_o,
-    output logic [7:0]    m_rdata_o
+    output logic [(LINE ? 128 : 8)-1:0] m_rdata_o
 );
     logic [7:0] mem [0:(1<<AW)-1];
     logic [15:0] lfsr = 16'(SEED);
@@ -32,19 +33,19 @@ module gs_exp_mem_sim #(
         void'($value$plusargs("xlat=%d", xlat));
         void'($value$plusargs("xgap=%d", xgap));
     end
-    typedef struct { longint due; logic [7:0] d; } rsp_t;
+    typedef struct { longint due; logic [127:0] d; } rsp_t;
     rsp_t rq [$];
     longint n_rd = 0, n_wr = 0;
 
     initial begin
         for (int i = 0; i < (1<<AW); i++) mem[i] = 8'h00;
-        m_ready_o = 1'b0; m_rvalid_o = 1'b0; m_rdata_o = 8'h00;
+        m_ready_o = 1'b0; m_rvalid_o = 1'b0; m_rdata_o = '0;
     end
     always_ff @(posedge clk) begin
         now <= now + 1;
         m_rvalid_o <= 1'b0;
         if (rq.size() != 0 && rq[0].due <= now) begin
-            m_rvalid_o <= 1'b1; m_rdata_o <= rq[0].d; void'(rq.pop_front());
+            m_rvalid_o <= 1'b1; m_rdata_o <= LINE ? (LINE ? 128 : 8)'(rq[0].d) : (LINE ? 128 : 8)'(rq[0].d[7:0]); void'(rq.pop_front());
         end
         if (m_req_i && m_ready_o) begin
             lfsr <= {lfsr[14:0], lfsr[15] ^ lfsr[13] ^ lfsr[12] ^ lfsr[10]};
@@ -54,7 +55,13 @@ module gs_exp_mem_sim #(
                 due = now + xlat + {59'd0, lfsr[4:0]};
                 if (due <= last_due) due = last_due + 1;
                 last_due <= due;
-                rq.push_back('{due: due, d: mem[m_addr_i]});
+                begin
+                    logic [127:0] ln;
+                    ln = '0;
+                    if (LINE) for (int k = 0; k < 16; k++) ln[8*k +: 8] = mem[{m_addr_i[AW-1:4], 4'(k)}];
+                    else ln[7:0] = mem[m_addr_i];
+                    rq.push_back('{due: due, d: ln});
+                end
                 n_rd <= n_rd + 1;
             end
             gap <= xgap + ((GAP == 0) ? 0 : int'(lfsr[7:6]) % (GAP + 1));

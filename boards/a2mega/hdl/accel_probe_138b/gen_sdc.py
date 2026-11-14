@@ -222,13 +222,16 @@ def generate_near(PERIOD, fname, pfx="", board=False):
             create_clock -name gs_ph2 -period 349.0 -waveform {{209.4 349.0}} [get_ports {{gs_ph2}}]
             set_clock_groups -asynchronous -group [get_clocks {{gs_ph2}}] -group [get_clocks {{clk{mhz}}}]""").rstrip("\n"))
     CORE = regs(f"{pfx}u_cpu/*", f"{pfx}u_cpu/MCode/*", f"{pfx}u_cpu/AddrGen/*")
-    NMQ  = pins("*nmem_*_s/CLKB")                               # the near memory's read port
-    NADB = pins("*nmem_*_s/ADB*")                               # ... its read address
+    # (the near memory's blocks: arrays the synthesizer names ..._s, and - the board build's line
+    # memories - gs_bram16be's primitive)
+    X = (lambda *a: list(a)) if board else (lambda *a: [])
+    NMQ  = pins("*nmem_*_s/CLKB", *X("*nmem/bram/CLKB"))        # the near memory's read port
+    NADB = pins("*nmem_*_s/ADB*", *X("*nmem/bram/ADB*"))        # ... its read address
     SELN = regs(*b("near_r"))                                   # the core's data select
     ALT  = regs(*b("alt_q"))                                    # ... and its other source
-    STEPR = regs(*b("ea_r", "pl_int", "pl_we", "pl_vp_n", "pl_io_int", "nl_idx", "nl_ok"))   # loaded when the core steps
+    STEPR = regs(*b("ea_r", "pl_int", "pl_we", "pl_vp_n", "pl_io_int", "nl_idx", "nl_ok", *X("nl_tk")), *X(f"{pfx}g_line.nlo*"))   # loaded when the core steps
     LATE = regs(*b("wd_r", "sreq_data", "pw_data"), f"{pfx}u_phy/*")                         # ... at the step's decision or later
-    FADB = pins("*mram_*_s/ADB*", "*mrom_*_s/ADB*")             # the far memories' read addresses
+    FADB = pins("*mram_*_s/ADB*", "*mrom_*_s/ADB*", *X("*mram/bram/ADB*", "*mrom/bram/ADB*"))   # the far memories' read addresses
     FSEL = regs("*ram_sel_*", "*rom_sel_*")                     # block selects of their output muxes
     note("""
         ---- step paths (two clks): launched when the core steps, captured when it steps
@@ -286,8 +289,21 @@ def generate_near(PERIOD, fname, pfx="", board=False):
         note("""
             ---- ... and (gs_accel: FAR_CLKS = 2) its data has two clks from the memories'
             read ports and their block selects to the broker's register""")
-        mc(2, pins("*mram_*_s/CLKB", "*mrom_*_s/CLKB"), ALT)
+        FARQ = pins("*mram_*_s/CLKB", "*mrom_*_s/CLKB", "*mram/bram/CLKB", "*mrom/bram/CLKB")
+        mc(2, FARQ, ALT)
         mc(2, FSEL, ALT)
+        note("""
+            ---- (gs_accel NEAR_LINE) the far memories' line: the byte of it the broker takes is
+            picked by a register loaded at the launch; the line goes to a register of its own,
+            two clks from the memories like the byte, and the near memory is filled from that.
+            And the near memory's byte is picked from its line by a register loaded when the
+            core steps""")
+        FLQ = regs(f"{pfx}g_far16.fline_q*")
+        mc(2, regs(f"{pfx}g_far16.far_lo*"), ALT)
+        mc(2, FARQ, FLQ)
+        mc(2, FSEL, FLQ)
+        for to in (CORE, NADB, STEPR):
+            mc(2, regs(f"{pfx}g_line.nlo*"), to)
     note("""
         ---- the broker's view of the core's reset changes at a PHI2-fall event; the PHY
         takes a cycle at its issue point, never sooner than two clks after one""")
@@ -298,7 +314,7 @@ def generate_near(PERIOD, fname, pfx="", board=False):
             two clks before its write enable, which lasts two clks; a near-memory index
             is flushed for two clks""")
         CP = f"{pfx}u_copy/"
-        mc(2, regs(CP + "rom_wa_o*", CP + "rom_wd_o*", CP + "rom_we_o*"), pins("*mrom_*_s/ADA*", "*mrom_*_s/DI*", "*mrom_*_s/CEA"))
+        mc(2, regs(CP + "rom_wa_o*", CP + "rom_wd_o*", CP + "rom_we_o*"), pins("*mrom_*_s/ADA*", "*mrom_*_s/DI*", "*mrom_*_s/CEA", "*mrom/bram/ADA*", "*mrom/bram/DI*", "*mrom/bram/CEA"))
         mc(2, regs(CP + "cs*", CP + "f_*"), pins("*nmem_*_s/ADA*", "*nmem_*_s/DI*", "*nmem_*_s/CEA"))
         # (held_r gates the flush in the broker; it rises long before a flush and falls a
         # clk after one has ended, or, at a reset in the middle of one, the copy is void

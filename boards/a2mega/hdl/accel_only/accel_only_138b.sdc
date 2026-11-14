@@ -36,43 +36,43 @@ set_clock_groups -asynchronous -group [get_clocks {gs_ph2}] -group [get_clocks {
 // status, the index of the launch).
 set_multicycle_path 2 -setup -end -from [get_regs {u_acc/u_cpu/* u_acc/u_cpu/MCode/* u_acc/u_cpu/AddrGen/*}] -to [get_regs {u_acc/u_cpu/* u_acc/u_cpu/MCode/* u_acc/u_cpu/AddrGen/*}]
 set_multicycle_path 1 -hold  -end -from [get_regs {u_acc/u_cpu/* u_acc/u_cpu/MCode/* u_acc/u_cpu/AddrGen/*}] -to [get_regs {u_acc/u_cpu/* u_acc/u_cpu/MCode/* u_acc/u_cpu/AddrGen/*}]
-set_multicycle_path 2 -setup -end -from [get_regs {u_acc/u_cpu/* u_acc/u_cpu/MCode/* u_acc/u_cpu/AddrGen/*}] -to [get_pins {*nmem_*_s/ADB*}]
-set_multicycle_path 1 -hold  -end -from [get_regs {u_acc/u_cpu/* u_acc/u_cpu/MCode/* u_acc/u_cpu/AddrGen/*}] -to [get_pins {*nmem_*_s/ADB*}]
-set_multicycle_path 2 -setup -end -from [get_regs {u_acc/u_cpu/* u_acc/u_cpu/MCode/* u_acc/u_cpu/AddrGen/*}] -to [get_regs {u_acc/u_brk/ea_r* u_acc/u_brk/pl_int* u_acc/u_brk/pl_we* u_acc/u_brk/pl_vp_n* u_acc/u_brk/pl_io_int* u_acc/u_brk/nl_idx* u_acc/u_brk/nl_ok*}]
-set_multicycle_path 1 -hold  -end -from [get_regs {u_acc/u_cpu/* u_acc/u_cpu/MCode/* u_acc/u_cpu/AddrGen/*}] -to [get_regs {u_acc/u_brk/ea_r* u_acc/u_brk/pl_int* u_acc/u_brk/pl_we* u_acc/u_brk/pl_vp_n* u_acc/u_brk/pl_io_int* u_acc/u_brk/nl_idx* u_acc/u_brk/nl_ok*}]
-set_multicycle_path 2 -setup -end -from [get_pins {*nmem_*_s/CLKB}] -to [get_regs {u_acc/u_cpu/* u_acc/u_cpu/MCode/* u_acc/u_cpu/AddrGen/*}]
-set_multicycle_path 1 -hold  -end -from [get_pins {*nmem_*_s/CLKB}] -to [get_regs {u_acc/u_cpu/* u_acc/u_cpu/MCode/* u_acc/u_cpu/AddrGen/*}]
-set_multicycle_path 2 -setup -end -from [get_pins {*nmem_*_s/CLKB}] -to [get_pins {*nmem_*_s/ADB*}]
-set_multicycle_path 1 -hold  -end -from [get_pins {*nmem_*_s/CLKB}] -to [get_pins {*nmem_*_s/ADB*}]
-set_multicycle_path 2 -setup -end -from [get_pins {*nmem_*_s/CLKB}] -to [get_regs {u_acc/u_brk/ea_r* u_acc/u_brk/pl_int* u_acc/u_brk/pl_we* u_acc/u_brk/pl_vp_n* u_acc/u_brk/pl_io_int* u_acc/u_brk/nl_idx* u_acc/u_brk/nl_ok*}]
-set_multicycle_path 1 -hold  -end -from [get_pins {*nmem_*_s/CLKB}] -to [get_regs {u_acc/u_brk/ea_r* u_acc/u_brk/pl_int* u_acc/u_brk/pl_we* u_acc/u_brk/pl_vp_n* u_acc/u_brk/pl_io_int* u_acc/u_brk/nl_idx* u_acc/u_brk/nl_ok*}]
+set_multicycle_path 2 -setup -end -from [get_regs {u_acc/u_cpu/* u_acc/u_cpu/MCode/* u_acc/u_cpu/AddrGen/*}] -to [get_pins {*nmem_*_s/ADB* *nmem/bram/ADB*}]
+set_multicycle_path 1 -hold  -end -from [get_regs {u_acc/u_cpu/* u_acc/u_cpu/MCode/* u_acc/u_cpu/AddrGen/*}] -to [get_pins {*nmem_*_s/ADB* *nmem/bram/ADB*}]
+set_multicycle_path 2 -setup -end -from [get_regs {u_acc/u_cpu/* u_acc/u_cpu/MCode/* u_acc/u_cpu/AddrGen/*}] -to [get_regs {u_acc/u_brk/ea_r* u_acc/u_brk/pl_int* u_acc/u_brk/pl_we* u_acc/u_brk/pl_vp_n* u_acc/u_brk/pl_io_int* u_acc/u_brk/nl_idx* u_acc/u_brk/nl_ok* u_acc/u_brk/nl_tk* u_acc/g_line.nlo*}]
+set_multicycle_path 1 -hold  -end -from [get_regs {u_acc/u_cpu/* u_acc/u_cpu/MCode/* u_acc/u_cpu/AddrGen/*}] -to [get_regs {u_acc/u_brk/ea_r* u_acc/u_brk/pl_int* u_acc/u_brk/pl_we* u_acc/u_brk/pl_vp_n* u_acc/u_brk/pl_io_int* u_acc/u_brk/nl_idx* u_acc/u_brk/nl_ok* u_acc/u_brk/nl_tk* u_acc/g_line.nlo*}]
+set_multicycle_path 2 -setup -end -from [get_pins {*nmem_*_s/CLKB *nmem/bram/CLKB}] -to [get_regs {u_acc/u_cpu/* u_acc/u_cpu/MCode/* u_acc/u_cpu/AddrGen/*}]
+set_multicycle_path 1 -hold  -end -from [get_pins {*nmem_*_s/CLKB *nmem/bram/CLKB}] -to [get_regs {u_acc/u_cpu/* u_acc/u_cpu/MCode/* u_acc/u_cpu/AddrGen/*}]
+set_multicycle_path 2 -setup -end -from [get_pins {*nmem_*_s/CLKB *nmem/bram/CLKB}] -to [get_pins {*nmem_*_s/ADB* *nmem/bram/ADB*}]
+set_multicycle_path 1 -hold  -end -from [get_pins {*nmem_*_s/CLKB *nmem/bram/CLKB}] -to [get_pins {*nmem_*_s/ADB* *nmem/bram/ADB*}]
+set_multicycle_path 2 -setup -end -from [get_pins {*nmem_*_s/CLKB *nmem/bram/CLKB}] -to [get_regs {u_acc/u_brk/ea_r* u_acc/u_brk/pl_int* u_acc/u_brk/pl_we* u_acc/u_brk/pl_vp_n* u_acc/u_brk/pl_io_int* u_acc/u_brk/nl_idx* u_acc/u_brk/nl_ok* u_acc/u_brk/nl_tk* u_acc/g_line.nlo*}]
+set_multicycle_path 1 -hold  -end -from [get_pins {*nmem_*_s/CLKB *nmem/bram/CLKB}] -to [get_regs {u_acc/u_brk/ea_r* u_acc/u_brk/pl_int* u_acc/u_brk/pl_we* u_acc/u_brk/pl_vp_n* u_acc/u_brk/pl_io_int* u_acc/u_brk/nl_idx* u_acc/u_brk/nl_ok* u_acc/u_brk/nl_tk* u_acc/g_line.nlo*}]
 set_multicycle_path 2 -setup -end -from [get_regs {u_acc/u_brk/near_r*}] -to [get_regs {u_acc/u_cpu/* u_acc/u_cpu/MCode/* u_acc/u_cpu/AddrGen/*}]
 set_multicycle_path 1 -hold  -end -from [get_regs {u_acc/u_brk/near_r*}] -to [get_regs {u_acc/u_cpu/* u_acc/u_cpu/MCode/* u_acc/u_cpu/AddrGen/*}]
-set_multicycle_path 2 -setup -end -from [get_regs {u_acc/u_brk/near_r*}] -to [get_pins {*nmem_*_s/ADB*}]
-set_multicycle_path 1 -hold  -end -from [get_regs {u_acc/u_brk/near_r*}] -to [get_pins {*nmem_*_s/ADB*}]
-set_multicycle_path 2 -setup -end -from [get_regs {u_acc/u_brk/near_r*}] -to [get_regs {u_acc/u_brk/ea_r* u_acc/u_brk/pl_int* u_acc/u_brk/pl_we* u_acc/u_brk/pl_vp_n* u_acc/u_brk/pl_io_int* u_acc/u_brk/nl_idx* u_acc/u_brk/nl_ok*}]
-set_multicycle_path 1 -hold  -end -from [get_regs {u_acc/u_brk/near_r*}] -to [get_regs {u_acc/u_brk/ea_r* u_acc/u_brk/pl_int* u_acc/u_brk/pl_we* u_acc/u_brk/pl_vp_n* u_acc/u_brk/pl_io_int* u_acc/u_brk/nl_idx* u_acc/u_brk/nl_ok*}]
+set_multicycle_path 2 -setup -end -from [get_regs {u_acc/u_brk/near_r*}] -to [get_pins {*nmem_*_s/ADB* *nmem/bram/ADB*}]
+set_multicycle_path 1 -hold  -end -from [get_regs {u_acc/u_brk/near_r*}] -to [get_pins {*nmem_*_s/ADB* *nmem/bram/ADB*}]
+set_multicycle_path 2 -setup -end -from [get_regs {u_acc/u_brk/near_r*}] -to [get_regs {u_acc/u_brk/ea_r* u_acc/u_brk/pl_int* u_acc/u_brk/pl_we* u_acc/u_brk/pl_vp_n* u_acc/u_brk/pl_io_int* u_acc/u_brk/nl_idx* u_acc/u_brk/nl_ok* u_acc/u_brk/nl_tk* u_acc/g_line.nlo*}]
+set_multicycle_path 1 -hold  -end -from [get_regs {u_acc/u_brk/near_r*}] -to [get_regs {u_acc/u_brk/ea_r* u_acc/u_brk/pl_int* u_acc/u_brk/pl_we* u_acc/u_brk/pl_vp_n* u_acc/u_brk/pl_io_int* u_acc/u_brk/nl_idx* u_acc/u_brk/nl_ok* u_acc/u_brk/nl_tk* u_acc/g_line.nlo*}]
 set_multicycle_path 2 -setup -end -from [get_regs {u_acc/u_brk/alt_q*}] -to [get_regs {u_acc/u_cpu/* u_acc/u_cpu/MCode/* u_acc/u_cpu/AddrGen/*}]
 set_multicycle_path 1 -hold  -end -from [get_regs {u_acc/u_brk/alt_q*}] -to [get_regs {u_acc/u_cpu/* u_acc/u_cpu/MCode/* u_acc/u_cpu/AddrGen/*}]
-set_multicycle_path 2 -setup -end -from [get_regs {u_acc/u_brk/alt_q*}] -to [get_pins {*nmem_*_s/ADB*}]
-set_multicycle_path 1 -hold  -end -from [get_regs {u_acc/u_brk/alt_q*}] -to [get_pins {*nmem_*_s/ADB*}]
-set_multicycle_path 2 -setup -end -from [get_regs {u_acc/u_brk/alt_q*}] -to [get_regs {u_acc/u_brk/ea_r* u_acc/u_brk/pl_int* u_acc/u_brk/pl_we* u_acc/u_brk/pl_vp_n* u_acc/u_brk/pl_io_int* u_acc/u_brk/nl_idx* u_acc/u_brk/nl_ok*}]
-set_multicycle_path 1 -hold  -end -from [get_regs {u_acc/u_brk/alt_q*}] -to [get_regs {u_acc/u_brk/ea_r* u_acc/u_brk/pl_int* u_acc/u_brk/pl_we* u_acc/u_brk/pl_vp_n* u_acc/u_brk/pl_io_int* u_acc/u_brk/nl_idx* u_acc/u_brk/nl_ok*}]
+set_multicycle_path 2 -setup -end -from [get_regs {u_acc/u_brk/alt_q*}] -to [get_pins {*nmem_*_s/ADB* *nmem/bram/ADB*}]
+set_multicycle_path 1 -hold  -end -from [get_regs {u_acc/u_brk/alt_q*}] -to [get_pins {*nmem_*_s/ADB* *nmem/bram/ADB*}]
+set_multicycle_path 2 -setup -end -from [get_regs {u_acc/u_brk/alt_q*}] -to [get_regs {u_acc/u_brk/ea_r* u_acc/u_brk/pl_int* u_acc/u_brk/pl_we* u_acc/u_brk/pl_vp_n* u_acc/u_brk/pl_io_int* u_acc/u_brk/nl_idx* u_acc/u_brk/nl_ok* u_acc/u_brk/nl_tk* u_acc/g_line.nlo*}]
+set_multicycle_path 1 -hold  -end -from [get_regs {u_acc/u_brk/alt_q*}] -to [get_regs {u_acc/u_brk/ea_r* u_acc/u_brk/pl_int* u_acc/u_brk/pl_we* u_acc/u_brk/pl_vp_n* u_acc/u_brk/pl_io_int* u_acc/u_brk/nl_idx* u_acc/u_brk/nl_ok* u_acc/u_brk/nl_tk* u_acc/g_line.nlo*}]
 
 // ---- the mode changes only when the core steps; it selects the interrupt lines the
 // core sees, which reach its registers and (through its next status) the step registers
 set_multicycle_path 2 -setup -end -from [get_regs {u_acc/u_brk/mode_native* u_acc/u_brk/mode_bypass*}] -to [get_regs {u_acc/u_cpu/* u_acc/u_cpu/MCode/* u_acc/u_cpu/AddrGen/*}]
 set_multicycle_path 1 -hold  -end -from [get_regs {u_acc/u_brk/mode_native* u_acc/u_brk/mode_bypass*}] -to [get_regs {u_acc/u_cpu/* u_acc/u_cpu/MCode/* u_acc/u_cpu/AddrGen/*}]
-set_multicycle_path 2 -setup -end -from [get_regs {u_acc/u_brk/mode_native* u_acc/u_brk/mode_bypass*}] -to [get_regs {u_acc/u_brk/ea_r* u_acc/u_brk/pl_int* u_acc/u_brk/pl_we* u_acc/u_brk/pl_vp_n* u_acc/u_brk/pl_io_int* u_acc/u_brk/nl_idx* u_acc/u_brk/nl_ok*}]
-set_multicycle_path 1 -hold  -end -from [get_regs {u_acc/u_brk/mode_native* u_acc/u_brk/mode_bypass*}] -to [get_regs {u_acc/u_brk/ea_r* u_acc/u_brk/pl_int* u_acc/u_brk/pl_we* u_acc/u_brk/pl_vp_n* u_acc/u_brk/pl_io_int* u_acc/u_brk/nl_idx* u_acc/u_brk/nl_ok*}]
+set_multicycle_path 2 -setup -end -from [get_regs {u_acc/u_brk/mode_native* u_acc/u_brk/mode_bypass*}] -to [get_regs {u_acc/u_brk/ea_r* u_acc/u_brk/pl_int* u_acc/u_brk/pl_we* u_acc/u_brk/pl_vp_n* u_acc/u_brk/pl_io_int* u_acc/u_brk/nl_idx* u_acc/u_brk/nl_ok* u_acc/u_brk/nl_tk* u_acc/g_line.nlo*}]
+set_multicycle_path 1 -hold  -end -from [get_regs {u_acc/u_brk/mode_native* u_acc/u_brk/mode_bypass*}] -to [get_regs {u_acc/u_brk/ea_r* u_acc/u_brk/pl_int* u_acc/u_brk/pl_we* u_acc/u_brk/pl_vp_n* u_acc/u_brk/pl_io_int* u_acc/u_brk/nl_idx* u_acc/u_brk/nl_ok* u_acc/u_brk/nl_tk* u_acc/g_line.nlo*}]
 
 // ---- the interrupt lines the core sees: in fast mode held from one core step to
 // the next; in native mode the pads of the PHI2 fall, in a register from the
 // second clk edge after it, two clks before the step
 set_multicycle_path 2 -setup -end -from [get_regs {u_acc/u_brk/irq_h* u_acc/u_brk/nmi_h* u_acc/u_brk/abort_h* u_acc/u_brk/irq_e* u_acc/u_brk/nmi_e* u_acc/u_brk/abort_e*}] -to [get_regs {u_acc/u_cpu/* u_acc/u_cpu/MCode/* u_acc/u_cpu/AddrGen/*}]
 set_multicycle_path 1 -hold  -end -from [get_regs {u_acc/u_brk/irq_h* u_acc/u_brk/nmi_h* u_acc/u_brk/abort_h* u_acc/u_brk/irq_e* u_acc/u_brk/nmi_e* u_acc/u_brk/abort_e*}] -to [get_regs {u_acc/u_cpu/* u_acc/u_cpu/MCode/* u_acc/u_cpu/AddrGen/*}]
-set_multicycle_path 2 -setup -end -from [get_regs {u_acc/u_brk/irq_h* u_acc/u_brk/nmi_h* u_acc/u_brk/abort_h* u_acc/u_brk/irq_e* u_acc/u_brk/nmi_e* u_acc/u_brk/abort_e*}] -to [get_regs {u_acc/u_brk/ea_r* u_acc/u_brk/pl_int* u_acc/u_brk/pl_we* u_acc/u_brk/pl_vp_n* u_acc/u_brk/pl_io_int* u_acc/u_brk/nl_idx* u_acc/u_brk/nl_ok*}]
-set_multicycle_path 1 -hold  -end -from [get_regs {u_acc/u_brk/irq_h* u_acc/u_brk/nmi_h* u_acc/u_brk/abort_h* u_acc/u_brk/irq_e* u_acc/u_brk/nmi_e* u_acc/u_brk/abort_e*}] -to [get_regs {u_acc/u_brk/ea_r* u_acc/u_brk/pl_int* u_acc/u_brk/pl_we* u_acc/u_brk/pl_vp_n* u_acc/u_brk/pl_io_int* u_acc/u_brk/nl_idx* u_acc/u_brk/nl_ok*}]
+set_multicycle_path 2 -setup -end -from [get_regs {u_acc/u_brk/irq_h* u_acc/u_brk/nmi_h* u_acc/u_brk/abort_h* u_acc/u_brk/irq_e* u_acc/u_brk/nmi_e* u_acc/u_brk/abort_e*}] -to [get_regs {u_acc/u_brk/ea_r* u_acc/u_brk/pl_int* u_acc/u_brk/pl_we* u_acc/u_brk/pl_vp_n* u_acc/u_brk/pl_io_int* u_acc/u_brk/nl_idx* u_acc/u_brk/nl_ok* u_acc/u_brk/nl_tk* u_acc/g_line.nlo*}]
+set_multicycle_path 1 -hold  -end -from [get_regs {u_acc/u_brk/irq_h* u_acc/u_brk/nmi_h* u_acc/u_brk/abort_h* u_acc/u_brk/irq_e* u_acc/u_brk/nmi_e* u_acc/u_brk/abort_e*}] -to [get_regs {u_acc/u_brk/ea_r* u_acc/u_brk/pl_int* u_acc/u_brk/pl_we* u_acc/u_brk/pl_vp_n* u_acc/u_brk/pl_io_int* u_acc/u_brk/nl_idx* u_acc/u_brk/nl_ok* u_acc/u_brk/nl_tk* u_acc/g_line.nlo*}]
 
 // ---- (stated, not relaxed) the core's clock enable is one gate behind registers,
 // and reaches the core in one clk
@@ -87,8 +87,8 @@ set_multicycle_path 2 -setup -end -from [get_regs {u_acc/u_brk/u_replica/*}] -to
 set_multicycle_path 1 -hold  -end -from [get_regs {u_acc/u_brk/u_replica/*}] -to [get_regs {u_acc/u_brk/aq_* u_acc/u_brk/nh_dq*}]
 set_multicycle_path 2 -setup -end -from [get_regs {u_acc/cxrom*}] -to [get_regs {u_acc/u_brk/aq_* u_acc/u_brk/nh_dq*}]
 set_multicycle_path 1 -hold  -end -from [get_regs {u_acc/cxrom*}] -to [get_regs {u_acc/u_brk/aq_* u_acc/u_brk/nh_dq*}]
-set_multicycle_path 2 -setup -end -from [get_pins {*nmem_*_s/CLKB}] -to [get_regs {u_acc/u_brk/nh_dq*}]
-set_multicycle_path 1 -hold  -end -from [get_pins {*nmem_*_s/CLKB}] -to [get_regs {u_acc/u_brk/nh_dq*}]
+set_multicycle_path 2 -setup -end -from [get_pins {*nmem_*_s/CLKB *nmem/bram/CLKB}] -to [get_regs {u_acc/u_brk/nh_dq*}]
+set_multicycle_path 1 -hold  -end -from [get_pins {*nmem_*_s/CLKB *nmem/bram/CLKB}] -to [get_regs {u_acc/u_brk/nh_dq*}]
 
 // ---- the core's outputs reach the broker's other registers no sooner than the
 // step's second clk: write data (registered with the write, with a socket request,
@@ -98,17 +98,35 @@ set_multicycle_path 1 -hold  -end -from [get_regs {u_acc/u_cpu/* u_acc/u_cpu/MCo
 
 // ---- a far read: its registered address is presented to the memories for two
 // clks and launched in the second
-set_multicycle_path 2 -setup -end -from [get_regs {u_acc/u_brk/ml_sel_r* u_acc/u_brk/ml_phys* u_acc/u_brk/ml_rom*}] -to [get_pins {*mram_*_s/ADB* *mrom_*_s/ADB*}]
-set_multicycle_path 1 -hold  -end -from [get_regs {u_acc/u_brk/ml_sel_r* u_acc/u_brk/ml_phys* u_acc/u_brk/ml_rom*}] -to [get_pins {*mram_*_s/ADB* *mrom_*_s/ADB*}]
+set_multicycle_path 2 -setup -end -from [get_regs {u_acc/u_brk/ml_sel_r* u_acc/u_brk/ml_phys* u_acc/u_brk/ml_rom*}] -to [get_pins {*mram_*_s/ADB* *mrom_*_s/ADB* *mram/bram/ADB* *mrom/bram/ADB*}]
+set_multicycle_path 1 -hold  -end -from [get_regs {u_acc/u_brk/ml_sel_r* u_acc/u_brk/ml_phys* u_acc/u_brk/ml_rom*}] -to [get_pins {*mram_*_s/ADB* *mrom_*_s/ADB* *mram/bram/ADB* *mrom/bram/ADB*}]
 set_multicycle_path 2 -setup -end -from [get_regs {u_acc/u_brk/ml_sel_r* u_acc/u_brk/ml_phys* u_acc/u_brk/ml_rom*}] -to [get_regs {*ram_sel_* *rom_sel_*}]
 set_multicycle_path 1 -hold  -end -from [get_regs {u_acc/u_brk/ml_sel_r* u_acc/u_brk/ml_phys* u_acc/u_brk/ml_rom*}] -to [get_regs {*ram_sel_* *rom_sel_*}]
 
 // ---- ... and (gs_accel: FAR_CLKS = 2) its data has two clks from the memories'
 // read ports and their block selects to the broker's register
-set_multicycle_path 2 -setup -end -from [get_pins {*mram_*_s/CLKB *mrom_*_s/CLKB}] -to [get_regs {u_acc/u_brk/alt_q*}]
-set_multicycle_path 1 -hold  -end -from [get_pins {*mram_*_s/CLKB *mrom_*_s/CLKB}] -to [get_regs {u_acc/u_brk/alt_q*}]
+set_multicycle_path 2 -setup -end -from [get_pins {*mram_*_s/CLKB *mrom_*_s/CLKB *mram/bram/CLKB *mrom/bram/CLKB}] -to [get_regs {u_acc/u_brk/alt_q*}]
+set_multicycle_path 1 -hold  -end -from [get_pins {*mram_*_s/CLKB *mrom_*_s/CLKB *mram/bram/CLKB *mrom/bram/CLKB}] -to [get_regs {u_acc/u_brk/alt_q*}]
 set_multicycle_path 2 -setup -end -from [get_regs {*ram_sel_* *rom_sel_*}] -to [get_regs {u_acc/u_brk/alt_q*}]
 set_multicycle_path 1 -hold  -end -from [get_regs {*ram_sel_* *rom_sel_*}] -to [get_regs {u_acc/u_brk/alt_q*}]
+
+// ---- (gs_accel NEAR_LINE) the far memories' line: the byte of it the broker takes is
+// picked by a register loaded at the launch; the line goes to a register of its own,
+// two clks from the memories like the byte, and the near memory is filled from that.
+// And the near memory's byte is picked from its line by a register loaded when the
+// core steps
+set_multicycle_path 2 -setup -end -from [get_regs {u_acc/g_far16.far_lo*}] -to [get_regs {u_acc/u_brk/alt_q*}]
+set_multicycle_path 1 -hold  -end -from [get_regs {u_acc/g_far16.far_lo*}] -to [get_regs {u_acc/u_brk/alt_q*}]
+set_multicycle_path 2 -setup -end -from [get_pins {*mram_*_s/CLKB *mrom_*_s/CLKB *mram/bram/CLKB *mrom/bram/CLKB}] -to [get_regs {u_acc/g_far16.fline_q*}]
+set_multicycle_path 1 -hold  -end -from [get_pins {*mram_*_s/CLKB *mrom_*_s/CLKB *mram/bram/CLKB *mrom/bram/CLKB}] -to [get_regs {u_acc/g_far16.fline_q*}]
+set_multicycle_path 2 -setup -end -from [get_regs {*ram_sel_* *rom_sel_*}] -to [get_regs {u_acc/g_far16.fline_q*}]
+set_multicycle_path 1 -hold  -end -from [get_regs {*ram_sel_* *rom_sel_*}] -to [get_regs {u_acc/g_far16.fline_q*}]
+set_multicycle_path 2 -setup -end -from [get_regs {u_acc/g_line.nlo*}] -to [get_regs {u_acc/u_cpu/* u_acc/u_cpu/MCode/* u_acc/u_cpu/AddrGen/*}]
+set_multicycle_path 1 -hold  -end -from [get_regs {u_acc/g_line.nlo*}] -to [get_regs {u_acc/u_cpu/* u_acc/u_cpu/MCode/* u_acc/u_cpu/AddrGen/*}]
+set_multicycle_path 2 -setup -end -from [get_regs {u_acc/g_line.nlo*}] -to [get_pins {*nmem_*_s/ADB* *nmem/bram/ADB*}]
+set_multicycle_path 1 -hold  -end -from [get_regs {u_acc/g_line.nlo*}] -to [get_pins {*nmem_*_s/ADB* *nmem/bram/ADB*}]
+set_multicycle_path 2 -setup -end -from [get_regs {u_acc/g_line.nlo*}] -to [get_regs {u_acc/u_brk/ea_r* u_acc/u_brk/pl_int* u_acc/u_brk/pl_we* u_acc/u_brk/pl_vp_n* u_acc/u_brk/pl_io_int* u_acc/u_brk/nl_idx* u_acc/u_brk/nl_ok* u_acc/u_brk/nl_tk* u_acc/g_line.nlo*}]
+set_multicycle_path 1 -hold  -end -from [get_regs {u_acc/g_line.nlo*}] -to [get_regs {u_acc/u_brk/ea_r* u_acc/u_brk/pl_int* u_acc/u_brk/pl_we* u_acc/u_brk/pl_vp_n* u_acc/u_brk/pl_io_int* u_acc/u_brk/nl_idx* u_acc/u_brk/nl_ok* u_acc/u_brk/nl_tk* u_acc/g_line.nlo*}]
 
 // ---- the broker's view of the core's reset changes at a PHI2-fall event; the PHY
 // takes a cycle at its issue point, never sooner than two clks after one
@@ -118,8 +136,8 @@ set_multicycle_path 1 -hold  -end -from [get_regs {u_acc/u_brk/run_c*}] -to [get
 // ---- the ROM copy (gs_accel_romcopy): a byte's address and data are registered
 // two clks before its write enable, which lasts two clks; a near-memory index
 // is flushed for two clks
-set_multicycle_path 2 -setup -end -from [get_regs {u_acc/u_copy/rom_wa_o* u_acc/u_copy/rom_wd_o* u_acc/u_copy/rom_we_o*}] -to [get_pins {*mrom_*_s/ADA* *mrom_*_s/DI* *mrom_*_s/CEA}]
-set_multicycle_path 1 -hold  -end -from [get_regs {u_acc/u_copy/rom_wa_o* u_acc/u_copy/rom_wd_o* u_acc/u_copy/rom_we_o*}] -to [get_pins {*mrom_*_s/ADA* *mrom_*_s/DI* *mrom_*_s/CEA}]
+set_multicycle_path 2 -setup -end -from [get_regs {u_acc/u_copy/rom_wa_o* u_acc/u_copy/rom_wd_o* u_acc/u_copy/rom_we_o*}] -to [get_pins {*mrom_*_s/ADA* *mrom_*_s/DI* *mrom_*_s/CEA *mrom/bram/ADA* *mrom/bram/DI* *mrom/bram/CEA}]
+set_multicycle_path 1 -hold  -end -from [get_regs {u_acc/u_copy/rom_wa_o* u_acc/u_copy/rom_wd_o* u_acc/u_copy/rom_we_o*}] -to [get_pins {*mrom_*_s/ADA* *mrom_*_s/DI* *mrom_*_s/CEA *mrom/bram/ADA* *mrom/bram/DI* *mrom/bram/CEA}]
 set_multicycle_path 2 -setup -end -from [get_regs {u_acc/u_copy/cs* u_acc/u_copy/f_*}] -to [get_pins {*nmem_*_s/ADA* *nmem_*_s/DI* *nmem_*_s/CEA}]
 set_multicycle_path 1 -hold  -end -from [get_regs {u_acc/u_copy/cs* u_acc/u_copy/f_*}] -to [get_pins {*nmem_*_s/ADA* *nmem_*_s/DI* *nmem_*_s/CEA}]
 set_multicycle_path 2 -setup -end -from [get_regs {u_acc/u_brk/held_r*}] -to [get_pins {*nmem_*_s/ADA* *nmem_*_s/DI* *nmem_*_s/CEA}]

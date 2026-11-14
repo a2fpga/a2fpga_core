@@ -182,6 +182,17 @@
 // the $Dxxx index only: a write through $Cxxx goes to that entry, a read
 // through $Cxxx is always served by the far memory.
 //
+//   NEAR_LINE: the near memory holds LINES of 16 bytes, one tag for a line
+// (not NEAR_SPLIT: the tag is whole).  A far read brings its whole line - the
+// DDR3 answers a read with sixteen bytes, and the block memories are read
+// sixteen wide - and the miss fills the line: the next fifteen bytes are hits.
+// A line is there complete or not at all, and always equal to the far memory:
+// a write changes its byte in a line that is there (the tag read at the launch
+// says so) and does nothing to the near memory if it is not; if that tag is not
+// to be trusted (it was written at or since the launch) or the byte's line is
+// under another index (the $Cxxx case above) the line is emptied.  A read
+// launched in the clk of, or before, any write to its line is not used.
+//
 module gs_accel_broker #(
     parameter int          STEP_CLKS = 4,            // fast mode: clks per local step (>= ADDR_CLKS + 1)
     parameter int          ADDR_CLKS = 1,            // clks from the step edge to the memory / request strobe
@@ -206,9 +217,10 @@ module gs_accel_broker #(
                                                      // (lm_rwait_i).  A fast step waits in place; a native step's socket
                                                      // cycle is not taken as complete until the byte is there (the cycle,
                                                      // a read of RAM, is issued again meanwhile)
-    parameter bit          NEAR_SPLIT = 1'b0         // NEAR, NEAR_KW > 4: the tag's address bits above the low four are read a
+    parameter bit          NEAR_SPLIT = 1'b0,        // NEAR, NEAR_KW > 4: the tag's address bits above the low four are read a
                                                      // clk after the rest, at the step's own address (nm_ren_hi_o), and a
                                                      // tag with one of them set is marked in the low part - see nm_tag
+    parameter bit          NEAR_LINE  = 1'b0         // NEAR, not NEAR_SPLIT: the near memory holds 16-byte lines (above)
 ) (
     input  logic        clk,
     input  logic        rst_n,
@@ -304,6 +316,16 @@ module gs_accel_broker #(
     // first clk of the step the launch was for, and is valid from its second.
     output logic                 nm_ren_hi_o,
     output logic [NEAR_AW-1:0]   nm_ra_hi_o,
+    // (NEAR_LINE) nm_rtag_i is the tag of the line nm_ra_o[NEAR_AW-1:4], nm_rdata_i the
+    // byte nm_ra_o of it.  nm_wen_o writes that line's TAG (nm_wtag_o at
+    // nm_wa_o[NEAR_AW-1:4]) and no byte; with nm_lfill_o the line's sixteen bytes are
+    // written too, from the far read that has just completed - the caller has them:
+    // the line of the ROM image if lm_risrom_o, else of RAM at lm_raddr_o (the
+    // expansion memory's if that read was one of its).  nm_dwen_o writes the one
+    // byte nm_wa_o (nm_wdata_o) and no tag.
+    output logic                 nm_dwen_o,
+    output logic                 nm_lfill_o,
+    output logic                 lm_risrom_o,
 
     // expansion memory behind the far path, of any latency (NEAR, FAR_CLKS = 2; tie
     // the two inputs low if unused).  lm_rexp_o with lm_ren_o: the read launched is of
@@ -795,7 +817,16 @@ module gs_accel_broker #(
     // launch's and compared in the step's first clk, not behind the core's next address)
     logic                 lw_r;
     logic [NEAR_AW-1:0]   lwa_r;
-    wire                  nl_good = nl_ok & ~nl_wr & ~(lw_r & (lwa_r == nl_idx));
+    // (NEAR_LINE: "that index" is the line; nl_tk / nl_tgood: the TAG read at the launch
+    // is still the line's - only a tag write undoes that, not a byte's)
+    localparam int LB = NEAR_LINE ? 4 : 0;
+    wire                  lw_same = (lwa_r[NEAR_AW-1:LB] == nl_idx[NEAR_AW-1:LB]);
+    wire                  nl_good = nl_ok & ~nl_wr & ~(lw_r & lw_same);
+    logic                 nl_tk, lwt_r;
+    wire                  nl_wt;
+    wire                  nl_tgood = nl_tk & ~nl_wt & ~(lwt_r & lw_same);
+    logic                 thit_q, tunk_q;   // a cheap-view write's line is there / its tag is not to be trusted
+    logic                 whit_r, winv_r;   // the write being made changes a byte of a line / empties the line
     // (NEAR_SPLIT: the high address bits of the entry are read a clk after the rest and
     // have one clk to nh_dq where the rest has two, so their compare is made on its
     // own, two gates deep, and joins the rest last - the nets are kept for that)
@@ -937,7 +968,11 @@ module gs_accel_broker #(
                      (sc == (fresh_ok ? 4'(ADDR_CLKS - 2) : 4'(SLOW - 1))));
     wire   lm_wen         = WREG ? wen_r : mode_native ? wen_nat : (mem_evt & lm_write);
     assign lm_wen_o       = !WREG ? {RA_COPIES{lm_wen}} : WEN_ONE ? {RA_COPIES{wen_r}} : wen_c;
-    assign nl_wr          = (lm_wen & (widx_r == nl_idx)) | (nfill_r & (fill_idx == nl_idx));
+    wire   w_sameline     = (widx_r[NEAR_AW-1:LB] == nl_idx[NEAR_AW-1:LB]);
+    wire   f_sameline     = (fill_idx[NEAR_AW-1:LB] == nl_idx[NEAR_AW-1:LB]);
+    assign nl_wr          = NEAR_LINE ? ((lm_wen & (whit_r | winv_r) & w_sameline) | (nfill_r & f_sameline))
+                                      : ((lm_wen & (widx_r == nl_idx)) | (nfill_r & (fill_idx == nl_idx)));
+    assign nl_wt          = NEAR_LINE & ((lm_wen & winv_r & w_sameline) | (nfill_r & f_sameline));
     assign lm_waddr_o     = NEAR ? wa_r : d_phys;
     assign lm_wdata_o     = NEAR ? wd_r : cpu_d_out_i;
 
@@ -952,10 +987,22 @@ module gs_accel_broker #(
     assign nm_ra_o    = cpu_na_i[NEAR_AW-1:0];
     // (held, nm_flush_i: the entry is made empty)
     wire   nm_flush   = nm_flush_i & held_r;
-    assign nm_wen_o   = NEAR & (lm_wen | nfill_r | nm_flush);
+    assign nm_wen_o   = NEAR & (NEAR_LINE ? ((lm_wen & winv_r) | nfill_r | nm_flush) : (lm_wen | nfill_r | nm_flush));
     assign nm_wa_o    = nm_flush ? nm_flush_idx_i : nfill_r ? fill_idx : widx_r;
-    assign nm_wtag_o  = nm_flush ? NM_EMPTY : nfill_r ? fill_tag : wtag_r;
+    assign nm_wtag_o  = nm_flush ? NM_EMPTY : nfill_r ? fill_tag : NEAR_LINE ? NM_EMPTY : wtag_r;
     assign nm_wdata_o = nfill_r ? alt_q    : wd_r;
+    assign nm_dwen_o  = NEAR & NEAR_LINE & lm_wen & whit_r;
+    assign nm_lfill_o = NEAR & NEAR_LINE & nfill_r;
+    assign lm_risrom_o = ml_isrom;
+    // (the cheap view's tag against the tag read at the launch: a write of the cheap view
+    // is decided in its first clk like a read)
+    wire   thit0      = nl_tgood & (nm_rtag_i == f_tag);
+    // (any other write: against the full decode's tag, in the clk the write is registered.
+    // A byte under another index - the $Cxxx case - has its line emptied; a byte the tag
+    // cannot name has none)
+    wire   w_named    = ~nm_far_only(d_phys);
+    wire   whit_d     = nl_tgood & (nm_rtag_i == w_tag) & ~w_calias & w_named;
+    wire   winv_d     = (~nl_tgood | w_calias) & w_named;
 
     // next values of the registers `sel` is made of (the same as in the block below;
     // compared with `sel` every clk in simulation)
@@ -1021,6 +1068,7 @@ module gs_accel_broker #(
             alt_q <= '0;
             fill_idx <= '0; fill_tag <= '0; fill_ok <= 1'b0;
             wa_r <= '0; wd_r <= '0; widx_r <= '0; wtag_r <= '0; nl_idx <= '0; lw_r <= 1'b0; lwa_r <= '0;
+            lwt_r <= 1'b0; whit_r <= 1'b0; winv_r <= 1'b0;
         end else begin
             // the decode of the next step, registered with the launch of its read
             if (pf_launch) begin
@@ -1054,10 +1102,15 @@ module gs_accel_broker #(
                 wd_r <= cpu_d_out_i;
                 if (wen_fast) begin wa_r <= f_phys; widx_r <= ea_r[NEAR_AW-1:0];     wtag_r <= f_tag; end
                 else          begin wa_r <= d_phys; widx_r <= w_idx;                 wtag_r <= w_tag; end
+                if (NEAR_LINE) begin
+                    whit_r <= wen_fast ? thit_q : whit_d;
+                    winv_r <= wen_fast ? tunk_q : winv_d;
+                end
             end
             if (NEAR & cpu_ce_o) begin
                 nl_idx <= cpu_na_i[NEAR_AW-1:0];
-                lw_r   <= nm_wen_o;
+                lw_r   <= nm_wen_o | nm_dwen_o;
+                lwt_r  <= nm_wen_o;
                 lwa_r  <= nm_wa_o;
             end
             // what the memories' output registers hold
@@ -1089,6 +1142,7 @@ module gs_accel_broker #(
             ev_hit <= 1'b0; ev_miss <= 1'b0; ev_pww <= 1'b0;
             near_r <= 1'b0; fill_pend <= 1'b0; nfill_r <= 1'b0;
             fa_q <= 1'b0; fb_q <= 1'b0; fh_q <= 1'b0; fa_c <= '0; fb_c <= '0; fh_c <= '0; nh_dq <= 1'b0; nl_ok <= 1'b0;
+            nl_tk <= 1'b0; thit_q <= 1'b0; tunk_q <= 1'b0;
         end else if (!run_now) begin
             // core in reset (or the socket is not ours): nothing pending
             st <= ST_RESET; ph <= '0;
@@ -1102,6 +1156,7 @@ module gs_accel_broker #(
             wen_r <= NEAR & wen_set;  wen_c <= WEN_ONE ? '0 : {RA_COPIES{NEAR & wen_set}};
             ren_r <= 1'b0; ren_c <= '0; rexp_r <= 1'b0;
             fa_q <= 1'b0; fb_q <= 1'b0; fh_q <= 1'b0; fa_c <= '0; fb_c <= '0; fh_c <= '0; nh_dq <= 1'b0; nl_ok <= 1'b0;
+            nl_tk <= 1'b0; thit_q <= 1'b0; tunk_q <= 1'b0;
             ce_r <= 1'b0; ce_c <= '0; sc <= '0; pl_fresh <= 1'b0; sw_touch_q <= 1'b0;
             ev_hit <= 1'b0; ev_miss <= 1'b0; ev_pww <= 1'b0;
             near_r <= 1'b0; fill_pend <= 1'b0; nfill_r <= 1'b0;
@@ -1144,6 +1199,10 @@ module gs_accel_broker #(
             // core took, until that index is written
             if (cpu_ce_o)                                  nl_ok <= NEAR & cpu_rdy_i;
             else if (NEAR & (nl_wr | held_r))              nl_ok <= 1'b0;
+            if (cpu_ce_o)                                  nl_tk <= NEAR_LINE & cpu_rdy_i;
+            else if (nl_wt | held_r)                       nl_tk <= 1'b0;
+            thit_q   <= NEAR_LINE & thit0;
+            tunk_q   <= NEAR_LINE & ~nl_tgood;
             nfill_r  <= NEAR & fill_pend & fill_ok & (st == ST_DATA) & (ph == 4'd2);
             if (nfill_r | cpu_ce_o) fill_pend <= 1'b0;
             ml_apply <= 1'b0;
@@ -1430,10 +1489,16 @@ module gs_accel_broker #(
     end
     // an entry is never written with the empty tag but to empty it
     // (or for a byte the tag cannot name, whose entry is emptied by its write)
-    always @(posedge clk) if (rst_n && nm_wen_o && !nm_flush && nm_wtag_o === NM_EMPTY &&
+    always @(posedge clk) if (rst_n && !NEAR_LINE && nm_wen_o && !nm_flush && nm_wtag_o === NM_EMPTY &&
                               (nfill_r || !nm_far_only(wa_r))) begin
         $display("ERROR: broker: a near-memory entry written with the empty tag: index %h @%0t", nm_wa_o, $time); $finish;
     end
+    // (NEAR_LINE) a write changes a byte of a line or empties a line, never both; a fill
+    // is of a line, with a tag that is not the empty one
+    always @(posedge clk) if (rst_n && NEAR_LINE && ((nm_dwen_o && nm_wen_o) || (nm_lfill_o && (!nm_wen_o || nm_wtag_o === NM_EMPTY)))) begin
+        $display("ERROR: broker: near-memory line write: dwen %b wen %b lfill %b tag %h @%0t", nm_dwen_o, nm_wen_o, nm_lfill_o, nm_wtag_o, $time); $finish;
+    end
+    initial if (NEAR_LINE && !(NEAR && !NEAR_SPLIT && NEAR_AW > 4)) $fatal(1, "gs_accel_broker: NEAR_LINE needs NEAR without NEAR_SPLIT");
     // nothing moves A12 in RAM above bank 03 (the mark takes that bit's place)
     always @(posedge clk) if (rst_n && NEAR_SPLIT && mem_evt && (lm_read | lm_write) && ~d_local_rom && (|d_phys[23:18]) &&
                               (d_phys[12] != eff_addr[12])) begin

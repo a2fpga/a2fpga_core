@@ -397,33 +397,64 @@ module top (
     wire [15:0] acc_stall_w, acc_be_w, acc_per_w, acc_high_w, acc_verify_w;
     wire [23:0] acc_last_w;
 
-    // gs_accel's byte port on the arbiter's 32-bit words: a request is taken in the
-    // clk the port is available; a read's byte lane is remembered until its word
-    // comes back (reads come back in order)
+    // gs_accel's port on the arbiter's 32-bit words: a request is taken in the clk
+    // the port is available.  A write is one byte of a word.  A read is of the
+    // address's 16-byte line (ACC_LINE: gs_accel's NEAR_LINE) - the arbiter's burst
+    // read, which is one read of the DDR3 and comes back as its four words in order;
+    // the line is handed over with the fourth.  (Reads come back in the order they
+    // were taken, each with all its beats, so the beat count needs no restart.)
+    // Without ACC_LINE a read is of one word, of which gs_accel is given the byte
+    // it asked for: its lane is remembered until the word comes back.
+`ifdef ACC_BYTE_CACHE
+    localparam bit ACC_LINE = 1'b0;
+`else
+    localparam bit ACC_LINE = 1'b1;
+`endif
     wire        xm_req_w, xm_we_w;
     wire [22:0] xm_addr_w;
     wire [7:0]  xm_wdata_w;
     wire        xm_take_w = xm_req_w & ddr3_mem_ports[0].available;
+    wire        xm_line_w = ACC_LINE & ~xm_we_w;
     assign ddr3_mem_ports[0].rd      = xm_take_w & ~xm_we_w;
     assign ddr3_mem_ports[0].wr      = xm_take_w &  xm_we_w;
-    assign ddr3_mem_ports[0].addr    = xm_addr_w[22:2];
+    assign ddr3_mem_ports[0].addr    = xm_line_w ? {xm_addr_w[22:4], 2'b00} : xm_addr_w[22:2];
     assign ddr3_mem_ports[0].data    = {4{xm_wdata_w}};
     assign ddr3_mem_ports[0].byte_en = 4'b0001 << xm_addr_w[1:0];
-    assign ddr3_mem_ports[0].burst   = 1'b0;
-    reg [1:0] xm_lane_r [0:7];
-    reg [2:0] xm_lw_r = '0, xm_lr_r = '0;
-    always @(posedge clk_gs_w) begin
-        if (xm_take_w & ~xm_we_w) begin xm_lane_r[xm_lw_r] <= xm_addr_w[1:0]; xm_lw_r <= xm_lw_r + 1'b1; end
-        if (ddr3_mem_ports[0].ready) xm_lr_r <= xm_lr_r + 1'b1;
+    assign ddr3_mem_ports[0].burst   = xm_line_w;
+    wire                           xm_rvalid_w;
+    wire [(ACC_LINE ? 128 : 8)-1:0] xm_rdata_w;
+    if (ACC_LINE) begin : g_xline
+        reg [1:0]   beat_r = '0;
+        reg [95:0]  acc_r;
+        reg [127:0] line_r;
+        reg         rv_r = 1'b0;
+        always @(posedge clk_gs_w) begin
+            rv_r <= 1'b0;
+            if (ddr3_mem_ports[0].ready) begin
+                beat_r <= beat_r + 1'b1;
+                if (beat_r == 2'd3) begin line_r <= {ddr3_mem_ports[0].q, acc_r}; rv_r <= 1'b1; end
+                else                acc_r[32 * beat_r +: 32] <= ddr3_mem_ports[0].q;
+            end
+        end
+        assign xm_rvalid_w = rv_r;
+        assign xm_rdata_w  = line_r;
+    end else begin : g_xbyte
+        reg [1:0] xm_lane_r [0:7];
+        reg [2:0] xm_lw_r = '0, xm_lr_r = '0;
+        always @(posedge clk_gs_w) begin
+            if (xm_take_w & ~xm_we_w) begin xm_lane_r[xm_lw_r] <= xm_addr_w[1:0]; xm_lw_r <= xm_lw_r + 1'b1; end
+            if (ddr3_mem_ports[0].ready) xm_lr_r <= xm_lr_r + 1'b1;
+        end
+        assign xm_rvalid_w = ddr3_mem_ports[0].ready;
+        assign xm_rdata_w  = ddr3_mem_ports[0].q[8 * xm_lane_r[xm_lr_r] +: 8];
     end
-    wire [7:0] xm_rdata_w = ddr3_mem_ports[0].q[8 * xm_lane_r[xm_lr_r] +: 8];
     // (the memory is ready: two flops into the accelerator's clock, quasi-static)
     reg calib_g0 = 1'b0, calib_g1 = 1'b0;
     always @(posedge clk_gs_w) begin calib_g0 <= init_calib_complete_w; calib_g1 <= calib_g0; end
 
-    gs_accel #(.EXP_DDR(1'b1), .EXP_BANKS(126), .NEAR_KW(9)) u_acc (
+    gs_accel #(.EXP_DDR(1'b1), .EXP_BANKS(126), .NEAR_KW(9), .NEAR_LINE(ACC_LINE)) u_acc (
         .exp_ready_i(calib_g1), .m_req_o(xm_req_w), .m_ready_i(ddr3_mem_ports[0].available), .m_we_o(xm_we_w),
-        .m_addr_o(xm_addr_w), .m_wdata_o(xm_wdata_w), .m_rvalid_i(ddr3_mem_ports[0].ready), .m_rdata_i(xm_rdata_w),
+        .m_addr_o(xm_addr_w), .m_wdata_o(xm_wdata_w), .m_rvalid_i(xm_rvalid_w), .m_rdata_i(xm_rdata_w),
         .clk(clk_gs_w), .rst_n(device_reset_n_w & gs_pll_lock_w),
         .arm_i(gs_ctrl_s1[0]), .listen_i(gs_ctrl_s1[2]), .out_extra_i(gs_oe_s1),
         .cfg_fast_i(rq_key_w & gs_rq_s1[0]), .cfg_cardmem_i(rq_key_w & gs_rq_s1[1]),

@@ -18,6 +18,7 @@
         <File path="hdl/twgs/gs_mmu_replica.sv" type="file.verilog" enable="1"/>
         <File path="hdl/twgs/gs_accel_broker.sv" type="file.verilog" enable="1"/>
         <File path="hdl/twgs/gs_accel_romcopy.sv" type="file.verilog" enable="1"/>
+        <File path="hdl/twgs/gs_bram16be.sv" type="file.verilog" enable="1"/>
         <File path="hdl/twgs/gs_accel.sv" type="file.verilog" enable="1"/>
         <File path="hdl/twgs/gs_accel_exp.sv" type="file.verilog" enable="1"/>
         <File path="hdl/dp_test_138b/pll/gowin_gs_pll_mod.v" type="file.verilog" enable="1"/>

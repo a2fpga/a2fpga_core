@@ -7,3 +7,6 @@
 // for the board build's clock period.
 `define ACC_CLK_105
 //`define ACC_CLK_100
+// The near memory is lines of sixteen bytes, filled a line at a time (gs_accel NEAR_LINE; a read
+// of the DDR3 is its burst of sixteen), unless this is defined: then single bytes, as before.
+//`define ACC_BYTE_CACHE
