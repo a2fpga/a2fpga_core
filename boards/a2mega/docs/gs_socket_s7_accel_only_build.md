@@ -973,6 +973,52 @@ with the accessory open the card shows the core's socket time in bank
 00's I/O page (`C019` the most common low byte), each such cycle about
 1.8 us of socket time.
 
+### What the machine itself offers for slow memory (the same day)
+
+Looked up after the two benchmarks, in the Apple IIGS Hardware Reference
+(second edition, chapter 2) and Apple IIGS Technical Notes #70 and #72:
+
+- **No switch makes banks E0/E1 fast.** "Because the memory controlled
+  by the Mega II contains the display buffers, it always runs at the
+  1.024-MHz speed." A Mega II cycle is taken for "all external and most
+  internal I/O operations", shadowed video writes, inhibited memory
+  accesses and "Mega II memory accesses to banks $E0 and $E1".
+- **The machine's own answer is shadowing**: a fast copy in banks 00/01
+  that is read at full speed, with each write repeated into E0/E1. The
+  Shadow register (`$C035`) chooses the regions - the text pages, the
+  hi-res pages, super hi-res, the auxiliary hi-res pages, and I/O with
+  the language card - and bit 4 of the Speed register (`$C036`) extends
+  it to every RAM bank ("for proper operation of the Apple IIGS
+  operating system, this bit must always be set to 0"). QuickDraw II
+  uses it when asked: bit 15 of the MasterSCB given to `QDStartUp`
+  "requests that QuickDraw II use the memory at $012000 to shadow onto
+  the real screen memory at $E12000", which "speeds up QuickDraw II,
+  since memory in bank $01 can be read at full speed" (TN #72). The
+  regions are video and I/O only: nothing shadows `E1/0000` to `1FFF`,
+  where the tool dispatcher's vectors and tables are.
+- **Some I/O is fast by design**: "Certain registers internal to the FPI
+  (the DMA register, the Speed register, and the Shadow register) are
+  read and written at high speed. Similarly, reading the interrupt ROM
+  addresses ($C071 through $C07F) does not slow the system. In addition,
+  two registers (the State register and the Slot ROM Select register)
+  ... are written at 1.024 MHz and read at 2.8 MHz". `$C019` is not
+  among them. On the card these all go to the socket, where the machine
+  gives them a fast cycle; the replica holds the same registers, so
+  their reads could be answered on the card.
+- The cost of one slow cycle is the manual's: up to 1 us of waiting
+  (0.5 average) for a single Mega II cycle, and consecutive ones at
+  1.024 MHz. TN #70 describes the notches of the A2Desktop reading:
+  "one loop writing data to the graphics memory may run at the same
+  speed as a second loop with a higher cycle count".
+- The ZipGS's registers (`$C058` to `$C05F`, from the 6502bench symbol
+  file) have a language card cache bit, delays for slots, speaker,
+  paddles and counters, and nothing for E0/E1. What the TransWarp GS
+  does there was not found in a document that could be read (its
+  manuals are scans, its programmer's reference did not load).
+
+So a card copy of E0/E1 RAM for reads is the machine's shadowing idea
+carried to memory Apple did not shadow. It has no official switch.
+
 ## 4. What is verified, and what is not
 
 Verified in simulation (the broker suite, `hdl/twgs/sim/broker`):
