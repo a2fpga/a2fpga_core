@@ -569,6 +569,17 @@ t23c:   lda f:$FF0000 + hicode,x
         dex
         bpl t23c
         inc HIFLG
+        ; RAMRD and RAMWRT mean nothing in bank 04: a byte written and read there with
+        ; both set is bank 04's (a cheap view that took its bank bit from them would
+        ; go to bank 05)
+        sta $C003               ; RAMRD
+        sta $C005               ; RAMWRT
+        lda #$A4
+        sta $046101
+        lda $046101
+        sta $C002
+        sta $C004
+        sta $E1610C             ; (on the socket: $A4)
         lda #$3C
         sta $086100
         lda $086100

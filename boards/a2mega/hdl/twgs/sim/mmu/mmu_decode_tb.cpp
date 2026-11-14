@@ -157,6 +157,9 @@ static void run_one(const In& s)
             CHECK(x.local_rom, 0u, "fast_exp: rom", "%u")
             CHECK((unsigned)dut->fast_rom, 0u, "fast_exp: fast_rom", "%u")
             CHECK(r.addr_bus, ((uint32_t)s.bank << 16) | s.addr, "fast_exp: phys", "%06x")
+            // ... which the broker puts together from these two
+            CHECK((unsigned)dut->fast_aux, (unsigned)(s.bank & 1), "fast_exp: fast_aux", "%u")
+            CHECK((unsigned)dut->fast_fold, 0u, "fast_exp: fast_fold", "%u")
         }
     } else if (dut->fast_rw) {
         CHECK(x.local, 1u, "fast_rw: local", "%u")

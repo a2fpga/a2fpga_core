@@ -1,13 +1,14 @@
-// The accelerator-only build's 105 MHz sequencer clock (see gowin_acc_pll_mod.v):
-// gowin_gs_pll's wrapper (hdl/dp_test_138b/gowin_plls_138b.sv) with MDIV 21.
-module gowin_acc_pll (output lock, output clkout, input clkin);
+// The accelerator-only build's alternative sequencer clocks (see gowin_acc_pll_mod.v):
+// gowin_gs_pll's wrapper (hdl/dp_test_138b/gowin_plls_138b.sv) with MDIV 21 (105 MHz)
+// or 20 (100 MHz).
+module gowin_acc_pll #(parameter int MDIV = 21) (output lock, output clkout, input clkin);
 
     wire [5:0] icpsel;
     wire [2:0] lpfres;
     wire       pll_lock;
     wire       pll_rst;
 
-    gowin_acc_pll_MOD u_pll (
+    gowin_acc_pll_MOD #(.MDIV(MDIV)) u_pll (
         .clkout0 (clkout),
         .lock    (pll_lock),
         .clkin   (clkin),
@@ -27,6 +28,6 @@ module gowin_acc_pll (output lock, output clkout, input clkin);
         .LPFRES  (lpfres)
     );
     defparam u_pll_init.CLK_PERIOD = 20;   // ns, 50 MHz
-    defparam u_pll_init.MULTI_FAC  = 21;   // MDIV_SEL
+    defparam u_pll_init.MULTI_FAC  = MDIV; // MDIV_SEL
 
 endmodule

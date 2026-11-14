@@ -333,4 +333,5 @@ generate_near(9.259, "accel_probe_138b_n8.sdc")      # the same design at 108 MH
 # the board build: the S6 socket PLL, 110 MHz - or 105 MHz with ACC_CLK_105 in its defines
 _defs = (pathlib.Path(__file__).parent.parent / "accel_only" / "accel_only_defines.v").read_text()
 _p105 = any(l.strip().startswith("`define ACC_CLK_105") for l in _defs.splitlines())
-generate_near(9.524 if _p105 else 9.091, "accel_only_138b.sdc", pfx="u_acc/", board=True)
+_p100 = any(l.strip().startswith("`define ACC_CLK_100") for l in _defs.splitlines())
+generate_near(10.000 if _p100 else 9.524 if _p105 else 9.091, "accel_only_138b.sdc", pfx="u_acc/", board=True)

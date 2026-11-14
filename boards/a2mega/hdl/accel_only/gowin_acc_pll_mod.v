@@ -4,13 +4,14 @@
 //
 // Derived MECHANICALLY from hdl/dp_test_138b/pll/gowin_gs_pll_mod.v (itself the
 // IDE-generated GW5AST-138B PLL MOD with the module name and ratio defparams
-// changed): the ONLY edits are the module name and MDIV_SEL (22 -> 21).
+// changed): the ONLY edits are the module name and MDIV_SEL (22 -> the parameter
+// MDIV: 21, or 20 for 100 MHz).
 //
 // GW5AST PLL envelope (PnR PA2078): PFD = FCLKIN/IDIV in 19..81.25 MHz,
 // VCO = FCLKIN*MDIV/IDIV in 650..1300 MHz.  Here PFD = 50 MHz, VCO = 50*21 =
 // 1050 MHz, /10 = 105.000 MHz (the management PLL is 50*20, the socket PLL 50*22).
 
-module gowin_acc_pll_MOD (lock, clkout0, clkin, reset, icpsel, lpfres, lpfcap);
+module gowin_acc_pll_MOD #(parameter MDIV = 21) (lock, clkout0, clkin, reset, icpsel, lpfres, lpfcap);
 
 output lock;
 output clkout0;
@@ -94,7 +95,7 @@ defparam PLL_inst.ODIV3_SEL = 8;
 defparam PLL_inst.ODIV4_SEL = 8;
 defparam PLL_inst.ODIV5_SEL = 8;
 defparam PLL_inst.ODIV6_SEL = 8;
-defparam PLL_inst.MDIV_SEL = 21;
+defparam PLL_inst.MDIV_SEL = MDIV;
 defparam PLL_inst.MDIV_FRAC_SEL = 0;
 defparam PLL_inst.ODIV0_FRAC_SEL = 0;
 defparam PLL_inst.CLKOUT0_EN = "TRUE";

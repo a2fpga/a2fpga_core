@@ -153,7 +153,9 @@ module top (
         .memory_clk(memory_clk_w), .ddr3_pll_lock(ddr3_pll_lock_w)
     );
     wire clk_gs_w, gs_pll_lock_w;
-`ifdef ACC_CLK_105
+`ifdef ACC_CLK_100
+    gowin_acc_pll #(.MDIV(20)) i_gs_pll (.lock(gs_pll_lock_w), .clkout(clk_gs_w), .clkin(clk));   // 100 MHz
+`elsif ACC_CLK_105
     gowin_acc_pll i_gs_pll (.lock(gs_pll_lock_w), .clkout(clk_gs_w), .clkin(clk));   // 105 MHz
 `else
     gowin_gs_pll i_gs_pll (.lock(gs_pll_lock_w), .clkout(clk_gs_w), .clkin(clk));    // 110 MHz

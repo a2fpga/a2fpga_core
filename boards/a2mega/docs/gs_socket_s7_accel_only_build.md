@@ -661,7 +661,51 @@ that compare is the path the 105 MHz build closes by 0.02 ns; a three-clk
 step there (35 MHz in those banks, about 40 M steps a second on these
 tests) is the smaller change. For the floating-point tests: counters of
 clks by kind of step, to split socket cycles from misses before choosing.
-None of it is done.
+The first is written (next paragraph); the rest is not done.
+
+**The two-clk step in the expansion banks: written, verified in
+simulation, not durable in timing (2026-11-13, evening).** The tag is
+whole again (`NEAR_SPLIT = 0`, now a parameter of `gs_accel`; the split
+tag of section 3b is kept as the other value): data, {ROM, A12 moved} and
+A14-A22, nineteen blocks, all read with the core's next address. The
+cheap view (`gs_mmu_decode` `fast_exp`) takes a read or a write in any
+bank the card backs while only banks 00/01 shadow (CYAREG bit 4 clear):
+plain RAM at its own address. The five tag bits this adds to the first-clk
+compare are compared against the address register directly, gated by
+A23, not through the cheap view: a RAM step's high bits are the
+address's, a ROM step's are zero and its bank has A23 set or is 00/01.
+Where expansion steps are the cheap view's, every cheap step waits for
+room in the expansion memory's queue. The empty entry is all ones again.
+
+In the bench a hit in banks 04-7F is two clks (the test program's bank 04
+code: 51,528 two-clk steps where the split tag had 40,093, no four-clk
+read left). 155 runs pass, the ROM 01 boot with 126 banks at the same step
+hash; the decode sweep has 85,994,305 expansion vectors (the physical
+address, no ROM, no fold, the bank's own bit 0) and no failure; replica
+and socket benches pass. Seven mutations of the new logic, all detected -
+one (the bank bit taken from RAMRD in an expansion bank) only after the
+sweep gained a check and the test program a write in bank 04 with RAMRD
+and RAMWRT set.
+
+Timing, with all nineteen blocks placed (R46 / R64, sites 16 to 22): the
+rule is three placements with no violation, and it is not met.
+
+| clock | placement 0 | placement 1 | placement 2 |
+|---|---|---|---|
+| 105 MHz | +0.002 | 73 paths, -1.069 ns | +0.002 |
+| 100 MHz (`ACC_CLK_100`, new) | +0.012 | 25 paths, -0.743 ns | +0.034 |
+
+The failing placement is the same perturbation at both clocks, and what
+fails in it is not the new logic alone: three-level paths in the PHY and
+the ROM copy with 7 ns of wire, the near memory to the core, the core to
+the near address. A first build with three of the blocks left to the
+placer (it put them in R28) and the high tag bits through the cheap view
+failed by 0.79 ns on 95 paths. So: the design was at the edge with
+fourteen near blocks, and nineteen tip some placements over; 5 % of clock
+does not buy it back. Not flashed. Ideas not tried: a ten-bit tag (ROM
+coded as "A12 moved" with A22, eighteen blocks, no site 16); a three-clk
+step for these hits on the split tag's fourteen blocks (about 40 M steps a
+second on the computing tests where two clks would give 51 M).
 
 **A defect found on the way, in the source only so far.** The bank 04
 code changed which step a second ROM copy lands on in the bench's
