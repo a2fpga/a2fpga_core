@@ -627,6 +627,91 @@ t23n:
         res                     ; $7E (written only with a bank 7F)
 t24n:
 
+        ; ---- T25 the Mega II's RAM by every way in.  A card that serves reads of
+        ;      banks E0/E1 from a copy of its own must have followed each of them:
+        ;      a write the FPI shadows from bank 00, with the copy's line in a cache
+        ;      in front of it and without; a read-modify-write in the bank itself;
+        ;      the bank latch off (E1 is then E0, and the IIe switches pick main or
+        ;      auxiliary); ALTZP; a block move inside the bank, over itself
+        lda $E00468             ; (the copy's line into such a cache)
+        lda #$71
+        sta $0468               ; forwarded: shadowed to E0/0468
+        lda $E00468
+        res                     ; $71
+        lda $0469               ; (bank 00's line in its place)
+        lda #$72
+        sta $0469               ; forwarded
+        lda $E00469
+        res                     ; $72
+        lda #$10
+        sta $E15000
+        lda #$E1
+        pha
+        plb                     ; data bank E1
+        inc $5000               ; read, modify, write: the read may be the card's, the write is the socket's
+        inc $5000
+        lda $5000
+        tax
+        lda #$00
+        pha
+        plb                     ; data bank 00 again
+        txa
+        res                     ; $12
+        lda #$33
+        sta $E00470             ; main
+        lda #$44
+        sta $E10470             ; auxiliary (the bank latch is on)
+        stz $C029               ; bank latch off: bank E1 is bank E0
+        lda $E10470
+        res                     ; $33 (main)
+        lda #$55
+        sta $E10471             ; -> main 0471
+        sta $C005               ; RAMWRT on
+        lda #$66
+        sta $E00472             ; -> auxiliary 0472
+        sta $C004
+        sta $C003               ; RAMRD on
+        lda $E10472             ; auxiliary, through E1
+        res                     ; $66
+        sta $C002
+        lda #$01
+        sta $C029               ; bank latch on again
+        lda $E00471
+        res                     ; $55
+        lda $E10472
+        res                     ; $66
+        lda $E10470
+        res                     ; $44
+        lda #$88
+        sta $E10080             ; auxiliary zero page
+        sta $C009               ; ALTZP on
+        lda $E00080             ; ... through E0
+        sta $C008
+        res                     ; $88
+        lda #$A1
+        sta $E15100
+        lda #$A2
+        sta $E15101
+        lda #$A3
+        sta $E15102
+        lda #$A4
+        sta $E15103
+        rep #$30
+        .a16
+        .i16
+        ldx #$5100
+        ldy #$5104
+        lda #$001F
+        .byte $54, $E1, $E1     ; MVN: 32 bytes E1/5100 -> E1/5104, each read four bytes behind a write
+        sep #$30
+        .a8
+        .i8
+        lda #$00
+        pha
+        plb                     ; DBR = 0 again
+        lda $E15123
+        res                     ; $A4
+
         lda #$A5
         sta SIG
         cli

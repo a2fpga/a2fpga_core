@@ -193,6 +193,32 @@
 // under another index (the $Cxxx case above) the line is emptied.  A read
 // launched in the clk of, or before, any write to its line is not used.
 //
+// SLOW_COPY (NEAR): the card keeps a copy of the Mega II's RAM below $C000 of
+// banks E0/E1 (gs_mmu_decode slow_copy) in the expansion memory, at the
+// physical address E0/E1 - which the caller maps wherever it has room - so the
+// far path, the fills and the near memory treat it like any expansion bank;
+// its lines have tags of their own (nm_tag).  The copy follows the machine in
+// every mode and whatever slow_local_i says:
+//   * a write to E0/E1 is the socket cycle it always was, and its byte goes to
+//     the copy when that cycle completes (as a native step's write does: a step
+//     /RESET cuts short writes neither);
+//   * a write the FPI shadows from a bank the card holds (forwarded: stored
+//     locally and posted) is ALSO to be made in the copy, at E0 + its low 17
+//     address bits: lm_wfwd_o with lm_wen_o.  If the near memory holds that
+//     line of the copy it gets the byte too (same index, same byte of the line);
+//   * a write the FPI shadows from a bank the card does not hold (slow_only) is
+//     a socket cycle and a write of the copy alone.
+// slow_local_i only says where a READ of that RAM comes from: the socket, as
+// before, or the copy (a local read like any other: a near hit, or a far read
+// that fills a line).  It is taken at step boundaries and may change at any
+// time, in either direction: neither the machine's RAM nor the copy is ever
+// stale.  In paced mode (native, card memory of record) such a read is
+// compared with the socket's byte like any local read; mismatches in E0/E1
+// have a count of their own, which means something at any time - the machine's
+// E0/E1 is never stale, where its banks 00/01 are once fast mode has run.
+// One exposure, the posted write's: a forwarded write that /RESET drops from
+// the buffer is in the copy (and in the card's bank 00/01) and not in the machine.
+//
 module gs_accel_broker #(
     parameter int          STEP_CLKS = 4,            // fast mode: clks per local step (>= ADDR_CLKS + 1)
     parameter int          ADDR_CLKS = 1,            // clks from the step edge to the memory / request strobe
@@ -220,7 +246,8 @@ module gs_accel_broker #(
     parameter bit          NEAR_SPLIT = 1'b0,        // NEAR, NEAR_KW > 4: the tag's address bits above the low four are read a
                                                      // clk after the rest, at the step's own address (nm_ren_hi_o), and a
                                                      // tag with one of them set is marked in the low part - see nm_tag
-    parameter bit          NEAR_LINE  = 1'b0         // NEAR, not NEAR_SPLIT: the near memory holds 16-byte lines (above)
+    parameter bit          NEAR_LINE  = 1'b0,        // NEAR, not NEAR_SPLIT: the near memory holds 16-byte lines (above)
+    parameter bit          SLOW_COPY  = 1'b0         // NEAR, NEAR_KW >= 5, not NEAR_SPLIT: a copy of Mega II RAM in the expansion memory (above)
 ) (
     input  logic        clk,
     input  logic        rst_n,
@@ -230,6 +257,7 @@ module gs_accel_broker #(
     input  logic        mem_bypass_i,    // native only: 1 = read data from the socket for everything
     input  logic        cxrom_local_i,   // replica: internal $C100-$CFFF firmware served locally
     input  logic [6:0]  exp_banks_i,     // replica: expansion banks backed by the card
+    input  logic        slow_local_i,    // SLOW_COPY: reads of Mega II RAM below $C000 come from the card's copy
 
     // hold (clk domain; for whatever loads the card's memories through the socket:
     // the ROM image).  With hold_i the core is not stepped past the step in progress.
@@ -298,6 +326,7 @@ module gs_accel_broker #(
     output logic [RA_COPIES-1:0] lm_wen_o,          // (likewise)
     output logic [23:0] lm_waddr_o,
     output logic [7:0]  lm_wdata_o,
+    output logic        lm_wfwd_o,       // SLOW_COPY, with lm_wen_o: the byte is also to be written at E0 + lm_waddr_o[16:0]
 
     // near memory (NEAR), synchronous, two ports.  Read: nm_ren_o (= the core's
     // clock enable) registers nm_ra_o (the core's next address, low bits) and
@@ -347,6 +376,9 @@ module gs_accel_broker #(
     output logic        verify_miss_o,   // native, card memory of record: local byte != socket byte
     output logic [23:0] verify_addr_o,   // address of the last mismatch
     output logic [15:0] verify_count_o,
+    output logic        slow_o,          // SLOW_COPY: reads of Mega II RAM are the card's, in the step in progress
+    output logic [15:0] verify_scount_o, // ... mismatches in banks E0/E1 (they are counted in verify_count_o too)
+    output logic [23:0] verify_saddr_o,  // ... the address of the last one
     output logic [31:0] stat_steps_o,    // core steps
     output logic [31:0] stat_sock_o,     // socket cycles run for the core (reads, synchronous writes)
     output logic [31:0] stat_posted_o,   // posted writes completed
@@ -453,15 +485,18 @@ module gs_accel_broker #(
     end
 
     // mode inputs: two flops, then taken at step boundaries
-    logic [1:0] native_s, bypass_s;
+    logic [1:0] native_s, bypass_s, slow_s;
+    logic       slow_q;                  // slow_local_i, of the step in progress
     always_ff @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
-            native_s <= 2'b11; bypass_s <= 2'b11;
+            native_s <= 2'b11; bypass_s <= 2'b11; slow_s <= 2'b00;
         end else begin
             native_s <= {native_s[0], native_i};
             bypass_s <= {bypass_s[0], mem_bypass_i};
+            slow_s   <= {slow_s[0], SLOW_COPY & slow_local_i};
         end
     end
+    assign slow_o = slow_q;
 
     //=========================================================================
     // The step in progress: effective access and its classification
@@ -514,7 +549,7 @@ module gs_accel_broker #(
     logic [2:0]  r_region;
     logic [23:0] r_phys;
     logic [17:0] r_rom_addr;
-    logic        r_local, r_fwd, r_local_we, r_local_rom, r_side;
+    logic        r_local, r_fwd, r_local_we, r_local_rom, r_side, r_sonly;
     logic        r_fast_rw, r_fast_int_a, r_fast_rom, r_fast_aux, r_fast_fold, r_fast_exp, r_fast_sock;
     logic [1:0]  r_fast_rbank;
     logic [23:0] pf_phys;
@@ -531,6 +566,7 @@ module gs_accel_broker #(
     gs_mmu_replica #(.ROM3(ROM3)) u_replica (
         .clk(clk), .rst_n(rst_n), .sw_reset_i(~run_c),
         .cxrom_local_i(cxrom_local_i), .exp_banks_i(exp_banks_i),
+        .slow_copy_i(SLOW_COPY), .slow_local_i(slow_q),
         // data-late: the switches take a socket cycle's effect the clk after it completes
         // (the step that follows is decoded two clks later at the soonest), and the
         // direct decode is made from the registered status, not the core's outputs
@@ -540,7 +576,7 @@ module gs_accel_broker #(
         .acc_vpb_n_i(DATA_LATE ? (pl_vp_n | pl_io_int) : (cpu_vp_n_i | io_int_l)),
         .acc_region_o(r_region), .acc_phys_o(r_phys), .acc_local_o(r_local),
         .acc_forward_write_o(r_fwd), .acc_local_we_o(r_local_we), .acc_local_rom_o(r_local_rom),
-        .acc_rom_addr_o(r_rom_addr), .acc_side_effect_o(r_side),
+        .acc_rom_addr_o(r_rom_addr), .acc_side_effect_o(r_side), .acc_slow_only_o(r_sonly),
         .acc_fast_rw_o(r_fast_rw), .acc_fast_int_o(r_fast_int_a), .acc_fast_rom_o(r_fast_rom),
         .acc_fast_rbank_o(r_fast_rbank), .acc_fast_aux_o(r_fast_aux), .acc_fast_fold_o(r_fast_fold),
         .acc_fast_exp_o(r_fast_exp), .acc_fast_sock_o(r_fast_sock),
@@ -566,7 +602,7 @@ module gs_accel_broker #(
     // is not substituted (io_int) - cross-checked in simulation below.
     logic        pl_r_local, pl_r_rom, pl_side, pl_w_local, pl_w_we, pl_w_fwd;
     logic [23:0] pl_w_phys;
-    logic        aq_local, aq_fwd, aq_local_we, aq_local_rom, aq_side, aq_hit;
+    logic        aq_local, aq_fwd, aq_local_we, aq_local_rom, aq_side, aq_hit, aq_sonly;
     logic [23:0] aq_phys;
     logic [17:0] aq_rom_addr;
     logic [7:0]  cfg_q;
@@ -586,6 +622,12 @@ module gs_accel_broker #(
 `else
     assign aq_bad = 1'b0;
 `endif
+    logic       wr_bad;                                           // (near memory: the write registers, below)
+`ifdef VERILATOR
+    assign wr_bad = NEAR & (st != ST_RESET) & (sc < 4'(SLOW - 1));
+`else
+    assign wr_bad = 1'b0;
+`endif
     wire        d_local     = !DATA_LATE ? r_local     : fresh_ok ? (eff_we ? pl_w_local : pl_r_local) : aq_local ^ aq_bad;
     wire        d_local_we  = !DATA_LATE ? r_local_we  : fresh_ok ? pl_w_we  : aq_local_we ^ aq_bad;
     wire        d_fwd       = !DATA_LATE ? r_fwd       : fresh_ok ? pl_w_fwd : aq_fwd ^ aq_bad;
@@ -593,11 +635,16 @@ module gs_accel_broker #(
     wire        d_side      = !DATA_LATE ? r_side      : fresh_ok ? pl_side  : aq_side ^ aq_bad;
     wire [23:0] d_phys      = !DATA_LATE ? r_phys      : fresh_ok ? pl_w_phys : aq_phys ^ {24{aq_bad}};
     wire [17:0] d_rom_addr  = !DATA_LATE ? r_rom_addr  : aq_rom_addr ^ {18{aq_bad}};
+    // (SLOW_COPY: a socket write whose byte goes to the copy of Mega II RAM alone)
+    wire        d_sonly     = !DATA_LATE ? r_sonly     : fresh_ok ? 1'b0 : aq_sonly ^ aq_bad;
 
     // what this step needs
+    // (a write is stored - d_local_we - where it is local, and, SLOW_COPY, where it is
+    // a write of Mega II RAM the card copies: that one is a socket cycle all the same,
+    // and its byte goes to the copy when the cycle completes - wen_set)
     wire need_sock = mode_native | (internal ? d_side : ~d_local);
     wire lm_read   = ~internal & d_local & ~eff_we;
-    wire lm_write  = ~internal & eff_we & d_local & d_local_we;
+    wire lm_write  = ~internal & eff_we & d_local_we & (d_local | SLOW_COPY);
     wire post      = ~mode_native & ~internal & eff_we & d_fwd;
     wire use_lm    = lm_read & ~(mode_native & mode_bypass);
     wire ld_hit;                         // (assigned below)
@@ -795,6 +842,24 @@ module gs_accel_broker #(
     function automatic logic nm_far_only(input logic [23:0] phys);      // a RAM byte the tag cannot name
         nm_far_only = (NEAR_KW < 10) ? |(phys >> (14 + NEAR_KW)) : 1'b0;
     endfunction
+    // (SLOW_COPY) The same two for the full decode's side - a step's own tag, a fill's, a
+    // write's - which is where the copy of Mega II RAM, banks E0/E1, comes in: its tags
+    // have the ROM's {1, 0} and above the ROM's four bits one the ROM never has -
+    // {1, A16, A15, A14} - and the tag can always name it.  The cheap view never has
+    // such a byte and keeps the two above: nothing is added to the step's first clk.
+    function automatic logic [NTW-1:0] nm_stag(input logic rom, input logic [23:0] phys,
+                                               input logic [3:0] romhi, input logic a12);
+        logic hi, sl;
+        hi = NEAR_SPLIT & (|phys[23:18]);
+        sl = SLOW_COPY & (phys[23:17] == 7'h70);
+        nm_stag = rom ? {1'b1, 1'b0, NEAR_KW'(romhi)} :
+                  sl  ? {1'b1, 1'b0, NEAR_KW'({1'b1, 1'b0, phys[16:14]})} :
+                  hi  ? {2'b11, phys[14 +: NEAR_KW]} : {1'b0, phys[12] ^ a12, phys[14 +: NEAR_KW]};
+    endfunction
+    function automatic logic nm_sfar_only(input logic [23:0] phys);
+        nm_sfar_only = (SLOW_COPY & (phys[23:17] == 7'h70)) ? 1'b0 :
+                       (NEAR_KW < 10) ? |(phys >> (14 + NEAR_KW)) : 1'b0;
+    endfunction
     // An entry that holds nothing has a tag no byte has.  All ones, where that is one:
     // not with NEAR_SPLIT, where all ones is RAM in the top 16K of the last bank the tag
     // reaches (bank 7F with NEAR_KW = 9).  There the mark {1, 1} is only ever on RAM with
@@ -813,8 +878,8 @@ module gs_accel_broker #(
     logic                 nl_ok;
     logic [NEAR_AW-1:0]   nl_idx;
     wire  [NTW-1:0]       r_tag  = r_local_rom ? nm_tag(1'b1, 24'd0, r_rom_addr[17:14], 1'b0)
-                                               : nm_tag(1'b0, r_phys, 4'd0, eff_addr[12]);
-    wire                  r_nc   = ~r_local_rom & (((eff_addr[15:12] == 4'hC) & ~|r_phys[23:17]) | nm_far_only(r_phys));
+                                               : nm_stag(1'b0, r_phys, 4'd0, eff_addr[12]);
+    wire                  r_nc   = ~r_local_rom & (((eff_addr[15:12] == 4'hC) & ~|r_phys[23:17]) | nm_sfar_only(r_phys));
     // (a write to the launched index: the core's, in the clk after it was registered,
     // or a fill - compared register against register, not through the write port's mux)
     wire                  nl_wr;            // (assigned below, with the write registers)
@@ -838,8 +903,15 @@ module gs_accel_broker #(
     localparam logic [NTW-1:0] NH_MASK = NEAR_SPLIT ? NTW'(((1 << NEAR_KW) - 1) & ~15) : '0;
     logic                 nh_lo /* synthesis syn_keep = 1 */;
     logic                 nh_hi /* synthesis syn_keep = 1 */;
-    assign                nh_lo  = nl_good & ~r_nc & (((nm_rtag_i ^ r_tag) & ~NH_MASK) == '0);
-    assign                nh_hi  = (((nm_rtag_i ^ r_tag) & NH_MASK) == '0);
+    // (NEAR_LINE: the tag read at the launch, registered - rtag_q, the tag from the
+    // step's second clk on.  The two compares that are not made in the step's first
+    // clk - this one, registered at the end of the second, and a write's, used no
+    // sooner than the third - take it from there: the tag block's outputs then carry
+    // the first clk's compares and this register, and nothing else.)
+    logic [NTW-1:0]       rtag_q;
+    wire  [NTW-1:0]       c_rtag = NEAR_LINE ? rtag_q : nm_rtag_i;
+    assign                nh_lo  = nl_good & ~r_nc & (((c_rtag ^ r_tag) & ~NH_MASK) == '0);
+    assign                nh_hi  = (((c_rtag ^ r_tag) & NH_MASK) == '0);
     wire                  nh_d   = nh_lo & nh_hi;
     logic                 nh_dq;            // ... registered for the sequencer (the full decode's tag)
     // the cheap view's tag for the step: ROM bank and A14-A15, or RAM bank bit 0,
@@ -978,8 +1050,11 @@ module gs_accel_broker #(
     // (a step of the cheap view: in its second clk, with the cheap view's address;
     // any other: in the clk the registered decode is good)
     wire  wen_fast = fast_q & eff_we & ~internal;
+    // (SLOW_COPY: a write that is a socket cycle - of Mega II RAM the card copies - is
+    // made when that cycle completes, as a native step's is)
     wire  wen_set = mode_native ? wen_nat :
-                    NEAR ? (wen_fast | ((st == ST_ADDR) & (ph == 4'(SLOW - 1)) & lm_write)) :
+                    NEAR ? (wen_fast | ((st == ST_ADDR) & (ph == 4'(SLOW - 1)) & lm_write & d_local) |
+                            (SLOW_COPY & wen_nat & ~d_local)) :
                     ((st != ST_RESET) & ~cpu_ce_o & lm_write &
                      (sc == (fresh_ok ? 4'(ADDR_CLKS - 2) : 4'(SLOW - 1))));
     wire   lm_wen         = WREG ? wen_r : mode_native ? wen_nat : (mem_evt & lm_write);
@@ -991,14 +1066,23 @@ module gs_accel_broker #(
     assign nl_wt          = NEAR_LINE & ((lm_wen & winv_r & w_sameline) | (nfill_r & f_sameline));
     assign lm_waddr_o     = NEAR ? wa_r : d_phys;
     assign lm_wdata_o     = NEAR ? wd_r : cpu_d_out_i;
+    logic  wf_r;
+    assign lm_wfwd_o      = wf_r;
 
     // Near memory ports.  A write of the core's goes to the byte's entry (for RAM
     // at $Cxxx of banks 00/01 that is the $Dxxx one); a far read that completes
     // fills its entry the clk before the step ends (alt_q has been good since the
     // clk before that), unless the byte is never served from the near memory.
+    // (SLOW_COPY: w_phys - where the byte is stored; the copy's address where it goes
+    // to the copy alone.  w_ttag: a forwarded write is also a write of the copy, at
+    // E0 + the same low 17 address bits - the same index and the same byte of the
+    // line - so a line of the copy that the near memory holds there gets the byte.)
+    wire [23:0]         w_phys   = (SLOW_COPY & d_sonly) ? {7'h70, d_phys[16:0]} : d_phys;
+    wire                w_twin   = SLOW_COPY & d_fwd;
+    wire [NTW-1:0]      w_ttag   = nm_stag(1'b0, {7'h70, d_phys[16:0]}, 4'd0, 1'b0);
     wire                w_calias = (eff_addr[15:12] == 4'hC) & ~|d_phys[23:17];
     wire [NEAR_AW-1:0]  w_idx    = {eff_addr[NEAR_AW-1:13], eff_addr[12] | w_calias, eff_addr[11:0]};
-    wire [NTW-1:0]      w_tag    = nm_far_only(d_phys) ? NM_EMPTY : nm_tag(1'b0, d_phys, 4'd0, w_idx[12]);
+    wire [NTW-1:0]      w_tag    = nm_sfar_only(w_phys) ? NM_EMPTY : nm_stag(1'b0, w_phys, 4'd0, w_idx[12]);
     assign nm_ren_o   = NEAR & cpu_ce_o;
     assign nm_ra_o    = cpu_na_i[NEAR_AW-1:0];
     // (held, nm_flush_i: the entry is made empty)
@@ -1016,8 +1100,8 @@ module gs_accel_broker #(
     // (any other write: against the full decode's tag, in the clk the write is registered.
     // A byte under another index - the $Cxxx case - has its line emptied; a byte the tag
     // cannot name has none)
-    wire   w_named    = ~nm_far_only(d_phys);
-    wire   whit_d     = nl_tgood & (nm_rtag_i == w_tag) & ~w_calias & w_named;
+    wire   w_named    = ~nm_sfar_only(w_phys);
+    wire   whit_d     = nl_tgood & ~w_calias & (((c_rtag == w_tag) & w_named) | (w_twin & (c_rtag == w_ttag)));
     wire   winv_d     = (~nl_tgood | w_calias) & w_named;
 
     // next values of the registers `sel` is made of (the same as in the block below;
@@ -1080,7 +1164,7 @@ module gs_accel_broker #(
             pl_r_local <= 1'b0; pl_r_rom <= 1'b0; pl_side <= 1'b0;
             pl_w_local <= 1'b0; pl_w_we <= 1'b0; pl_w_fwd <= 1'b0; pl_w_phys <= '0;
             aq_local <= 1'b0; aq_fwd <= 1'b0; aq_local_we <= 1'b0; aq_local_rom <= 1'b0; aq_side <= 1'b0;
-            aq_phys <= '0; aq_rom_addr <= '0; aq_hit <= 1'b0;
+            aq_phys <= '0; aq_rom_addr <= '0; aq_hit <= 1'b0; aq_sonly <= 1'b0; wf_r <= 1'b0; rtag_q <= '0;
             alt_q <= '0;
             fill_idx <= '0; fill_tag <= '0; fill_ok <= 1'b0;
             wa_r <= '0; wd_r <= '0; widx_r <= '0; wtag_r <= '0; nl_idx <= '0; lw_r <= 1'b0; lwa_r <= '0;
@@ -1096,7 +1180,7 @@ module gs_accel_broker #(
             if (DATA_LATE) begin
                 aq_local <= r_local; aq_fwd <= r_fwd; aq_local_we <= r_local_we;
                 aq_local_rom <= r_local_rom; aq_side <= r_side;
-                aq_phys <= r_phys; aq_rom_addr <= r_rom_addr; aq_hit <= r_hit;
+                aq_phys <= r_phys; aq_rom_addr <= r_rom_addr; aq_hit <= r_hit; aq_sonly <= r_sonly;
             end
             // the addresses of a read that was not launched ahead (near memory: one
             // it did not have), and its near-memory entry
@@ -1105,8 +1189,8 @@ module gs_accel_broker #(
                 ml_rom   <= d_rom_addr;
                 ml_isrom <= d_local_rom;
                 fill_idx <= eff_addr[NEAR_AW-1:0];
-                fill_tag <= nm_tag(d_local_rom, d_phys, d_rom_addr[17:14], eff_addr[12]);
-                fill_ok  <= ~(~d_local_rom & (((eff_addr[15:12] == 4'hC) & ~|d_phys[23:17]) | nm_far_only(d_phys)));
+                fill_tag <= nm_stag(d_local_rom, d_phys, d_rom_addr[17:14], eff_addr[12]);
+                fill_ok  <= ~(~d_local_rom & (((eff_addr[15:12] == 4'hC) & ~|d_phys[23:17]) | nm_sfar_only(d_phys)));
             end
             // the core's other data source: far memory data, or the socket byte (d_f:
             // PHI2-fall flops, steady for a clk and more before the core takes it)
@@ -1114,13 +1198,20 @@ module gs_accel_broker #(
             // (loaded in every clk: they are used in the clk after wen_set alone, with
             // wen_r, so the write decision - the PHY's fall event in native mode, the
             // sequencer otherwise - is on one register and not on these enables)
+            // (What a write that is not the cheap view's is made with comes from the step's
+            // address and the full decode, and is used no sooner than the clk after the
+            // registered decode is good: the step's address and status have two clks and
+            // more to these registers, like the decode's own.  In simulation what they
+            // load before that reads WRONG - wr_bad - so that a write made with it shows.)
+            rtag_q <= nm_rtag_i;
             if (NEAR) begin
                 wd_r <= cpu_d_out_i;
                 if (wen_fast) begin wa_r <= f_phys; widx_r <= ea_r[NEAR_AW-1:0];     wtag_r <= f_tag; end
-                else          begin wa_r <= d_phys; widx_r <= w_idx;                 wtag_r <= w_tag; end
+                else          begin wa_r <= w_phys ^ {24{wr_bad}}; widx_r <= w_idx ^ {NEAR_AW{wr_bad}}; wtag_r <= w_tag ^ {NTW{wr_bad}}; end
+                wf_r <= (w_twin ^ wr_bad) & ~wen_fast;
                 if (NEAR_LINE) begin
-                    whit_r <= wen_fast ? thit_q : whit_d;
-                    winv_r <= wen_fast ? tunk_q : winv_d;
+                    whit_r <= wen_fast ? thit_q : (whit_d ^ wr_bad);
+                    winv_r <= wen_fast ? tunk_q : (winv_d ^ wr_bad);
                 end
             end
             if (NEAR & cpu_ce_o) begin
@@ -1141,7 +1232,7 @@ module gs_accel_broker #(
     always_ff @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
             st <= ST_RESET; ph <= '0;
-            mode_native <= 1'b1; mode_bypass <= 1'b1;
+            mode_native <= 1'b1; mode_bypass <= 1'b1; slow_q <= 1'b0;
             prev_addr <= '0;
             sreq_valid <= 1'b0; sreq_addr <= '0; sreq_we <= 1'b0; sreq_data <= '0;
             sreq_vpa <= 1'b0; sreq_vda <= 1'b0; sreq_vp_n <= 1'b1;
@@ -1163,7 +1254,7 @@ module gs_accel_broker #(
         end else if (!run_now) begin
             // core in reset (or the socket is not ours): nothing pending
             st <= ST_RESET; ph <= '0;
-            mode_native <= native_s[1]; mode_bypass <= bypass_s[1];
+            mode_native <= native_s[1]; mode_bypass <= bypass_s[1]; slow_q <= slow_s[1];
             prev_addr <= cpu_a_i;
             sreq_valid <= 1'b0; pw_valid <= 1'b0;
             use_lm_r <= 1'b0; vfy_r <= 1'b0;
@@ -1362,6 +1453,7 @@ module gs_accel_broker #(
                 xw_r <= 1'b0; xl_r <= 1'b0; xq1 <= 1'b0; xq2 <= 1'b0;
                 mode_native <= native_s[1];
                 mode_bypass <= bypass_s[1];
+                slow_q      <= slow_s[1];
             end
         end
     end
@@ -1378,6 +1470,7 @@ module gs_accel_broker #(
     always_ff @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
             verify_miss_o <= 1'b0; verify_addr_o <= '0; verify_count_o <= '0;
+            verify_scount_o <= '0; verify_saddr_o <= '0;
             stat_steps_o <= '0; stat_sock_o <= '0; stat_posted_o <= '0; stat_pwwait_o <= '0;
             stat_rd_hit_o <= '0; stat_rd_miss_o <= '0;
         end else begin
@@ -1385,6 +1478,12 @@ module gs_accel_broker #(
             if (vfy_miss) begin
                 verify_addr_o <= DATA_LATE ? eff_addr : sreq_addr;
                 if (verify_count_o != 16'hFFFF) verify_count_o <= verify_count_o + 16'd1;
+                // (ea_k: the step's address from a register - it has been that since the
+                // step's second clk)
+                if (SLOW_COPY && DATA_LATE && ea_k[23:17] == 7'h70) begin
+                    verify_saddr_o <= ea_k;
+                    if (verify_scount_o != 16'hFFFF) verify_scount_o <= verify_scount_o + 16'd1;
+                end
             end
             if (cpu_ce_o)  stat_steps_o  <= stat_steps_o + 32'd1;
             if (sync_done) stat_sock_o   <= stat_sock_o + 32'd1;
@@ -1454,7 +1553,7 @@ module gs_accel_broker #(
         $finish;
     end
     always @(posedge clk) if (rst_n && run_now && pre_q) begin
-        if (strobe && !(need_sock && !post && !internal && !lm_write)) begin
+        if (strobe && !(need_sock && !post && !internal && !(lm_write && d_local))) begin
             $display("ERROR: broker raised a socket request ahead for a step that is not one: a=%06h we=%b @%0t",
                      eff_addr, eff_we, $time);
             $finish;
@@ -1486,6 +1585,7 @@ module gs_accel_broker #(
     assign nm_ren_hi_o = NEAR & NEAR_SPLIT & ~dec_ok;         // the first clk of a step
     assign nm_ra_hi_o  = ea_r[NEAR_AW-1:0];
     initial if (NEAR_SPLIT && !(NEAR && NEAR_KW > 4 && ADDR_CLKS >= 2)) $fatal(1, "gs_accel_broker: NEAR_SPLIT needs NEAR, NEAR_KW > 4, ADDR_CLKS >= 2");
+    initial if (SLOW_COPY && !(NEAR && NEAR_KW >= 5 && !NEAR_SPLIT)) $fatal(1, "gs_accel_broker: SLOW_COPY needs NEAR, NEAR_KW >= 5, not NEAR_SPLIT");
 `ifdef VERILATOR
     // (NEAR_SPLIT) the cheap view's tag never has an address bit above the low four, nor the mark of one
     always @(posedge clk) if (rst_n && NEAR && NEAR_SPLIT && (fa0 | fb0) && !internal && ((|f_tag[NTW-3:4]) || (&f_tag[NTW-1:NTW-2]))) begin
@@ -1522,6 +1622,28 @@ module gs_accel_broker #(
         $display("ERROR: broker: near-memory line write: dwen %b wen %b lfill %b tag %h @%0t", nm_dwen_o, nm_wen_o, nm_lfill_o, nm_wtag_o, $time); $finish;
     end
     initial if (NEAR_LINE && !(NEAR && !NEAR_SPLIT && NEAR_AW > 4)) $fatal(1, "gs_accel_broker: NEAR_LINE needs NEAR without NEAR_SPLIT");
+    // (SLOW_COPY) the copy's tags are no other byte's: not the empty one, not a ROM's, not any RAM's the tag names
+    initial if (SLOW_COPY) begin
+        for (int j = 0; j < 8; j++) begin
+            logic [NTW-1:0] t;
+            t = nm_stag(1'b0, {7'h70, 3'(j), 14'd0}, 4'd0, 1'b0);
+            if (t === NM_EMPTY) $fatal(1, "gs_accel_broker: a tag of the Mega II copy is the empty tag");
+            for (int k = 0; k < 16; k++)
+                if (nm_tag(1'b1, 24'd0, 4'(k), 1'b0) === t) $fatal(1, "gs_accel_broker: a tag of the Mega II copy is a ROM tag");
+            for (int k = 0; k < (1 << (9 + 1)); k++) begin
+                logic [23:0] ph;
+                ph = 24'(k >> 1) << 14;
+                if (!nm_far_only(ph) && nm_tag(1'b0, ph, 4'd0, k[0]) === t)
+                    $fatal(1, "gs_accel_broker: a tag of the Mega II copy is RAM %06h's", ph);
+            end
+            for (int k = 0; k < 8; k++)
+                if (k != j && nm_stag(1'b0, {7'h70, 3'(k), 14'd0}, 4'd0, 1'b0) === t) $fatal(1, "gs_accel_broker: two tags of the Mega II copy are one");
+        end
+    end
+    // (SLOW_COPY) a stored write that is not local is a socket cycle, and is made once, when that cycle completes
+    always @(posedge clk) if (rst_n && run_now && SLOW_COPY && !mode_native && wen_set && !wen_fast && lm_write && !d_local && !sync_done) begin
+        $display("ERROR: broker: a write of the Mega II copy made without its socket cycle: a=%06h @%0t", eff_addr, $time); $finish;
+    end
     // nothing moves A12 in RAM above bank 03 (the mark takes that bit's place)
     always @(posedge clk) if (rst_n && NEAR_SPLIT && mem_evt && (lm_read | lm_write) && ~d_local_rom && (|d_phys[23:18]) &&
                               (d_phys[12] != eff_addr[12])) begin

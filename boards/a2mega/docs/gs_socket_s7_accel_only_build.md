@@ -12,6 +12,11 @@ clks on a hit; three placements at 105 MHz with no violation. **Flashed
 verifies with no mismatch, and the benchmark's average is 44.02 MHz where
 m0 had 33.34; the sieve and the sort are above 48, the floating point
 tests 36 to 38.**
+Built since and not on the card (section 3h): a copy of the Mega II's RAM
+below `$C000` (banks E0/E1) kept in the DDR3, read in place of the socket
+when a request bit asks, switchable at any step. Simulated in full; **at
+105 MHz five placements of ten have no violation, which is not closure:
+not flashed.**
 Parents: [`gs_socket_s7_accelerator_scoping.md`](gs_socket_s7_accelerator_scoping.md)
 (what the accelerator is) and
 [`gs_socket_s7_fast_core_exploration.md`](gs_socket_s7_fast_core_exploration.md)
@@ -75,6 +80,7 @@ Requests in register 29:
 | 1 | CARDMEM | the card's memory is the memory of record. In native mode its byte goes to the core and is compared with the socket's (the verify count). |
 | 2 | CXROM | internal `$C100–$CFFF` firmware served from the image. Taken when the core is in reset or held (so: at /RES, or set it with COPY). |
 | 3 | COPY | 0 → 1: read the ROM image through the socket. The core is held between two steps for about 46 ms. |
+| 4 | SLOW | (section 3h; not in the build on the card) reads of the Mega II's RAM below `$C000` in banks E0/E1 come from the card's copy. Needs CARDMEM. May change at any step. |
 
 Bits 0–2 take effect only once an image has been copied since power-up.
 **With register 29 at 00, or without the key, the card is S6 on the new
@@ -88,7 +94,7 @@ Telemetry is the S6 window with two fields carrying something else:
 |---|---|
 | status, cycles, stalls, BE-low, PHI2 period and high time, last address | the same |
 | hold mismatches | verify count |
-| hold samples | `{mode, 5A}`; mode: bit 7 ROM image valid, 6 copy busy, 5 core held, 4 fast, 3 card memory, 2 cxrom |
+| hold samples | `{mode, 5A}`; mode: bit 7 ROM image valid, 6 copy busy, 5 core held, 4 fast, 3 card memory, 2 cxrom, 1 E0/E1 reads from the copy (section 3h) |
 
 `gs trace` prints 64 lines; here line *n* is telemetry word *n* (read
 `bank:addr data` as one 32-bit number): 0 core steps, 1 socket cycles for
@@ -96,7 +102,9 @@ the core, 2 posted writes, 3 clks waited for the write buffer, 4 local
 reads in place, 5 local reads that waited, 6 `{verify count, 00, mode}`,
 7 address of the last verify mismatch, 8 `{copies, 00, sum of the image's
 bytes mod 65536}`, 9 `{shadow, CYAREG, SLTROMSEL, STATEREG}`, 10 the other
-switches, 11 PHY bus cycles. LEDs (active low): heartbeat, socket ours,
+switches, 11 PHY bus cycles; with section 3h's build 13 `{E0/E1 verify
+count, 00, 0000, built with the copy, the copy whole, SLOW requested, SLOW
+in effect}` and 14 the address of the last E0/E1 mismatch. LEDs (active low): heartbeat, socket ours,
 core running, fast.
 
 ## 3. A bring-up ladder (proposal)
@@ -1018,6 +1026,176 @@ Looked up after the two benchmarks, in the Apple IIGS Hardware Reference
 
 So a card copy of E0/E1 RAM for reads is the machine's shadowing idea
 carried to memory Apple did not shadow. It has no official switch.
+
+## 3h. A copy of the Mega II's RAM on the card (2026-11-14, built and simulated; timing not closed; not flashed)
+
+Section 3g: what the floating point tests lose is socket cycles in banks
+E0/E1, the machine's slow memory, most of them the tool dispatcher's
+reads. The machine's own answer to slow memory is a fast copy that is
+read while writes go to both (shadowing, section 3g), and this is that,
+for the RAM of E0/E1 itself. Ed's decisions: the copy in the DDR3 behind
+the ordinary near memory, not in block RAM; and a switch that can be
+turned on and off while the machine runs, to be a setting of the OSD.
+
+**What it is.** The card keeps a copy of the Mega II's RAM below `$C000`
+of banks E0/E1 - 96K: no I/O, no slot space and no language card are
+there - in the DDR3's first 128K, which the 126 expansion banks leave
+free (the card's banks 00/01 are block RAM). To the far path, the fills
+and the near memory it is two more banks of expansion memory; its lines
+have tags of their own, taken from codes the ROM's tags leave unused, so
+the tag is no wider and the step's first clk has nothing new in it but
+one term of the socket-only test.
+
+**The copy follows the machine in every mode, whatever the switch says:**
+
+- a write to E0/E1 is the socket cycle it always was, and its byte goes
+  to the copy when that cycle completes (as a native step's write does:
+  a step that /RESET cuts short writes neither);
+- a write the FPI shadows from a bank the card holds - stored there and
+  posted to the socket, as before - is repeated in the copy at E0 + the
+  low 17 bits of its address, a clk later (a step is two clks and no
+  read is launched within two clks of a write, so that clk is free even
+  when the write is the expansion memory's own: a shadowed write in an
+  expansion bank, `CYAREG[4]`). If the near memory holds that line of
+  the copy it gets the byte too: the same index, the same byte of the
+  line;
+- a write the FPI shadows from a bank the card does not hold is a socket
+  cycle and a write of the copy alone.
+
+**The switch only says where a read comes from** (request bit 4, SLOW):
+the socket, as before, or the copy - a local read like any other, a near
+hit (four clks: not the cheap view's two) or a far read that brings its
+line from the DDR3. The broker takes it when the core steps. Neither
+the machine's RAM nor the copy is ever stale, so it may change at any
+step, in either direction, any number of times. That is unlike FAST,
+which leaves the machine's banks 00/01 behind and cannot be taken back
+without a reset.
+
+It is granted when card memory is in effect, the DDR3 was ready at the
+machine's last reset, and nothing has been lost from the DDR3's queue
+since (telemetry word 13). What the machine's RAM held from before that
+reset the copy does not have: after a power-up that is RAM nothing has
+written.
+
+**Checking it on the machine** is paced mode with the switch on
+(register 29 = `1A`): every read of that RAM is then the card's and is
+compared with the byte the socket returns, as banks 00/01 are in `0A`.
+Mismatches in E0/E1 have a count of their own (word 13) and the address
+of the last (word 14). Unlike the count for banks 00/01 it means
+something at any time, also after fast mode has run. While such a step
+waits for the DDR3 its socket cycle, a read of RAM, is issued again, as
+an expansion bank's is.
+
+What is not in it, and was said to be when the switch was proposed: a
+comparison while the switch is off in fast mode. It would need a far
+read beside each socket cycle, in the sequencer's tightest part.
+
+**Departures from the machine, all with the switch on:** reads of E0/E1
+below `$C000` take four clks or a DDR3 read where the machine takes a
+cycle of its 1 MHz side - software that times itself by the slow memory
+sees it; and the machine no longer sees those reads at all (park cycles
+in their place). Writes, `$C000` and up, and everything with the switch
+off are as before, cycle for cycle. One exposure is the posted write's:
+a shadowed write that /RESET drops from the buffer is in the copy, as it
+is in the card's bank 00/01, and not in the machine.
+
+**The model it rests on.** Which byte of the Mega II's RAM an access to
+E0/E1 or a shadowed write reaches is the replica's decode
+(`gs_mmu_decode`, the MiSTer core's), with the bank latch and the IIe
+switches. Nothing on the card depended on that part of it before. It
+agrees with the bench's machine, which is the same model; the machine
+itself checks it in paced mode. One case where the Hardware Reference
+reads differently from the model: a shadowed write to bank 01 with the
+bank latch off, where the model has the Mega II take the bank bit and
+the manual has it ignore it.
+
+**Simulation.** The board-configuration builds of the broker bench
+(`b105_2t`, `b105_2k`) keep the copy in every run and compare it with
+the ideal machine's Mega II RAM at the end, and gs_accel's with the
+design's; the `k_`, `j_` and `m_*_c` runs read from it (`+slow=1`) or
+switch the request through the run (`+slow=2`): every mode, resets,
+stalls, the DDR3 slow and its queue held, the ROM image read through the
+socket, the card backing no bank, two and 126. The test program has a
+test of every way into that RAM (T25: a shadowed write with the copy's
+line in the near memory and without, a read-modify-write in the bank,
+the bank latch off with the IIe switches, ALTZP, a block move over
+itself). As everywhere in this bench, every byte delivered to the core
+is compared with the ideal machine's and every socket cycle with the
+cycles the program owes.
+
+Results, on the source of the last timing round (y, below): the broker
+suite 210 of 210 runs; in the ROM 01 boot of 3,000,000 steps the runs
+with the copy read (`m_fast_c`), switched through the run (`m_fast_sw`:
+the request changed 6,507 times), paced with it (`m_paced_c`) and with
+the ROM copied (`m_copy_c`) reach the native run's point (step hash
+`6012b76169ecc820`) with its stream of 128,393 writes; the test program's
+six `j_` runs likewise. `gs_accel` beside the bench's design in 143 runs,
+2,038,229,843 clks of pin comparison, no difference. The decode sweep
+runs every Mega II and expansion vector three times (no copy, the copy
+with the switch off, and on): 1,875,164,248 tests, no failure. Replica,
+socket, arming and the ten core benches pass. Twenty-six mutations of
+the new logic (the decode's rules, the store at the cycle's end, the
+repeat of a forwarded write, the twin update of a cached line, the tags,
+the address map, the grant), each run through thirteen runs: all
+detected.
+
+What the switch changes in simulation: the test program, which spends
+much of its time in E0/E1, averages 20.49 MHz with it and 7.04 without
+(4,123 reads of that RAM, 313 of them far reads). The ROM 01 boot hardly
+reads that RAM: 6.58 MHz with it, 6.52 without.
+
+**Timing and size.** **Three placements with no violation at 105 MHz were not
+reached, so by this project's rule the build does not count and nothing
+was flashed.** Ten placements over four rounds, five clean:
+
+| round | source | placements |
+|---|---|---|
+| v | an earlier source | +0.006 (one build) |
+| w | the first complete source | 13 paths, -0.212; +0.008; +0.001 |
+| x | the write registers' two clks stated (below) | +0.000; 24 paths, -0.201; +0.002 |
+| y | x and the registered tag (below) | 48 paths, -0.348; 52 paths, -0.354; stopped at 40 min in routing |
+
+Round w's failure was the new logic: the step's address through the full
+decode into the write registers (`whit_r`), nine levels. Those registers
+are loaded with a value that is used no sooner than the third clk of a
+step, so the paths into them are two-clk paths; that is now said in the
+constraints (`gen_sdc.py`) and held to in simulation (`wr_bad`: what
+they load earlier reads wrong, and a write made with it shows). In
+round x that path has 6 to 8 ns to spare, and what failed in x1 is what
+was at the edge before this section: the tag block to the first-clk
+compare, the compare to the core's clock enable, in a placement that
+spread the core over thirty rows. Round y took the two later compares
+off the tag block's outputs (`rtag_q`, a registered copy of the tag for
+the full decode's compare and the write's): no help - both placements
+that finished failed across the design (the PHY to the ROM copy, the
+DDR3 controller's own write buffer, the core's two-clk paths), with the
+worst path the same tag compare at 2.0 ns out of the block RAM, 1.6 ns
+of logic and 5.7 ns of wire.
+
+So: t0 closed three of three with +0.000 to +0.006, which is no margin,
+and about 150 more logic cells beside the core make it a coin toss per
+placement. The new logic adds one term to one first-clk signal
+(`fast_sock`); the rest of what fails is not its logic but its
+neighbours. Section 3e has the same history: there the cure was a
+floorplan change, and 100 MHz did not buy the failing placement back.
+Not tried: more floorplan for the first-clk compare and its register;
+100 MHz for this build; the first-clk test without its new term (reads
+of E0/E1 then start from the registered decode with the switch on).
+
+The source in the tree is round y's (the regression and the mutations
+above are of it). `ACC_NO_SLOW_COPY` in the defines builds without the
+feature; that build has not been placed since `rtag_q` and the new
+constraints went in. The card runs t0.
+
+Size: 13,236 logic cells, 11,929 FF, 182 of 340 block RAMs (t0: 13,088
+logic cells, the same 182).
+
+**Not known.** What the benchmark gives with it (by section 3g's
+arithmetic the two floating point tests come to 24 to 26 and 81 to 85
+ticks and the average to about 49: an estimate from 120 samples). How
+the copy compares with the real machine's Mega II RAM: the paced verify
+has not been run. Whether anything the machine does writes that RAM
+behind the processor's back (a card that does DMA would).
 
 ## 4. What is verified, and what is not
 

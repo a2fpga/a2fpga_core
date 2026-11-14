@@ -15,7 +15,10 @@ benchmark is 12 to 14 times the machine's speed (the program's average
 flashed and run the same day (§10.7). 2026-11-14: the near memory as
 16-byte lines with a two-clk step in every bank, built, flashed 08:53 and
 run: card memory verifies, the benchmark's average 44.02 MHz (33.34
-before), the sieve 49.65 and the sort 48.72 (§10.7).**
+before), the sieve 49.65 and the sort 48.72 (§10.7).** The same day, built and
+not flashed: a copy of the Mega II's RAM in the DDR3 with a switch for
+reads of it; five placements of ten clean at 105 MHz, which is not
+closure (§10.7).
 
 ## 0. Summary
 
@@ -1009,3 +1012,14 @@ stretches and about 35 M where the core takes socket cycles. The
 benchmark's own figures: average 44.02 MHz (33.34 before), sieve 49.65,
 sort 48.72, Fibonacci 46.31, integer 45.88, floating point 37.81, Gamm
 35.76 (the build page, section 3f).
+
+**A copy of the Mega II's RAM (2026-11-14, build page section 3h; not
+flashed).** What the floating point tests lose is socket cycles in banks
+E0/E1 (build page section 3g). The card now keeps a copy of that RAM
+below `$C000` in the DDR3's unused first 128K, behind the near memory
+like an expansion bank: writes go to the machine as before and to the
+copy, and a request bit, which may change at any step, says whether a
+read comes from the socket or from the copy. In simulation it is
+complete (210 runs, 26 mutations detected). At 105 MHz it is not closed:
+five placements of ten have no violation, and what fails is mostly what
+was at the edge before it.

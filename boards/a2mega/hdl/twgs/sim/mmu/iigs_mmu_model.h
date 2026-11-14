@@ -53,6 +53,8 @@ struct In {
     bool INTCXROM, SLOTC3ROM, INTC8ROM, ROMBANK;
     bool cxrom_local;
     uint8_t exp_banks;
+    // the card's copy of Mega II RAM below $C000 (gs_mmu_decode slow_copy / slow_local)
+    bool slow_copy, slow_local;
 };
 
 struct Out {
@@ -70,6 +72,7 @@ struct Ext {
     int      region;
     bool     local, forward_write, local_we, local_rom, side_effect;
     uint32_t rom_addr;      // {bank[1:0], addr}; meaningful when local_rom
+    bool     slow_only;     // a socket write stored in the card's copy of Mega II RAM alone
 };
 
 static const int RAMSIZE = 128;
@@ -264,8 +267,17 @@ static inline Ext ref_ext(const In& s, const Out& o)
         e.local = e.local_rom = s.cxrom_local && internal && !must_bus;
         return e;
     }
-    // 3. Mega II RAM
-    if (mega) { e.region = R_SLOW; return e; }
+    // 3. Mega II RAM: the socket's - but below $C000 the card may keep a copy
+    //    (slow_copy): every write is stored in it too (the write stays a socket
+    //    cycle), and a read is the card's when it is asked to be (slow_local)
+    if (mega) {
+        e.region = R_SLOW;
+        if (s.slow_copy && a < 0xC000) {
+            e.local    = s.slow_local && !we;
+            e.local_we = we;
+        }
+        return e;
+    }
     // 4. ROM banks: reads from the image, writes vanish
     if (romb) {
         e.region = R_ROM; e.local = true; e.local_rom = !we;
@@ -314,6 +326,12 @@ static inline Ext ref_ext(const In& s, const Out& o)
                 const bool hgr2 = !sh2 && a >= 0x4000 && a <= 0x5FFF;
                 e.forward_write = txt1 || txt2 || hgr1 || hgr2;
             }
+        }
+        // a bank the card does not hold: a write the FPI shadows into E0/E1 is
+        // a socket cycle, and the copy of Mega II RAM is given its byte
+        if (we && !e.local && s.slow_copy && o.slowram_ce) {
+            e.local_we = true;
+            e.slow_only = true;
         }
         return e;
     }

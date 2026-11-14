@@ -83,6 +83,9 @@ module gs_accel #(
     parameter bit NEAR_SPLIT = 1'b0,     // EXP_DDR: the near-memory tag's address bits above A17 in blocks of their own
     parameter bit NEAR_LINE  = 1'b0,     // the near memory holds 16-byte lines under one tag, and every far read is a line:
                                          // the block memories sixteen bytes wide, m_rdata_i the DDR3's sixteen (not NEAR_SPLIT)
+    parameter bit SLOW_COPY  = 1'b0,     // EXP_DDR: a copy of the Mega II's RAM below $C000 (banks E0/E1) in the expansion
+                                         // memory, in the 128K below its bank 02 that nothing else uses; cfg_slow_i then
+                                         // has reads of that RAM served from the copy (gs_accel_broker SLOW_COPY)
     parameter bit SIM_ROM_VALID = 1'b0   // SIMULATION ONLY: the bench loaded the ROM image (gs_accel_romcopy SIM_PRESET)
 ) (
     input  logic        clk,
@@ -96,6 +99,7 @@ module gs_accel #(
     input  logic        cfg_cardmem_i,
     input  logic        cfg_cxrom_i,
     input  logic        cfg_copy_i,
+    input  logic        cfg_slow_i,      // (SLOW_COPY) reads of banks E0/E1 below $C000 from the card's copy; any time, either way
     input  logic        clear_i,         // hold the PHI2 measurement at zero
 
     // expansion memory port (EXP_DDR; clk domain; else tie the inputs low): one
@@ -131,7 +135,7 @@ module gs_accel #(
 
     // telemetry (clk domain)
     output logic [7:0]  status_o,        // {ph2_alive, running, enabled, be_ok, res_n, rdy, 0, 0} (as gs_socket_ctl)
-    output logic [7:0]  mode_o,          // {rom_valid, copy_busy, held, fast, cardmem, cxrom, 0, 0}: what is in effect
+    output logic [7:0]  mode_o,          // {rom_valid, copy_busy, held, fast, cardmem, cxrom, slow, 0}: what is in effect
     output logic [31:0] cycle_count_o,   // PHY: bus cycles
     output logic [15:0] stall_count_o,
     output logic [15:0] be_count_o,
@@ -144,7 +148,9 @@ module gs_accel #(
                                          // the write buffer, 4 local reads in place, 5 local reads that waited,
                                          // 6 {verify_count, 8'h00, mode}, 7 {8'h00, verify_addr},
                                          // 8 {copies, 8'h00, ROM image sum}, 9 {shadow, cyareg, sltromsel, statereg},
-                                         // 10 {24'h0, switch misc}, 11 PHY bus cycles, 12 {.., EXP_DDR, its queue overflowed, its memory ready, EXP_BANKS}; others 0
+                                         // 10 {24'h0, switch misc}, 11 PHY bus cycles, 12 {.., EXP_DDR, its queue overflowed, its memory ready, EXP_BANKS},
+                                         // 13 {E0/E1 verify count, 8'h00, 4'h0, SLOW_COPY, the copy is whole, asked for, in effect},
+                                         // 14 {8'h00, address of the last E0/E1 verify mismatch}; others 0
 );
     localparam int STEP_CLKS = 2, ADDR_CLKS = 2, SLOW_CLKS = 3;
     localparam int NEAR_AW = 14, NTW = NEAR_KW + 2;
@@ -157,6 +163,7 @@ module gs_accel #(
         $fatal(1, "gs_accel: EXP_DDR needs 1..126 EXP_BANKS and a NEAR_KW (5..9) that reaches them");
     initial if (NEAR_SPLIT && !EXP_DDR) $fatal(1, "gs_accel: NEAR_SPLIT is for EXP_DDR");
     initial if (NEAR_LINE && NEAR_SPLIT) $fatal(1, "gs_accel: NEAR_LINE is not for NEAR_SPLIT");
+    initial if (SLOW_COPY && !(EXP_DDR && NEAR_LINE)) $fatal(1, "gs_accel: SLOW_COPY is for EXP_DDR with NEAR_LINE (the only way it has been run)");
     localparam int NM_LO = NEAR_SPLIT ? 14 : 8 + NTW;         // near-memory entry bits read with the core's next address
     localparam int NM_HI = NEAR_SPLIT ? NEAR_KW - 4 : 0;      // ... and a clk later, at the step's address (NEAR_SPLIT)
 
@@ -188,6 +195,21 @@ module gs_accel #(
     logic [7:0]  x_rdata;
     wire         cardmem = cfg_cardmem_i & rom_ok & (~EXP_DDR | (exp_ready_i & ~x_ovf));
     wire         fast    = cfg_fast_i & cardmem;
+    // (SLOW_COPY) The copy of Mega II RAM is whole - it has every byte the machine was
+    // given since its last reset - if that reset found the expansion memory ready and
+    // nothing has been lost from its queue since.  (What the machine's RAM held from
+    // before that reset the copy does not have.  Nothing but this card's core writes
+    // the machine's RAM, so that is what was there at power-up - or what the machine
+    // was given while the card was being loaded again without a power cycle.)
+    // Reads come from the copy when asked, where card memory is in effect - in fast
+    // mode, and in paced mode, where each is compared with the socket's byte.
+    logic        slow_whole;
+    wire         slow    = SLOW_COPY & cfg_slow_i & slow_whole & ~x_ovf & cardmem;
+    always_ff @(posedge clk or negedge rst_n) begin
+        if (!rst_n)          slow_whole <= 1'b0;
+        else if (x_ovf)      slow_whole <= 1'b0;
+        else if (!cpu_rst_n) slow_whole <= SLOW_COPY & exp_ready_i;
+    end
     // (cxrom goes straight into the decode of the step in progress: it is taken only
     // while no step is, with the core in reset or held - so at /RES and at a ROM copy)
     logic        cxrom;
@@ -224,17 +246,19 @@ module gs_accel #(
     logic [127:0] far_line, x_rline;             // ... the line of the last far read; the expansion memory's
     logic        brk_fast, held, idle_stb, hold, nm_flush;
     logic [7:0]  idle_d;
-    logic [23:0] idle_a, verify_addr;
+    logic [23:0] idle_a, verify_addr, verify_saddr;
+    logic [15:0] verify_scount;
+    logic        lm_wfwd, brk_slow;
     logic [NEAR_AW-1:0] nm_flush_idx;
     logic [31:0] stat_steps, stat_sock, stat_posted, stat_pwwait, stat_rd_hit, stat_rd_miss;
     logic [7:0]  r_shadow, r_cyareg, r_sltromsel, r_statereg, r_misc;
 
     gs_accel_broker #(.STEP_CLKS(STEP_CLKS), .ADDR_CLKS(ADDR_CLKS), .SLOW_CLKS(SLOW_CLKS), .DATA_LATE(1'b1), .RA_COPIES(8), .CE_COPIES(4),
                       .NEAR(1'b1), .NEAR_AW(NEAR_AW), .NEAR_KW(NEAR_KW), .ROM3(ROM3), .FAR_CLKS(2), .WEN_ONE(1'b1),
-                      .EXP_WAIT(EXP_DDR), .NEAR_SPLIT(NEAR_SPLIT), .NEAR_LINE(NEAR_LINE)) u_brk (
+                      .EXP_WAIT(EXP_DDR), .NEAR_SPLIT(NEAR_SPLIT), .NEAR_LINE(NEAR_LINE), .SLOW_COPY(SLOW_COPY)) u_brk (
         .clk(clk), .rst_n(rst_n),
         .native_i(~fast), .mem_bypass_i(~cardmem),
-        .cxrom_local_i(cxrom), .exp_banks_i(7'(EXP_BANKS)),
+        .cxrom_local_i(cxrom), .exp_banks_i(7'(EXP_BANKS)), .slow_local_i(slow),
         .hold_i(hold), .idle_a_i(idle_a), .held_o(held), .idle_stb_o(idle_stb), .idle_d_o(idle_d),
         .nm_flush_i(nm_flush), .nm_flush_idx_i(nm_flush_idx),
         .phy_enabled_i(enabled), .phy_running_i(running),
@@ -249,7 +273,7 @@ module gs_accel #(
         .cpu_vpa_i(cpu_vpa), .cpu_vda_i(cpu_vda), .cpu_vp_n_i(cpu_vp_n), .cpu_na_i(cpu_na), .cpu_nst_i(cpu_nst), .cpu_rdy_i(cpu_rdyo),
         .lm_ren_o(lm_ren), .lm_ram_ra_o(lm_ram_ra_c), .lm_rom_ra_o(lm_rom_ra_c), .lm_raddr_o(lm_raddr),
         .lm_ram_rdata_i(lm_ram_rdata), .lm_rom_rdata_i(lm_rom_rdata),
-        .lm_wen_o(lm_wen), .lm_waddr_o(lm_waddr), .lm_wdata_o(lm_wdata),
+        .lm_wen_o(lm_wen), .lm_waddr_o(lm_waddr), .lm_wdata_o(lm_wdata), .lm_wfwd_o(lm_wfwd),
         .nm_ren_o(nm_ren), .nm_ra_o(nm_ra), .nm_rdata_i(nm_rdata), .nm_rtag_i(nm_rtag),
         .nm_wen_o(nm_wen), .nm_wa_o(nm_wa), .nm_wdata_o(nm_wdata), .nm_wtag_o(nm_wtag),
         .nm_ren_hi_o(nm_ren_hi), .nm_ra_hi_o(nm_ra_hi),
@@ -257,6 +281,7 @@ module gs_accel #(
         .lm_rexp_o(lm_rexp), .lm_rwait_i(x_rwait), .lm_wbusy_i(x_wbusy),
         .fast_o(brk_fast), .step_evt_o(), .sock_evt_o(), .sock_idle_o(), .pw_busy_o(),
         .verify_miss_o(), .verify_addr_o(verify_addr), .verify_count_o(verify_count_o),
+        .slow_o(brk_slow), .verify_scount_o(verify_scount), .verify_saddr_o(verify_saddr),
         .stat_steps_o(stat_steps), .stat_sock_o(stat_sock), .stat_posted_o(stat_posted),
         .stat_pwwait_o(stat_pwwait), .stat_rd_hit_o(stat_rd_hit), .stat_rd_miss_o(stat_rd_miss),
         .shadow_o(r_shadow), .cyareg_o(r_cyareg), .sltromsel_o(r_sltromsel),
@@ -488,11 +513,39 @@ module gs_accel #(
     end
 
     // ---- expansion memory (EXP_DDR): the queue the far path waits on
+    // (SLOW_COPY) The copy of Mega II RAM is the memory's first 128K - banks 00/01 of
+    // its address space, which the card holds in block RAM: E0/E1 + A16-A0 is there at
+    // A16-A0.  A forwarded write (lm_wfwd: the FPI shadows it into E0/E1) is made in the
+    // copy the clk after the broker makes it - that clk is free: a step is two clks and
+    // more, and no read is launched within two clks of a write - so a write that is
+    // also the expansion memory's own (a shadowed write in an expansion bank, CYAREG[4])
+    // is two writes in two clks.
     if (EXP_DDR) begin : g_exp
+        logic        mir_q;
+        logic [16:0] mir_a;
+        logic [7:0]  mir_d;
+        always_ff @(posedge clk or negedge rst_n) begin
+            if (!rst_n) begin mir_q <= 1'b0; mir_a <= '0; mir_d <= '0; end
+            else begin
+                mir_q <= SLOW_COPY & lm_wen[0] & lm_wfwd;
+                mir_a <= lm_waddr[16:0];
+                mir_d <= lm_wdata;
+            end
+        end
+        wire        x_slow_r = SLOW_COPY & lm_raddr[23];
+        wire        x_slow_w = SLOW_COPY & lm_waddr[23];
+        wire        x_wr     = lm_wen[0] & (|lm_waddr[23:17]);
+        wire [22:0] x_ra     = x_slow_r ? {6'd0, lm_raddr[16:0]} : lm_raddr[22:0];
+        wire [22:0] x_wa     = mir_q ? {6'd0, mir_a} : x_slow_w ? {6'd0, lm_waddr[16:0]} : lm_waddr[22:0];
+`ifdef VERILATOR
+        always @(posedge clk) if (rst_n && mir_q && (x_wr || (lm_ren[0] & lm_rexp))) begin
+            $display("ERROR: gs_accel: the Mega II copy's forwarded write met another request of the expansion memory @%0t", $time); $finish;
+        end
+`endif
         gs_accel_exp #(.AW(23), .LINE(NEAR_LINE)) u_exp (
             .clk(clk), .rst_n(rst_n), .run_i(cpu_rst_n),
-            .rd_i(lm_ren[0] & lm_rexp), .rnx_i(lm_ren[0] & ~lm_rexp), .raddr_i(lm_raddr[22:0]),
-            .wr_i(lm_wen[0] & (|lm_waddr[23:17])), .waddr_i(lm_waddr[22:0]), .wdata_i(lm_wdata),
+            .rd_i(lm_ren[0] & lm_rexp), .rnx_i(lm_ren[0] & ~lm_rexp), .raddr_i(x_ra),
+            .wr_i(x_wr | mir_q), .waddr_i(x_wa), .wdata_i(mir_q ? mir_d : lm_wdata),
             .rwait_o(x_rwait), .rsel_o(x_rsel), .rdata_o(x_rdata), .rline_o(x_rline), .wbusy_o(x_wbusy), .ovf_o(x_ovf), .busy_o(),
             .m_req_o(m_req_o), .m_ready_i(m_ready_i), .m_we_o(m_we_o), .m_addr_o(m_addr_o), .m_wdata_o(m_wdata_o),
             .m_rvalid_i(m_rvalid_i), .m_rdata_i(m_rdata_i)
@@ -536,7 +589,7 @@ module gs_accel #(
     end
 
     assign status_o = {ph2_alive, running, enabled, be_ok, gs_res_n_i, gs_rdy_i, 2'b00};
-    assign mode_o   = {rom_valid, copy_busy, held, brk_fast, cardmem, cxrom, 2'b00};
+    assign mode_o   = {rom_valid, copy_busy, held, brk_fast, cardmem, cxrom, brk_slow, 1'b0};
     always_ff @(posedge clk) begin
         unique case (tele_idx_i)
             6'd0:    tele_word_o <= stat_steps;
@@ -552,6 +605,8 @@ module gs_accel #(
             6'd10:   tele_word_o <= {24'h0, r_misc};
             6'd11:   tele_word_o <= cycle_count_o;
             6'd12:   tele_word_o <= {21'h0, EXP_DDR, x_ovf, exp_ready_i, 8'(EXP_BANKS)};
+            6'd13:   tele_word_o <= {verify_scount, 8'h00, 4'h0, SLOW_COPY, slow_whole, cfg_slow_i, brk_slow};
+            6'd14:   tele_word_o <= {8'h00, verify_saddr};
             default: tele_word_o <= 32'h0;
         endcase
     end

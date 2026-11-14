@@ -30,6 +30,7 @@ using namespace iigs;
 static Vgs_mmu_decode* dut;
 static long n_tests = 0, n_fail = 0;
 static long n_fast_r = 0, n_fast_w = 0, n_fast_i = 0, n_fast_s = 0, n_fast_x = 0;      // vectors in the cheap view's classes
+static long n_slow_r = 0, n_slow_w = 0, n_slow_o = 0, n_slow_v = 0;                    // the copy of Mega II RAM: local reads, stored writes, slow_only, vectors
 
 struct Dut { Out o; Ext e; };
 
@@ -59,6 +60,8 @@ static void apply(const In& s, Dut& d)
     dut->ROMBANK    = s.ROMBANK;
     dut->cxrom_local = s.cxrom_local;
     dut->exp_banks  = s.exp_banks;
+    dut->slow_copy  = s.slow_copy;
+    dut->slow_local = s.slow_local;
     dut->eval();
 
     d.o.addr_bus   = dut->addr_bus & 0xFFFFFF;
@@ -86,16 +89,18 @@ static void apply(const In& s, Dut& d)
     d.e.local_rom     = dut->local_rom;
     d.e.side_effect   = dut->side_effect;
     d.e.rom_addr      = dut->rom_addr & 0x3FFFF;
+    d.e.slow_only     = dut->slow_only;
 }
 
 static void describe(const In& s)
 {
     printf("  MISMATCH bank=%02X addr=%04X we=%d vpb_n=%d rsel=%d "
            "LCRAM2=%d RDROM=%d LC_WE=%d sh=%02X ALTZP=%d RAMRD=%d RAMWRT=%d ST80=%d PG2=%d HIRES=%d "
-           "latch=%d shall=%d SLT=%02X INTCX=%d C3=%d C8=%d ROMBANK=%d cxl=%d exp=%d\n",
+           "latch=%d shall=%d SLT=%02X INTCX=%d C3=%d C8=%d ROMBANK=%d cxl=%d exp=%d slow=%d%d\n",
            s.bank, s.addr, s.we, s.vpb_n, s.rom_select, s.LCRAM2, s.RDROM, s.LC_WE, s.shadow,
            s.ALTZP, s.RAMRD, s.RAMWRT, s.STORE80, s.PAGE2, s.HIRES, s.bank_latch, s.shadow_all,
-           s.SLTROMSEL, s.INTCXROM, s.SLOTC3ROM, s.INTC8ROM, s.ROMBANK, s.cxrom_local, s.exp_banks);
+           s.SLTROMSEL, s.INTCXROM, s.SLOTC3ROM, s.INTC8ROM, s.ROMBANK, s.cxrom_local, s.exp_banks,
+           s.slow_copy, s.slow_local);
 }
 
 #define CHECK(dv, rv, name, fmt) \
@@ -107,7 +112,24 @@ static void describe(const In& s)
         mism++; \
     }
 
-static void run_one(const In& s)
+static void run_vec(const In& s);
+// A vector is run as it is (no copy of Mega II RAM), and - where the copy could
+// matter: a Mega II bank, an expansion bank - with the copy kept, its reads the
+// socket's and the card's; one vector in sixteen of the rest too.
+static void run_one(const In& s0)
+{
+    static uint32_t k = 0;
+    In s = s0;
+    s.slow_copy = false; s.slow_local = false;
+    run_vec(s);
+    const bool rel = (s.bank == 0xE0 || s.bank == 0xE1 || (s.bank >= 0x02 && s.bank <= 0x7F));
+    if (rel || (++k & 15) == 0) {
+        s.slow_copy = true;  s.slow_local = false; run_vec(s);
+        s.slow_copy = true;  s.slow_local = true;  run_vec(s);
+    }
+}
+
+static void run_vec(const In& s)
 {
     Dut d;
     apply(s, d);
@@ -143,6 +165,32 @@ static void run_one(const In& s)
     CHECK(d.e.local_rom, x.local_rom, "local_rom", "%u")
     CHECK(d.e.side_effect, x.side_effect, "side_effect", "%u")
     if (d.e.local_rom || x.local_rom) CHECK(d.e.rom_addr, x.rom_addr, "rom_addr", "%05x")
+    CHECK(d.e.slow_only, x.slow_only, "slow_only", "%u")
+    // the copy of Mega II RAM: stated here once more, from the machine's side.  A
+    // byte the machine stores in its Mega II RAM below $C000 (slowram_ce and
+    // slowram_we, no I/O) is stored by the card too - a write to E0/E1, a write it
+    // forwards, or a slow_only write - and nothing else is; where the byte goes is
+    // E0 + addr_bus[16:0] in all three.  A read is the card's only of that RAM.
+    if (s.slow_copy) {
+        n_slow_v++;
+        const bool mega  = (s.bank == 0xE0 || s.bank == 0xE1);
+        const bool mram  = r.slowram_ce && !x.side_effect && x.region != R_IO && x.region != R_CX;
+        const bool below = (r.addr_bus & 0xFFFF) < 0xC000;
+        const bool mwr   = s.we && mram && r.slowram_we && below;
+        const bool cwr   = (mega && x.local_we) || x.forward_write || x.slow_only;
+        CHECK((unsigned)cwr, (unsigned)mwr, "copy: stored", "%u")
+        if (mega && x.local_we) { n_slow_w++; CHECK(r.addr_bus >> 17, 0x70u, "copy: address", "%02x") }
+        if (x.slow_only) { n_slow_o++; CHECK((unsigned)x.local, 0u, "slow_only: local", "%u") CHECK((unsigned)x.forward_write, 0u, "slow_only: forward", "%u") }
+        if (mega && x.local) {
+            n_slow_r++;
+            CHECK((unsigned)(s.slow_local && !s.we && mram && below), 1u, "copy: read", "%u")
+            CHECK(r.addr_bus >> 17, 0x70u, "copy: read address", "%02x")
+            CHECK((unsigned)x.local_rom, 0u, "copy: read rom", "%u")
+        }
+        if (mega && !s.we && mram && below) CHECK((unsigned)x.local, (unsigned)s.slow_local, "copy: read local", "%u")
+    } else {
+        CHECK((unsigned)(x.local_we && !x.local), 0u, "no copy: stored, not local", "%u")
+    }
     // the cheap view (near memory): a subset of "the card's alone", and for that
     // subset the same ROM / bank / A12 answers as the full decode (golden model)
     if (dut->fast_exp) {
@@ -186,7 +234,9 @@ static void run_one(const In& s)
         n_fast_s++;
         CHECK(x.local, 0u, "fast_sock: local", "%u")
         CHECK(x.forward_write, 0u, "fast_sock: forward", "%u")
-        CHECK(x.local_we, 0u, "fast_sock: local_we", "%u")
+        // (with the copy of Mega II RAM a socket write may be stored in it too)
+        if (!s.slow_copy) CHECK(x.local_we, 0u, "fast_sock: local_we", "%u")
+        else              CHECK((unsigned)(x.local_we && !(s.we && (x.region == R_SLOW || x.slow_only))), 0u, "fast_sock: stored", "%u")
     }
     if (mism) n_fail++;
 }
@@ -346,6 +396,8 @@ int main(int argc, char** argv)
 
     printf("mmu_decode_tb: cheap view: %ld read, %ld write, %ld expansion, %ld internal-cycle and %ld socket-only vectors checked\n",
            n_fast_r, n_fast_w, n_fast_x, n_fast_i, n_fast_s);
+    printf("mmu_decode_tb: copy of Mega II RAM: %ld vectors with it; %ld reads of it the card's, %ld writes to E0/E1 stored, %ld slow_only\n",
+           n_slow_v, n_slow_r, n_slow_w, n_slow_o);
     printf("mmu_decode_tb: TOTAL %ld tests, %ld failures -> %s\n",
            n_tests, n_fail, n_fail ? "FAIL" : "PASS");
     delete dut;

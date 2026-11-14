@@ -69,15 +69,26 @@ int mach_class(int m, int addr, int we, int vpb_n)
 // The accelerator's question, answered by the golden model on machine m's
 // switch state: bit 0 local, 1 forward_write, 2 side_effect, 3 local_we,
 // 4 local_rom, bits 10:8 region
+// (bit 5: slow_only.  The card's copy of Mega II RAM - mach_slow - is part of the
+// question: whether it is kept, and whether its reads are the card's.)
+static bool g_slow_copy = false, g_slow_local = false;
+void mach_slow(int copy, int local)
+{
+    g_slow_copy = copy != 0;
+    g_slow_local = local != 0;
+}
+
 int mach_ext(int m, int addr, int we, int vpb_n, int cxrom_local, int exp_banks)
 {
     In s = M(m).mk_in((uint32_t)addr & 0xFFFFFF, we != 0, vpb_n != 0);
     s.cxrom_local = cxrom_local != 0;
     s.exp_banks = (uint8_t)exp_banks;
+    s.slow_copy = g_slow_copy;
+    s.slow_local = g_slow_local;
     const Out o = ref_mmu(s);
     const Ext e = ref_ext(s, o);
     return (e.local ? 1 : 0) | (e.forward_write ? 2 : 0) | (e.side_effect ? 4 : 0) |
-           (e.local_we ? 8 : 0) | (e.local_rom ? 16 : 0) | (e.region << 8);
+           (e.local_we ? 8 : 0) | (e.local_rom ? 16 : 0) | (e.slow_only ? 32 : 0) | (e.region << 8);
 }
 
 // space: 0 fast RAM (24-bit address), 1 Mega II RAM (17-bit), 2 I/O register

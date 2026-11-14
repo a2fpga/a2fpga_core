@@ -66,6 +66,18 @@
 //   * Expansion banks 02-7F are local only below 02 + exp_banks; the rest go
 //     to the socket (the machine's own memory card, or nothing).
 //   * ROM banks FC/FD exist only on ROM 3 (rom_select = 0).
+//   * slow_copy: the card keeps a copy of the Mega II's RAM below $C000 of
+//     banks E0/E1 (where there is no I/O and no language card), at its
+//     physical address (addr_bus).  Every write the machine stores there is
+//     stored in the copy too - local_we WITHOUT is_local: the write is still a
+//     socket cycle and nothing else changes about it.  That is a write to
+//     E0/E1 itself; a write the FPI shadows from a bank the card holds
+//     (forward_write: the broker repeats the byte at E0 + addr_bus[16:0]);
+//     and a write the FPI shadows from an expansion bank the card does not
+//     hold (CYAREG[4]) - slow_only: a socket cycle whose byte goes to the
+//     copy alone.  With slow_local a READ of that RAM is the card's
+//     (is_local).  The copy is the same whether slow_local is set or not, so
+//     it can be set and cleared at any step.  Docs: accel-only build 3h.
 //
 module gs_mmu_decode #(
     parameter RAMSIZE = 128           // number of 64K fast-RAM banks (MiSTer parameter)
@@ -99,6 +111,8 @@ module gs_mmu_decode #(
     input  wire        ROMBANK,       // ROM 01: $C028 toggle / STATEREG bit 1
     input  wire        cxrom_local,   // 1 = serve internal $C100-$CFFF firmware from the ROM image
     input  wire [6:0]  exp_banks,     // expansion banks backed by the card (02 .. 01+exp_banks)
+    input  wire        slow_copy,     // the card keeps a copy of Mega II RAM below $C000 (quasi-static)
+    input  wire        slow_local,    // ... and reads of it are the card's
 
     // Physical address & decode (MiSTer outputs)
     output wire [23:0] addr_bus,      // translated physical address
@@ -128,6 +142,7 @@ module gs_mmu_decode #(
     output reg         local_rom,     // local read comes from the ROM image (else RAM at addr_bus)
     output wire [17:0] rom_addr,      // ROM image address {bank[1:0], addr}: FC0000-FFFFFF -> 0-3FFFF
     output wire        side_effect,   // I/O or Cx space: a read here can change machine state
+    output wire        slow_only,     // a socket write whose byte the card stores at E0 + addr_bus[16:0] and nowhere else
 
     // S7 near memory (gs_accel_broker NEAR): a cheap view of the common cases, for
     // the first clk of a step - a few levels of logic from the address, `we`, /VP
@@ -426,6 +441,13 @@ module gs_mmu_decode #(
 
   assign rom_addr = {(bank_rom ? bank_log[1:0] : 2'b11), addr_log};
 
+  // Mega II RAM the card keeps a copy of: below $C000 (no I/O, no slot space,
+  // no language card there)
+  wire mega_lo  = (addr_log[15:14] != 2'b11);
+  // a write to an expansion bank the card does not hold, which the FPI shadows
+  wire exp_slow = slow_copy & bank_exp & ~exp_local & slowram_ce & we & ~io_any & ~cx_space;
+  assign slow_only = exp_slow;
+
   always_comb begin
     region        = REGION_NONE;
     is_local         = 1'b0;
@@ -445,6 +467,12 @@ module gs_mmu_decode #(
       local_rom = cx_local;
     end else if (bank_mega) begin
       region = REGION_SLOW;
+      // RAM below $C000: the card's copy follows every write; a read is the
+      // card's when it is asked to be
+      if (slow_copy && mega_lo) begin
+        is_local = slow_local & ~we;
+        local_we = we;
+      end
     end else if (bank_rom) begin
       // reads from the image; writes to ROM do nothing anywhere
       region    = REGION_ROM;
@@ -466,7 +494,7 @@ module gs_mmu_decode #(
     end else if (bank_exp) begin
       region        = REGION_EXP;
       is_local         = exp_local;
-      local_we      = we & exp_local;
+      local_we      = we & (exp_local | exp_slow);
       forward_write = we & exp_local & slowram_ce;
     end
   end
@@ -506,7 +534,12 @@ module gs_mmu_decode #(
   assign fast_fold  = f_main & (addr_log[15:12] == 4'hD) & ~LCRAM2 & ~RDROM & ~shadow[6];
   //   the socket's alone: a Mega II bank, an expansion bank the card does not
   //   back, any other bank from $80 up that is not a ROM bank
-  assign fast_sock  = bank_log[7] ? ~f_romb : (bank_log >= exp_top);
+  //   (slow_copy: a write there may still be stored in the copy - it is a socket
+  //   cycle of its own address all the same, which is all this is used for; a READ
+  //   of Mega II RAM the card serves is not one)
+  wire f_megab = (bank_log[7:1] == 7'h70);
+  assign fast_sock  = bank_log[7] ? (~f_romb & ~(f_megab & slow_copy & slow_local & ~we & f_lo))
+                                  : (bank_log >= exp_top);
 
 `ifdef VERILATOR
   // ----------------------------------------------------------------------------
@@ -531,11 +564,19 @@ module gs_mmu_decode #(
     // Accelerator invariants: I/O and the Mega II banks are never local; a
     // forwarded write is a stored local write; local RAM of banks 00/01
     // stays inside banks 00/01
-    if (is_local && (io_any || bank_mega))
+    if (is_local && (io_any || (bank_mega && !(slow_copy && slow_local && !we && mega_lo))))
       $fatal(1, "gs_mmu_decode: local I/O or Mega II access: %02x/%04x", bank_log, addr_log);
+    // a write stored without being local: only the copy of Mega II RAM
+    if (local_we && !is_local && !(slow_copy && we && ((bank_mega && mega_lo) || slow_only)))
+      $fatal(1, "gs_mmu_decode: a stored write that is not local: %02x/%04x", bank_log, addr_log);
+    if (slow_only && (is_local || forward_write || !slowram_ce || addr_bus[23]))
+      $fatal(1, "gs_mmu_decode: slow_only: %02x/%04x", bank_log, addr_log);
+    // the copy's address: a Mega II access names it, a shadowed write's is E0 + addr_bus[16:0]
+    if (bank_mega && mega_lo && addr_bus[23:17] != 7'h70)
+      $fatal(1, "gs_mmu_decode: Mega II RAM outside E0/E1: %02x/%04x -> %06x", bank_log, addr_log, addr_bus);
     if (forward_write && !(is_local && local_we && we))
       $fatal(1, "gs_mmu_decode: forward_write without a stored local write: %02x/%04x", bank_log, addr_log);
-    if (fast_sock && (is_local || forward_write || local_we))
+    if (fast_sock && (is_local || forward_write || (local_we && !slow_copy)))
       $fatal(1, "gs_mmu_decode: fast_sock for an access the card has a part in: %02x/%04x", bank_log, addr_log);
     if (is_local && region == REGION_RAM && addr_bus[23:17] != 7'd0)
       $fatal(1, "gs_mmu_decode: local RAM outside banks 00/01: %02x/%04x -> %06x", bank_log, addr_log, addr_bus);

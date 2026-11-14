@@ -90,9 +90,12 @@ build b105_2s +define+CLK105 -GNEAR_KW=9 -GACC_EXP=8 -GEXP_DDR=1 "${NEARX[@]}" &
 # ... with every bank the card can hold (02-7F), as that build has them: the top of bank 7F is
 # the highest tag a RAM entry of the near memory can have; and (b105_2k) with the ROM image
 # empty, for +mode=copy (a copy empties the near memory).  These two have the near memory as
-# the board build has it now: lines of sixteen bytes (NEAR_LINE), a far read bringing a line
-build b105_2t +define+CLK105 -GNEAR_KW=9 -GACC_EXP=126 -GEXP_DDR=1 -GNEAR_LINE=1 "${NEARX[@]}" & p16=$!
-build b105_2k +define+CLK105 -GNEAR_KW=9 -GACC_EXP=126 -GEXP_DDR=1 -GNEAR_LINE=1 -GROM_PRESET=0 "${NEARX[@]}" & p17=$!
+# the board build has it now: lines of sixteen bytes (NEAR_LINE), a far read bringing a line -
+# and the card's copy of the Mega II's RAM below $C000 in the expansion memory (SLOW_COPY):
+# kept in every run of these two builds and compared with the ideal machine's at the end;
+# reads of that RAM come from it in the runs with +slow (the k_ runs, below)
+build b105_2t +define+CLK105 -GNEAR_KW=9 -GACC_EXP=126 -GEXP_DDR=1 -GNEAR_LINE=1 -GSLOW_COPY=1 "${NEARX[@]}" & p16=$!
+build b105_2k +define+CLK105 -GNEAR_KW=9 -GACC_EXP=126 -GEXP_DDR=1 -GNEAR_LINE=1 -GSLOW_COPY=1 -GROM_PRESET=0 "${NEARX[@]}" & p17=$!
 # ... and the line memory in front of block RAM alone (banks 02/03 in it), and with no expansion
 # memory in the design at all (the bench's own, a byte wide, read a line at a time)
 build b110_2l +define+CLK110 -GNEAR_KW=4 -GACC_EXP=2 -GNEAR_LINE=1 "${NEARX[@]}" & p18=$!
@@ -265,6 +268,34 @@ if [[ "$SUITE" == "program" || "$SUITE" == "all" ]]; then
     run u_rstx      b105_2t $T +mode=toggle +expect +irq +exp=126 +mbexp=126 +resetx +xlat=300 +steps=120000
     run u_st3       b105_2t $T +mode=fast   +expect +irq +exp=126 +mbexp=126 +stallp=3 +steps=120000
     run u_tst5      b105_2t $T +mode=toggle +expect +irq +exp=126 +mbexp=126 +stallp=5 +steps=120000
+    # ... and reads of the Mega II's RAM below $C000 from the card's copy of it (+slow=1), the
+    # request switched on and off through the run (+slow=2): every mode, resets, stalls, the
+    # expansion memory slow and its queue held, the ROM image read through the socket; the card
+    # backing no expansion bank and two (gs_accel beside the design is compared with 126)
+    run k_fast      b105_2t $T +mode=fast   +expect +irq +exp=126 +mbexp=126 +slow=1
+    run k_fast_sw   b105_2t $T +mode=fast   +expect +irq +exp=126 +mbexp=126 +slow=2
+    run k_paced     b105_2t $T +mode=paced  +expect +irq +exp=126 +mbexp=126 +slow=1
+    run k_paced_sw  b105_2t $T +mode=paced  +expect +irq +exp=126 +mbexp=126 +slow=2
+    run k_native    b105_2t $T +mode=native +expect +irq +exp=126 +mbexp=126 +slow=1
+    run k_toggle    b105_2t $T +mode=toggle +expect +irq +exp=126 +mbexp=126 +slow=1 +steps=120000
+    run k_tog_sw    b105_2t $T +mode=toggle +expect +irq +exp=126 +mbexp=126 +slow=2 +steps=120000
+    run k_tog_cx    b105_2t $T +mode=toggle +expect +irq +exp=126 +mbexp=126 +slow=2 +cxrom=1 +steps=120000
+    run k_rst       b105_2t $T +mode=fast   +expect +irq +exp=126 +mbexp=126 +slow=1 +reset
+    run k_rst_tog   b105_2t $T +mode=toggle +expect +irq +exp=126 +mbexp=126 +slow=2 +reset +steps=120000
+    run k_rstw      b105_2t $T +mode=fast   +expect +irq +exp=126 +mbexp=126 +slow=1 +resetw
+    run k_rstw_tog  b105_2t $T +mode=toggle +expect +irq +exp=126 +mbexp=126 +slow=2 +resetw +steps=120000
+    run k_rstx      b105_2t $T +mode=toggle +expect +irq +exp=126 +mbexp=126 +slow=1 +resetx +xlat=300 +steps=120000
+    run k_st2       b105_2t $T +mode=fast   +expect +irq +exp=126 +mbexp=126 +slow=2 +stallp=2 +steps=120000
+    run k_tst5      b105_2t $T +mode=toggle +expect +irq +exp=126 +mbexp=126 +slow=1 +stallp=5 +steps=120000
+    run k_wb        b105_2t $T +mode=fast   +expect +irq +exp=126 +mbexp=126 +slow=2 +wbforce
+    run k_xslow     b105_2t $T +mode=toggle +expect +irq +exp=126 +mbexp=126 +slow=1 +xgap=40 +xlat=90 +steps=120000
+    run k_1mhz      b105_2t $T +mode=fast   +expect +irq +exp=126 +mbexp=126 +slow=1 +noturbo
+    run k_exp0      b105_2t $T +mode=fast   +expect +irq +exp=0 +slow=1
+    run k_exp0_mb   b105_2t $T +mode=toggle +expect +irq +exp=0 +mbexp=4 +slow=2 +steps=120000
+    run k_exp2      b105_2t $T +mode=fast   +expect +irq +exp=2 +slow=2
+    run k_copy      b105_2k $T +mode=copy   +expect +irq +exp=126 +mbexp=126 +slow=1
+    run k_copy_rst  b105_2k $T +mode=copy   +expect +irq +exp=126 +mbexp=126 +slow=2 +reset
+    run k_recopy    b105_2k $T +mode=copy   +expect +irq +exp=126 +mbexp=126 +slow=1 +recopy
     # ... the line memory with banks 02/03 in block RAM, and with none
     run l_native    b110_2l $T +mode=native +expect +irq +exp=2
     run l_paced     b110_2l $T +mode=paced  +expect +irq +exp=2
@@ -299,6 +330,13 @@ if [[ "$SUITE" == "program" || "$SUITE" == "all" ]]; then
     run f_fast      b110_2e $T +mode=fast   +expect +exp=2 +wlog=wstream.txt
     run g_paced     b110_2r $T +mode=paced  +expect +exp=2 +wlog=wstream.txt
     run g_fast      b110_2r $T +mode=fast   +expect +exp=2 +wlog=wstream.txt
+    # ... and with reads of Mega II RAM from the card's copy: the same steps, the same writes
+    run j_native    b105_2t $T +mode=native +expect +exp=126 +mbexp=126 +wlog=wstream.txt
+    run j_fast      b105_2t $T +mode=fast   +expect +exp=126 +mbexp=126 +wlog=wstream.txt
+    run j_fast_c    b105_2t $T +mode=fast   +expect +exp=126 +mbexp=126 +slow=1 +wlog=wstream.txt
+    run j_fast_sw   b105_2t $T +mode=fast   +expect +exp=126 +mbexp=126 +slow=2 +wlog=wstream.txt
+    run j_paced_c   b105_2t $T +mode=paced  +expect +exp=126 +mbexp=126 +slow=1 +wlog=wstream.txt
+    run j_copy_c    b105_2k $T +mode=copy   +expect +exp=126 +mbexp=126 +slow=1 +wlog=wstream.txt
 fi
 DO_ROM=0
 if [[ "$SUITE" == "rom" || "$SUITE" == "all" ]]; then
@@ -325,6 +363,10 @@ if [[ "$SUITE" == "rom" || "$SUITE" == "all" ]]; then
         run m_paced     b105_2t $R +mode=paced  +exp=126 +mbexp=126
         run m_fast      b105_2t $R +mode=fast   +exp=126 +mbexp=126
         run m_copy      b105_2k $R +mode=copy   +exp=126 +mbexp=126
+        run m_fast_c    b105_2t $R +mode=fast   +exp=126 +mbexp=126 +slow=1
+        run m_fast_sw   b105_2t $R +mode=fast   +exp=126 +mbexp=126 +slow=2
+        run m_paced_c   b105_2t $R +mode=paced  +exp=126 +mbexp=126 +slow=1
+        run m_copy_c    b105_2k $R +mode=copy   +exp=126 +mbexp=126 +slow=1
         run o_native    b110_2l $R +mode=native +exp=2
         run o_fast      b110_2l $R +mode=fast   +exp=2
         run o_fast_cx   b110_2l $R +mode=fast   +exp=2 +cxrom=1
@@ -370,16 +412,17 @@ same() {    # label, reference run, other runs...: step hash and write stream mu
 if [[ "$SUITE" == "program" || "$SUITE" == "all" ]]; then
     same "test program" e_native e_paced e_fast e_fast100 e_dl108 e_dl100 e_dx100 e_dx108 e_dx110 e_copy
     same "test program, two expansion banks" f_native f_paced f_fast g_paced g_fast
+    same "test program, 126 expansion banks, Mega II RAM read from the card's copy" j_native j_fast j_fast_c j_fast_sw j_paced_c j_copy_c
 fi
 if [[ $DO_ROM -eq 1 ]]; then
     same "ROM 01 boot ($STEPS steps)" r_native r_paced r_fast r_fast_cx r_fast100 r_f816 r_dl108 r_dl100 r_dx100 r_dx108 r_dx110 r_copy
     same "ROM 01 boot, two expansion banks ($STEPS steps)" s_native s_fast t_paced t_fast
-    same "ROM 01 boot, 126 expansion banks ($STEPS steps)" m_native m_paced m_fast m_copy
+    same "ROM 01 boot, 126 expansion banks ($STEPS steps)" m_native m_paced m_fast m_copy m_fast_c m_fast_sw m_paced_c m_copy_c
     same "ROM 01 boot, the line memory on block RAM ($STEPS steps)" o_native o_fast o_fast_cx
     same "ROM 01 boot, the line memory, no expansion ($STEPS steps)" r_native o_copy
 fi
 for n in "${NAMES[@]}"; do
-    case "$n" in d*|e_dl*|r_dl*|x*|y*|z*|w*|v*|c_*|e_dx*|r_dx*|e_copy|r_copy|f_*|s_*|g_*|t_*|u_*|m_*|l_*|o_*) grep -E '^---- (local reads|near memory|step lengths|ROM copy|gs_accel|expansion memory)' "$OUT/$n/sim.log" | sed "s/^---- /$n: /" ;; esac
+    case "$n" in d*|e_dl*|r_dl*|x*|y*|z*|w*|v*|c_*|e_dx*|r_dx*|e_copy|r_copy|f_*|s_*|g_*|t_*|u_*|m_*|l_*|o_*|k_*|j_*) grep -E '^---- (local reads|near memory|step lengths|ROM copy|gs_accel|expansion memory|copy of Mega II)' "$OUT/$n/sim.log" | sed "s/^---- /$n: /" ;; esac
 done
 for n in "${NAMES[@]}"; do
     grep -E '^---- socket timing' "$OUT/$n/sim.log" | sed "s/^---- /$n: /"

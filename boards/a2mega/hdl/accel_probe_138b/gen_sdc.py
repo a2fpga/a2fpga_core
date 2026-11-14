@@ -269,11 +269,22 @@ def generate_near(PERIOD, fname, pfx="", board=False):
     if board:
         # (gs_accel takes it only with the core in reset or held)
         mc(2, regs(f"{pfx}cxrom*"), FULL)
-        # (the entry read at the launch reaches the tag compare made from the full decode in
-        # the step's first clk and is registered at the end of the second - nh_dq, used from
-        # the third.  Not the tag's high address bits, in blocks of their own: they are read
-        # a clk later.)
-        mc(2, NMQ, regs(*b("nh_dq")))
+        # (SLOW_COPY: the request for reads of Mega II RAM from the card's copy, as the
+        # broker takes it - when the core steps, like the mode)
+        mc(2, regs(*b("slow_q")), FULL)
+        # (the tag read at the launch reaches that compare, and a write's, through a register
+        # of its own - rtag_q: one-clk paths at both ends)
+    note("""
+        ---- what a write is made with (its address, its near-memory index and tag, and
+        whether the near memory has its line): registered in every clk and used the clk
+        after the write is decided - the cheap view's in the step's second clk, any other
+        no sooner than the full decode is good, in its third.  From the step registers
+        they are two-clk paths (from the full decode's registered copy, and from the tag
+        read at the launch - through rtag_q in the board build - one)""")
+    # (the board build's line memory has no tag to write with a byte; the probes' byte memory
+    # has no line to find, and no copy of Mega II RAM to repeat a write in)
+    WRR = regs(*b("wa_r", "widx_r", *(("whit_r", "winv_r", "wf_r") if board else ("wtag_r",))))
+    mc(2, regs(*b("ea_r", "ea_k", "pl_int", "pl_we", "pl_vp_n", "pl_io_int")), WRR)
     note("""
         ---- the core's outputs reach the broker's other registers no sooner than the
         step's second clk: write data (registered with the write, with a socket request,

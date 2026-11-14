@@ -62,6 +62,9 @@
 //   +stallp=N       a RDY stall every N PHI2 cycles (default 311)
 //   +wbforce        the expansion queue's "nearly full" forced high in long bursts (it only ever holds
 //                   steps: nothing may change but the time; gs_accel beside the design is not compared)
+//   +slow=1         (SLOW_COPY builds) reads of Mega II RAM below $C000 come from the card's copy
+//   +slow=2         ... the request switched on and off at pseudo-random points
+//                   (the copy itself is kept in every run of such a build, and checked at the end)
 //   +noturbo        ignore $C036 bit 7: the FPI stays at 1 MHz
 //   +expect         check the test program's result table
 //   +wlog=<file>    write the socket-visible write stream (I/O, Mega II,
@@ -86,6 +89,8 @@ module tb_gs_broker #(
                                        // a clk late (the broker's and gs_accel's NEAR_SPLIT); else the tag is whole
     parameter bit NEAR_LINE = 1'b0,    // the near memory holds 16-byte lines under one tag, and a far read brings
                                        // a line (the broker's and gs_accel's NEAR_LINE)
+    parameter bit SLOW_COPY = 1'b0,    // EXP_DDR, not NEAR_SPLIT: the card keeps a copy of the Mega II's RAM below $C000
+                                       // in the expansion memory's first 128K, and serves reads of it with +slow
     parameter int ACC_EXP   = 0,       // ACCEL_SHADOW: gs_accel's expansion banks; it is compared in runs with +exp= this
     parameter bit ROM_PRESET = 1'b1    // 1 = the bench loads the card's ROM image; 0 = it starts empty and
                                        // +mode=copy has the design read it through the socket
@@ -105,6 +110,7 @@ module tb_gs_broker #(
     import "DPI-C" function int  mach_diff_where();
     import "DPI-C" function int  mach_stat(input int m, input int which);
     import "DPI-C" function void mach_sync_slow();
+    import "DPI-C" function void mach_slow(input int copy, input int loc);
 
     //---------------------------------------------------------------- params
     localparam real T14    = 69.841;   // 14.31818 MHz
@@ -168,6 +174,14 @@ module tb_gs_broker #(
     logic        held_q = 1'b0, copy_busy_q = 1'b0;
     wire         native_w = cfg_copy ? ~copy_usable : native_i;
     wire         bypass_w = cfg_copy ? ~copy_usable : mem_bypass_i;
+    // +slow: the request (what gs_accel is asked); it is granted where card memory is in effect
+    int          cfg_slow = 0;
+    logic        slow_req = 1'b0;
+    wire         slow_w   = SLOW_COPY & slow_req & ~bypass_w;
+    logic        lm_wfwd, brk_slow;
+    logic [15:0] verify_scount;
+    logic [23:0] verify_saddr;
+    longint      n_slow_rd = 0, n_slow_wr = 0, n_slow_fwd = 0, n_slow_tog = 0, n_slow_sock = 0, n_slow_vfy = 0, n_slow_far = 0;
 
     //---------------------------------------------------------------- DUT pins
     logic        gs_ph2_f, gs_rdy_f, gs_irq_n_f, gs_nmi_n_f, gs_res_n_f, gs_abort_n_f, gs_be_f;
@@ -222,7 +236,7 @@ module tb_gs_broker #(
     logic [127:0]       far_line = '0;
     always_ff @(posedge clk) far_line <= (lm_risrom ? rom_line : xq_rsel ? xq_rline : ram_line) ^ {128{far_bad}};
     // expansion memory behind gs_accel_exp (EXP_DDR)
-    logic               lm_rexp, xq_rwait, xq_rsel, xq_wbusy, xq_ovf, xq_req, xq_skip_w;
+    logic               lm_rexp, xq_rwait, xq_rsel, xq_wbusy, xq_ovf, xq_req, xq_skip_w, xq_mir;
     bit                 wb_en = 0;                    // +wbforce
     logic [15:0]        wb_lfsr = 16'hACE1;
     logic [4:0]         wb_div = '0;
@@ -259,10 +273,10 @@ module tb_gs_broker #(
 
     gs_accel_broker #(.STEP_CLKS(STEP_CLKS), .ADDR_CLKS(ADDR_CLKS), .PARK_ADDR(PARK), .DATA_LATE(DATA_LATE), .RA_COPIES(RA_COPIES), .CE_COPIES(4),
                       .NEAR(NEAR), .NEAR_AW(NEAR_AW), .NEAR_KW(NEAR_KW), .SOCK_PRE(SOCK_PRE), .FAR_CLKS(FAR_CLKS),
-                      .EXP_WAIT(EXP_DDR), .NEAR_SPLIT(NEAR_SPLIT), .NEAR_LINE(NEAR_LINE)) u_brk (
+                      .EXP_WAIT(EXP_DDR), .NEAR_SPLIT(NEAR_SPLIT), .NEAR_LINE(NEAR_LINE), .SLOW_COPY(SLOW_COPY)) u_brk (
         .clk(clk), .rst_n(rst_n),
         .native_i(native_w), .mem_bypass_i(bypass_w),
-        .cxrom_local_i(cfg_cxrom[0]), .exp_banks_i(cfg_exp[6:0]),
+        .cxrom_local_i(cfg_cxrom[0]), .exp_banks_i(cfg_exp[6:0]), .slow_local_i(slow_w),
         .hold_i(copy_hold), .idle_a_i(copy_a), .held_o(copy_held), .idle_stb_o(copy_stb), .idle_d_o(copy_d),
         .nm_flush_i(copy_flush), .nm_flush_idx_i(copy_fidx),
         .phy_enabled_i(enabled), .phy_running_i(running),
@@ -280,11 +294,12 @@ module tb_gs_broker #(
         .lm_rexp_o(lm_rexp), .lm_rwait_i(xq_rwait), .lm_wbusy_i(xq_wbusy | wb_force),
         .nm_ren_hi_o(nm_ren_hi), .nm_ra_hi_o(nm_ra_hi),
         .nm_dwen_o(nm_dwen), .nm_lfill_o(nm_lfill), .lm_risrom_o(lm_risrom),
-        .lm_wen_o(lm_wen_c), .lm_waddr_o(lm_waddr), .lm_wdata_o(lm_wdata),
+        .lm_wen_o(lm_wen_c), .lm_waddr_o(lm_waddr), .lm_wdata_o(lm_wdata), .lm_wfwd_o(lm_wfwd),
         .nm_ren_o(nm_ren), .nm_ra_o(nm_ra), .nm_rdata_i(nm_rdata), .nm_rtag_i(nm_rtag),
         .nm_wen_o(nm_wen), .nm_wa_o(nm_wa), .nm_wdata_o(nm_wdata), .nm_wtag_o(nm_wtag),
         .fast_o(brk_fast), .step_evt_o(), .sock_evt_o(), .sock_idle_o(), .pw_busy_o(),
         .verify_miss_o(verify_miss), .verify_addr_o(verify_addr), .verify_count_o(verify_count),
+        .slow_o(brk_slow), .verify_scount_o(verify_scount), .verify_saddr_o(verify_saddr),
         .stat_steps_o(stat_steps), .stat_sock_o(stat_sock), .stat_posted_o(stat_posted),
         .stat_pwwait_o(stat_pwwait), .stat_rd_hit_o(stat_rd_hit), .stat_rd_miss_o(stat_rd_miss),
         .shadow_o(), .cyareg_o(), .sltromsel_o(), .statereg_o(), .sw_misc_o()
@@ -346,10 +361,27 @@ module tb_gs_broker #(
     logic [7:0]  xm_wdata;
     logic [(NEAR_LINE ? 128 : 8)-1:0] xm_rdata;
     if (EXP_DDR) begin : g_x
+        // (SLOW_COPY, as gs_accel has it: the copy of Mega II RAM is the memory's first
+        // 128K, E0/E1 + A16-A0 at A16-A0, and a forwarded write is made in it the clk
+        // after the broker makes it)
+        logic        mir_q = 1'b0;
+        logic [16:0] mir_a = '0;
+        logic [7:0]  mir_d = '0;
+        always_ff @(posedge clk) begin
+            mir_q <= SLOW_COPY & lm_wen & lm_wfwd;
+            mir_a <= lm_waddr[16:0];
+            mir_d <= lm_wdata;
+        end
+        wire        x_wr = lm_wen & (|lm_waddr[23:17]);
+        wire [22:0] x_ra = (SLOW_COPY & lm_raddr[23]) ? {6'd0, lm_raddr[16:0]} : lm_raddr[22:0];
+        wire [22:0] x_wa = mir_q ? {6'd0, mir_a} : (SLOW_COPY & lm_waddr[23]) ? {6'd0, lm_waddr[16:0]} : lm_waddr[22:0];
+        always @(posedge clk) if (rst_n && mir_q && (x_wr || (lm_ren & lm_rexp))) begin
+            $display("ERROR: the Mega II copy's forwarded write met another request of the expansion memory"); $finish;
+        end
         gs_accel_exp #(.AW(23), .LINE(NEAR_LINE)) u_xq (
             .clk(clk), .rst_n(rst_n), .run_i(cpu_rst_n),
-            .rd_i(lm_ren & lm_rexp), .rnx_i(lm_ren & ~lm_rexp), .raddr_i(lm_raddr[22:0]),
-            .wr_i(lm_wen & (|lm_waddr[23:17])), .waddr_i(lm_waddr[22:0]), .wdata_i(lm_wdata),
+            .rd_i(lm_ren & lm_rexp), .rnx_i(lm_ren & ~lm_rexp), .raddr_i(x_ra),
+            .wr_i(x_wr | mir_q), .waddr_i(x_wa), .wdata_i(mir_q ? mir_d : lm_wdata),
             .rwait_o(xq_rwait), .rsel_o(xq_rsel), .rdata_o(xq_rdata), .rline_o(xq_rline), .wbusy_o(xq_wbusy), .ovf_o(xq_ovf), .busy_o(xq_req),
             .m_req_o(xm_req), .m_ready_i(xm_ready), .m_we_o(xm_we), .m_addr_o(xm_addr), .m_wdata_o(xm_wdata),
             .m_rvalid_i(xm_rvalid), .m_rdata_i(xm_rdata)
@@ -359,6 +391,7 @@ module tb_gs_broker #(
             .m_wdata_i(xm_wdata), .m_rvalid_o(xm_rvalid), .m_rdata_o(xm_rdata)
         );
         assign xq_skip_w = (u_xq.skip != 4'd0);
+        assign xq_mir    = mir_q | (SLOW_COPY & lm_wen & lm_wfwd);
         initial begin #100; if (cfg_exp >= 126) u_xmem.mem[TOP_A[22:0]] = TOP_D; end
         always @(posedge clk) if (rst_n && xq_ovf) begin $display("ERROR: the expansion memory's queue overflowed"); $finish; end
         // every byte the broker takes from it is the byte the mirror holds
@@ -366,8 +399,8 @@ module tb_gs_broker #(
             for (int k = 0; k < (NEAR_LINE ? 16 : 1); k++) begin
                 logic [23:0] a;
                 a = NEAR_LINE ? {u_brk.ml_phys[23:4], 4'(k)} : u_brk.ml_phys;
-                if (xm_rdata[8*k +: 8] !== lexp[23'(a - 24'h020000)])
-                    begin $display("ERROR: expansion memory gave %02h for %06h, the mirror has %02h", xm_rdata[8*k +: 8], a, lexp[23'(a - 24'h020000)]); $finish; end
+                if (xm_rdata[8*k +: 8] !== (a[23] ? lslow[a[16:0]] : lexp[23'(a - 24'h020000)]))
+                    begin $display("ERROR: expansion memory gave %02h for %06h, the mirror has %02h", xm_rdata[8*k +: 8], a, a[23] ? lslow[a[16:0]] : lexp[23'(a - 24'h020000)]); $finish; end
             end
         end
         // at the end of the run: the memory holds what was written to it
@@ -375,9 +408,12 @@ module tb_gs_broker #(
             int k; k = 0;
             for (int a = 0; a < cfg_exp * 65536; a++) if (u_xmem.mem[24'h020000 + a] !== lexp[a]) k++;
             if (k != 0) err($sformatf("the expansion memory differs from what was written to it in %0d bytes", k));
+            k = 0;
+            if (SLOW_COPY) for (int a = 0; a < (1<<17); a++) if (u_xmem.mem[a] !== lslow[a]) k++;
+            if (k != 0) err($sformatf("the expansion memory's copy of Mega II RAM differs from what was written to it in %0d bytes", k));
         end
     end else begin : g_x
-        assign {xq_rwait, xq_rsel, xq_wbusy, xq_ovf, xq_req, xq_skip_w} = '0;
+        assign {xq_rwait, xq_rsel, xq_wbusy, xq_ovf, xq_req, xq_skip_w, xq_mir} = '0;
         assign xq_rdata = '0; assign xq_rline = '0;
         assign {xm_req, xm_ready, xm_we, xm_rvalid} = '0;
         assign xm_addr = '0; assign xm_wdata = '0; assign xm_rdata = '0;
@@ -388,6 +424,7 @@ module tb_gs_broker #(
     always @(posedge clk) begin
         if (lm_ren && lm_rexp) n_xrd <= n_xrd + 1;
         if (lm_ren && lm_rexp && u_brk.mode_native) n_xrd_nat <= n_xrd_nat + 1;
+        if (lm_ren && lm_rexp && lm_raddr[23] && !u_brk.mode_native) n_slow_far <= n_slow_far + 1;
         if (xq_rwait) n_xwait <= n_xwait + 1;
         if (xq_wbusy) n_xbusy <= n_xbusy + 1;
         if (xm_rvalid && xq_skip_w) n_xskip <= n_xskip + 1;
@@ -397,6 +434,12 @@ module tb_gs_broker #(
     logic [7:0] lram [0:(1<<17)-1];              // banks 00/01
     logic [7:0] lrom [0:(1<<18)-1];              // ROM image, FC0000-FFFFFF
     logic [7:0] lexp [0:EXP_MAX*65536-1];        // expansion banks 02.. (EXP_DDR: a mirror of what was written)
+    logic [7:0] lslow [0:(1<<17)-1];             // (SLOW_COPY) the copy of Mega II RAM, E0/E1 (likewise a mirror)
+    initial for (int i = 0; i < (1<<17); i++) lslow[i] = 8'h00;
+    // a byte of the card's RAM by its physical address
+    function automatic logic [7:0] lmem(input logic [23:0] a);
+        lmem = (a[23:17] == 7'd0) ? lram[a[16:0]] : a[23] ? lslow[a[16:0]] : lexp[23'(a - 24'h020000)];
+    endfunction
     // Synchronous, as the block RAMs will be: a read launch registers the data
     // of BOTH memories as they are at that edge; a write is a separate port.
     // The broker never launches and writes in the same clk (checked).
@@ -408,16 +451,25 @@ module tb_gs_broker #(
             // expansion memory at the physical address.  (The bench returns whichever
             // RAM the physical address names, as a build's data mux will.)
             lm_rom_rdata <= lrom[lm_rom_ra];
-            lm_ram_rdata <= (lm_raddr[23:17] == 7'd0) ? lram[lm_ram_ra] : lexp[lexp_ridx[22:0]];
+            lm_ram_rdata <= (lm_raddr[23:17] == 7'd0) ? lram[lm_ram_ra] : lm_raddr[23] ? lslow[lm_raddr[16:0]] : lexp[lexp_ridx[22:0]];
             // (NEAR_LINE) ... and the sixteen bytes of each one's line
             for (int k = 0; k < 16; k++) begin
                 rom_line[8*k +: 8] <= lrom[{lm_rom_ra[17:4], 4'(k)}];
-                ram_line[8*k +: 8] <= (lm_raddr[23:17] == 7'd0) ? lram[{lm_ram_ra[16:4], 4'(k)}] : lexp[{lexp_ridx[22:4], 4'(k)}];
+                ram_line[8*k +: 8] <= (lm_raddr[23:17] == 7'd0) ? lram[{lm_ram_ra[16:4], 4'(k)}] :
+                                      lm_raddr[23] ? lslow[{lm_raddr[16:4], 4'(k)}] : lexp[{lexp_ridx[22:4], 4'(k)}];
             end
         end
         if (lm_wen) begin
             if (lm_waddr[23:17] == 7'd0) lram[lm_waddr[16:0]] <= lm_wdata;
+            else if (lm_waddr[23])       lslow[lm_waddr[16:0]] <= lm_wdata;
             else                         lexp[lexp_widx[22:0]] <= lm_wdata;
+            // (a forwarded write is the copy's too)
+            if (lm_wfwd)                 lslow[lm_waddr[16:0]] <= lm_wdata;
+            if (lm_waddr[23] && !SLOW_COPY) begin $display("ERROR: a write of the card's memory in a Mega II bank without SLOW_COPY"); $finish; end
+            if (lm_wfwd && (!SLOW_COPY || lm_waddr[23])) begin $display("ERROR: a forwarded write of the Mega II copy: SLOW_COPY %0d, address %06h", SLOW_COPY, lm_waddr); $finish; end
+            if (lm_waddr[23] && lm_waddr[23:17] != 7'h70) begin $display("ERROR: a write of the card's memory at %06h", lm_waddr); $finish; end
+            if (lm_waddr[23]) n_slow_wr <= n_slow_wr + 1;
+            if (lm_wfwd)      n_slow_fwd <= n_slow_fwd + 1;
         end
         if (copy_we) lrom[copy_wa] <= copy_wd;
         far_bad   <= (FAR_CLKS == 2) & lm_ren;
@@ -543,7 +595,14 @@ module tb_gs_broker #(
             tg = NEAR_LINE ? nmt[i >> 4] : nmt[i];      // (NEAR_LINE: every byte of a line that is there)
             if (tg != NM_EMPTY) begin
                 n_valid++;
-                if (tg[NTW-1] && !(NEAR_SPLIT && tg[NTW-2])) begin
+                if (SLOW_COPY && tg[NTW-1] && !tg[NTW-2] && tg[4]) begin
+                    // (the copy of Mega II RAM: {1, 0 | 1, A16-A14})
+                    if (tg[NEAR_KW-1:5] != '0 || tg[3]) begin
+                        if (n_bad < 4) $display("   near memory entry %04h: tag %03h is no byte's", i, tg);
+                        n_bad++;
+                    end
+                    want = lslow[{tg[2:0], 14'(i)}];
+                end else if (tg[NTW-1] && !(NEAR_SPLIT && tg[NTW-2])) begin
                     want = lrom[{tg[3:0], 14'(i)}];
                 end else begin
                     // (split tag: {1, 1} marks RAM above bank 03, where nothing moves A12)
@@ -841,8 +900,10 @@ module tb_gs_broker #(
     // (the step in progress: a read or a write, not a vector pull, in a Mega II bank,
     // an expansion bank the card does not back, or any other non-ROM bank from $80 up)
     wire [7:0] step_bank = u_brk.ea_r[23:16];
+    // (not a read of Mega II RAM below $C000 while the card serves those from its copy)
     wire sock_only_step = !u_brk.pl_int && u_brk.pl_vp_n &&
-                          (step_bank[7] ? (step_bank < 8'hFE) : (step_bank >= 8'd2 + 8'(cfg_exp)));
+                          (step_bank[7] ? (step_bank < 8'hFE) : (step_bank >= 8'd2 + 8'(cfg_exp))) &&
+                          !(brk_slow && !u_brk.pl_we && step_bank[7:1] == 7'h70 && u_brk.ea_r[15:14] != 2'b11);
     logic   rdy_c_q = 1'b1, last_step_sock = 1'b0, last_iss_idle = 1'b0;
     longint n_ss = 0, n_ss_idle = 0;
     always @(posedge clk) begin
@@ -1028,9 +1089,12 @@ module tb_gs_broker #(
                     seen_real = 1;
                     last_real_a = a24; last_real_r = rw_l;
                 end else if (EXP_DDR && rw_l && last_real_r && a24 == last_real_a && u_brk.mode_native &&
-                             a24[23:16] >= 8'h02 && a24[23:16] < 8'h02 + 8'(cfg_exp)) begin
+                             ((a24[23:16] >= 8'h02 && a24[23:16] < 8'h02 + 8'(cfg_exp)) ||
+                              (brk_slow && a24[23:17] == 7'h70 && a24[15:14] != 2'b11))) begin
                     // a native step waiting for its byte from the expansion memory: its
                     // socket cycle, a read of that RAM, issued again
+                    // (... or of Mega II RAM below $C000, where the card's copy of it is
+                    // in that memory and its reads are the card's: a read of RAM there too)
                     n_xrep++;
                 end else if (rw_l && a24 == PARK) begin
                     n_idle++;
@@ -1137,6 +1201,20 @@ module tb_gs_broker #(
         end
         if (n_exp != 0 && !(cfg_native && cfg_bypass))
             err($sformatf("card expansion RAM differs from the ideal machine in %0d bytes", n_exp));
+        // (SLOW_COPY) the copy of Mega II RAM below $C000 is the ideal machine's, in
+        // every mode: it follows every write from the first
+        if (SLOW_COPY) begin
+            int n_sl;
+            n_sl = 0;
+            for (a = 0; a < (1<<17); a++) if (a[15:14] != 2'b11) begin
+                v = mach_get(1, 1, a);
+                if (lslow[a] != v[7:0]) begin
+                    if (n_sl < 4) $display("   copy of Mega II RAM %05h = %02h, ideal %02h", a, lslow[a], v[7:0]);
+                    n_sl++;
+                end
+            end
+            if (n_sl != 0) err($sformatf("the card's copy of Mega II RAM differs from the ideal machine in %0d bytes", n_sl));
+        end
         x_check = 1'b1;
         if (cfg_native && !cfg_toggle) begin
             // every write went out: the motherboard's fast RAM is complete too
@@ -1153,13 +1231,22 @@ module tb_gs_broker #(
         r_eff_addr = io_int ? r_prev_addr : ref_a;
         r_eff_we   = io_int ? 1'b0 : ~ref_we_n;
         r_eff_vp   = io_int ? 1'b1 : ref_vp_n;
+        // (the copy of Mega II RAM: kept by a SLOW_COPY build; its reads the card's in
+        // the steps the broker has taken the request for - as the mode is the broker's)
+        mach_slow({31'd0, SLOW_COPY}, {31'd0, brk_slow});
         ext = mach_ext(1, {8'd0, r_eff_addr}, {31'd0, r_eff_we}, {31'd0, r_eff_vp}, cfg_cxrom, cfg_exp);
+        if (!r_internal && !r_eff_we && r_eff_addr[23:17] == 7'h70 && r_eff_addr[15:14] != 2'b11) begin
+            if (!ext[0])                  n_slow_sock++;
+            else if (u_brk.mode_native)   n_slow_vfy++;
+            else                          n_slow_rd++;
+        end
         pk  = mach_peek(1, {8'd0, r_eff_addr}, {31'd0, r_eff_vp});
         ref_din = pk[7:0];
         // nothing outstanding: the two machines must agree
         // (the final moment also wants no write of the card's memory in flight: with the
         // near memory the write of the step that just completed is made in this clk)
-        if (expq.size() == 0 && (steps[7:0] == 8'd0 || (final_req && !final_done && !lm_wen && !xq_req))) begin
+        // (... nor a forwarded write on its way into the copy of Mega II RAM, a clk behind it)
+        if (expq.size() == 0 && (steps[7:0] == 8'd0 || (final_req && !final_done && !lm_wen && !xq_req && !xq_mir))) begin
             check_state_equal("no socket cycle outstanding");
             if (final_req) begin final_checks(); final_done = 1; end
         end
@@ -1263,6 +1350,9 @@ module tb_gs_broker #(
     // writes are forwarded), and a mismatch says nothing
     always @(posedge clk) if (verify_miss && !cfg_toggle)
         err($sformatf("verify: card memory and socket disagree at %06h", verify_addr));
+    // ... in the copy of Mega II RAM, always: the machine's is never stale
+    always @(posedge clk) if (verify_miss && verify_addr[23:17] == 7'h70)
+        err($sformatf("verify: the card's copy of Mega II RAM and the socket disagree at %06h", verify_addr));
 
     // ---- S6 beside the design: every pin, every clk (native modes)
     longint n_s6cmp = 0;
@@ -1301,16 +1391,28 @@ module tb_gs_broker #(
             .m_wdata_i(am_wdata), .m_rvalid_o(am_rvalid), .m_rdata_o(am_rdata)
         );
         initial begin #100; if (cfg_exp >= 126) u_amem.mem[TOP_A[22:0]] = TOP_D; end
+        // at the end of the run: gs_accel's expansion memory holds what the design's does -
+        // the expansion banks, and (SLOW_COPY) the copy of Mega II RAM in its first 128K
+        always @(posedge x_check) begin
+            int k, k2;
+            k = 0; k2 = 0;
+            if (cfg_exp == ACC_EXP && !wb_en) begin
+                for (int a = 0; a < cfg_exp * 65536; a++) if (u_amem.mem[24'h020000 + a] !== lexp[a]) k++;
+                if (SLOW_COPY) for (int a = 0; a < (1<<17); a++) if (u_amem.mem[a] !== lslow[a]) k2++;
+            end
+            if (k != 0) err($sformatf("gs_accel's expansion memory differs from the design's in %0d bytes", k));
+            if (k2 != 0) err($sformatf("gs_accel's copy of Mega II RAM differs from the design's in %0d bytes", k2));
+        end
     end else begin : g_noam
         assign {am_ready, am_rvalid} = '0; assign am_rdata = '0;
     end
-    gs_accel #(.NEAR_KW(NEAR_KW), .EXP_BANKS(ACC_EXP), .EXP_DDR(EXP_DDR), .NEAR_SPLIT(NEAR_SPLIT), .NEAR_LINE(NEAR_LINE), .SIM_ROM_VALID(ROM_PRESET)) u_acc (
+    gs_accel #(.NEAR_KW(NEAR_KW), .EXP_BANKS(ACC_EXP), .EXP_DDR(EXP_DDR), .NEAR_SPLIT(NEAR_SPLIT), .NEAR_LINE(NEAR_LINE), .SLOW_COPY(SLOW_COPY), .SIM_ROM_VALID(ROM_PRESET)) u_acc (
         .exp_ready_i(1'b1), .m_req_o(am_req), .m_ready_i(am_ready), .m_we_o(am_we), .m_addr_o(am_addr),
         .m_wdata_o(am_wdata), .m_rvalid_i(am_rvalid), .m_rdata_i(am_rdata),
         .clk(clk), .rst_n(rst_n),
         .arm_i(armed), .listen_i(1'b0), .out_extra_i(4'd0),
         .cfg_fast_i(cfg_copy | ~native_i), .cfg_cardmem_i(cfg_copy | ~mem_bypass_i),
-        .cfg_cxrom_i(cfg_cxrom[0]), .cfg_copy_i(copy_req), .clear_i(1'b0),
+        .cfg_cxrom_i(cfg_cxrom[0]), .cfg_copy_i(copy_req), .cfg_slow_i(slow_req), .clear_i(1'b0),
         .gs_ph2_i(gs_ph2_f), .gs_rdy_i(gs_rdy_f), .gs_irq_n_i(gs_irq_n_f), .gs_nmi_n_i(gs_nmi_n_f),
         .gs_res_n_i(gs_res_n_f), .gs_abort_n_i(gs_abort_n_f), .gs_be_i(gs_be_f), .gs_d_i(gs_d_i_f),
         .gs_d_o(acc_d_o), .gs_d_oe_o(acc_d_oe), .gs_a_o(acc_a), .gs_rw_o(acc_rw), .gs_vp_o(acc_vp),
@@ -1366,7 +1468,7 @@ module tb_gs_broker #(
     endtask
 
     // expected test-program results ($0300...): -1 = depends on the configuration
-    int expect_tab [0:85] = '{
+    int expect_tab [0:95] = '{
         'hFF, 'h00, 'h5C, 'h3F, 'h11, 'hC3, 'h3C, 'hA5, 'hA6, 'hA7,
         'h77, 'h5A, 'h5A, 'h00, 'h30, 'hEE, 'h00, 'h11, 'h00, 'hB1,
         'hB1, 'hB1, 'h00, 'hB2, 'h00, 'hB3, 'hC8, 'h00, 'hC9, 'hD1,
@@ -1374,12 +1476,14 @@ module tb_gs_broker #(
         'h5E, 'hE1, 'hE2, 'hE1, -1,   -1,   'hFF, 'h05, 'hC3, 'hC1,
         'hC3, 'hC8, 'hCF, 'hFF, 'hC4, 'hC8, 'hFF, 'hC5, 'h1C, 'h1C,
         'h1C, 'h08, 'hA1, 'hA7, 'h28, 'h01, 'hA7, 'hA5, 'h5A, 'h5A,
-        'h00, 'h22, 'h11, 'hE1, -1,   'hE1, 'hE2, 'h01, 'h36, 'h13, -1, 'h00, -1, -1, -1, -1 };
+        'h00, 'h22, 'h11, 'hE1, -1,   'hE1, 'hE2, 'h01, 'h36, 'h13, -1, 'h00, -1, -1, -1, -1,
+        'h71, 'h72, 'h12, 'h33, 'h66, 'h55, 'h66, 'h44, 'h88, 'hA4 };
 
     initial begin
         string  rom_path, wpath;
         int     kind, i;
-        longint next_stall, next_toggle, irq_at;
+        longint next_stall, next_toggle, irq_at, next_slow;
+        int     lfsr_s;
         bit     be_done, reset_done;
         int     lfsr;
 
@@ -1403,6 +1507,8 @@ module tb_gs_broker #(
         cfg_mbexp = cfg_exp;
         void'($value$plusargs("mbexp=%d", cfg_mbexp));
         void'($value$plusargs("cxrom=%d", cfg_cxrom));
+        void'($value$plusargs("slow=%d", cfg_slow));
+        if (cfg_slow != 0 && !SLOW_COPY) begin $display("+slow needs a build with SLOW_COPY"); $finish; end
         if ($test$plusargs("vcd")) begin $dumpfile("gs_broker.vcd"); $dumpvars(0, tb_gs_broker); end
         if ($value$plusargs("wlog=%s", wpath)) begin
             wlog = $fopen(wpath, "w");
@@ -1443,6 +1549,7 @@ module tb_gs_broker #(
         for (i = 0; i < EXP_MAX*65536; i++) lexp[i] = 8'h00;
         mach_config(2 + cfg_mbexp);
         native_i = cfg_native; mem_bypass_i = cfg_bypass;
+        slow_req = (cfg_slow == 1);
         $display("---- gs_broker: mode %s, STEP_CLKS %0d at %.1f MHz (%.2f MHz steps), ADDR_CLKS %0d, core %s, card expansion %0d banks (machine %0d), cxrom_local %0d",
                  mode_s, STEP_CLKS, 1000.0 / TCLK, 1000.0 / TCLK / STEP_CLKS, ADDR_CLKS,
 `ifdef FAST_CORE
@@ -1471,6 +1578,7 @@ module tb_gs_broker #(
 
         next_stall = cyc_no + stall_period; next_toggle = cyc_no + 97; irq_at = 0; be_done = 0; reset_done = 0;
         lfsr = 32'h1ACE5;
+        lfsr_s = 32'h2B7E1; next_slow = cyc_no + 61;
         while (steps < max_steps) begin
             wait_cycles(1);
             if (do_stall && cyc_no >= next_stall) begin stall_one(); next_stall = cyc_no + stall_period; end
@@ -1544,6 +1652,14 @@ module tb_gs_broker #(
                 @(posedge ph2_bus); #50;
                 copy_req = 1'b1;
             end
+            // (+slow=2: the request for E0/E1 reads from the copy, on and off, on a
+            // schedule of its own)
+            if (cfg_slow == 2 && cyc_no >= next_slow) begin
+                lfsr_s = (lfsr_s >> 1) ^ ((lfsr_s & 1) != 0 ? 32'h80200003 : 0);
+                slow_req = ~slow_req;
+                n_slow_tog++;
+                next_slow = cyc_no + 15 + (lfsr_s & 127);
+            end
             if (cfg_toggle && cyc_no >= next_toggle) begin
                 lfsr = (lfsr >> 1) ^ ((lfsr & 1) != 0 ? 32'h80200003 : 0);
                 native_i = ~native_i;
@@ -1566,7 +1682,7 @@ module tb_gs_broker #(
         if (!final_done) err("no quiet moment at the end of the run (socket cycles still outstanding)");
 
         if (do_expect) begin
-            for (i = 0; i <= 85; i++) begin
+            for (i = 0; i <= 95; i++) begin
                 int want, got;
                 want = expect_tab[i];
                 if (i == 44) want = (cfg_mbexp >= 1) ? 'h21 : 'hFF;
@@ -1609,14 +1725,33 @@ module tb_gs_broker #(
                      n_copy, copy_sum, n_bad == 0 ? "yes" : "NO");
         end
         if (verify_count != 0 && !cfg_toggle) err($sformatf("verify count %0d", verify_count));
+        if (verify_scount != 0) err($sformatf("E0/E1 verify count %0d (last at %06h)", verify_scount, verify_saddr));
+        if (SLOW_COPY) begin
+            $display("---- copy of Mega II RAM: %0d writes to E0/E1 stored, %0d forwarded writes repeated in it; reads of that RAM: %0d from the copy, %0d from it and compared with the socket's byte (paced), %0d on the socket; request %s",
+                     n_slow_wr, n_slow_fwd, n_slow_rd, n_slow_vfy, n_slow_sock,
+                     cfg_slow == 0 ? "off" : cfg_slow == 1 ? "on" : $sformatf("switched %0d times", n_slow_tog));
+            if (cfg_slow == 1 && !cfg_bypass && !cfg_copy && n_slow_sock != 0 && !do_reset)
+                err($sformatf("+slow=1: %0d reads of Mega II RAM below $C000 went to the socket", n_slow_sock));
+            if (cfg_slow == 1 && !cfg_bypass && (n_slow_rd + n_slow_vfy) == 0) err("+slow=1: no read of Mega II RAM came from the copy");
+            if (cfg_slow == 1 && cfg_native && !cfg_bypass && n_slow_vfy == 0) err("+slow=1, paced: no read of the copy was compared with the socket's byte");
+            if ((cfg_slow == 0 || cfg_bypass) && (n_slow_rd + n_slow_vfy) != 0)
+                err($sformatf("%0d reads of Mega II RAM came from the copy without the request", n_slow_rd + n_slow_vfy));
+            if (cfg_slow == 2 && n_slow_tog < 4) err("+slow=2: the request was hardly switched");
+            // (the copy is behind the near memory like any other memory of the card's: in
+            // fast mode most reads of it find their line there)
+            if (NEAR) $display("---- copy of Mega II RAM, fast mode: %0d of the %0d reads from it were far reads (the rest found their line in the near memory)", n_slow_far, n_slow_rd);
+            if (NEAR && cfg_slow == 1 && !cfg_native && !cfg_toggle && n_slow_rd > 100 && 2 * n_slow_far > n_slow_rd)
+                err($sformatf("+slow=1: %0d of %0d reads of the copy of Mega II RAM were far reads", n_slow_far, n_slow_rd));
+        end
         if (stall_checks == 0 && do_stall) err("no stalled cycle was checked");
         if (s6cmp && n_s6cmp == 0) err("S6 comparison did not run");
 `ifdef ACCEL_SHADOW
         if (cfg_exp == ACC_EXP && !wb_en) begin
             if (n_acc_cmp == 0) err("gs_accel comparison did not run");
             if (acc_verify != verify_count) err($sformatf("gs_accel verify count %0d, the design's %0d", acc_verify, verify_count));
-            if (acc_mode[7] != copy_valid || acc_mode[4] != brk_fast)
-                err($sformatf("gs_accel mode %02h: ROM image valid %b, fast %b in the design", acc_mode, copy_valid, brk_fast));
+            if (acc_mode[7] != copy_valid || acc_mode[4] != brk_fast || acc_mode[1] != brk_slow)
+                err($sformatf("gs_accel mode %02h: ROM image valid %b, fast %b, E0/E1 from the copy %b in the design", acc_mode, copy_valid, brk_fast, brk_slow));
+            if (u_acc.verify_scount != verify_scount) err($sformatf("gs_accel E0/E1 verify count %0d, the design's %0d", u_acc.verify_scount, verify_scount));
             $display("---- gs_accel beside the design: %0d clks of pin comparison, mode %02h", n_acc_cmp, acc_mode);
         end
 `endif

@@ -74,6 +74,8 @@ module gs_mmu_replica #(
     // configuration (quasi-static)
     input  logic        cxrom_local_i,       // serve internal $C100-$CFFF firmware locally
     input  logic [6:0]  exp_banks_i,         // expansion banks backed by the card
+    input  logic        slow_copy_i,         // the card keeps a copy of Mega II RAM below $C000 (gs_mmu_decode)
+    input  logic        slow_local_i,        // ... and reads of it are the card's
 
     // a completed socket cycle (what the motherboard saw)
     input  logic        cyc_stb_i,
@@ -93,6 +95,7 @@ module gs_mmu_replica #(
     output logic        acc_local_rom_o,
     output logic [17:0] acc_rom_addr_o,
     output logic        acc_side_effect_o,
+    output logic        acc_slow_only_o,     // a socket write stored in the copy of Mega II RAM alone
     // ... and gs_mmu_decode's cheap view (near memory: the first clk of a step) of the
     // access at acc_faddr_i, the step's address before any substitution
     input  logic [23:0] acc_faddr_i,
@@ -230,7 +233,7 @@ module gs_mmu_replica #(
         .PAGE2(page2), .HIRES_MODE(hires), .bank_latch(bank_latch),
         .shadow_all(cyareg[4]), .SLTROMSEL(sltromsel),
         .INTCXROM(intcxrom), .SLOTC3ROM(slotc3rom), .INTC8ROM(intc8rom), .ROMBANK(rombank),
-        .cxrom_local(cxrom_local_i), .exp_banks(exp_banks_i),
+        .cxrom_local(cxrom_local_i), .exp_banks(exp_banks_i), .slow_copy(slow_copy_i), .slow_local(slow_local_i),
         .addr_bus(acc_phys_o),
         .aux(), .lcram2_sel(), .inhibit_cxxx(), .IO(), .EXTERNAL_IO(),
         .is_internal_io(), .is_internal(), .fastram_ce(), .slowram_ce(), .slowram_we(),
@@ -238,7 +241,7 @@ module gs_mmu_replica #(
         .rom_writethrough(),
         .region(acc_region_o), .is_local(acc_local_o), .forward_write(acc_forward_write_o),
         .local_we(acc_local_we_o), .local_rom(acc_local_rom_o), .rom_addr(acc_rom_addr_o),
-        .side_effect(acc_side_effect_o),
+        .side_effect(acc_side_effect_o), .slow_only(acc_slow_only_o),
         .fast_rw(), .fast_int(), .fast_rom(), .fast_rbank(), .fast_aux(), .fast_fold(), .fast_exp(), .fast_sock()
     );
 
@@ -251,14 +254,14 @@ module gs_mmu_replica #(
         .PAGE2(page2), .HIRES_MODE(hires), .bank_latch(bank_latch),
         .shadow_all(cyareg[4]), .SLTROMSEL(sltromsel),
         .INTCXROM(intcxrom), .SLOTC3ROM(slotc3rom), .INTC8ROM(intc8rom), .ROMBANK(rombank),
-        .cxrom_local(cxrom_local_i), .exp_banks(exp_banks_i),
+        .cxrom_local(cxrom_local_i), .exp_banks(exp_banks_i), .slow_copy(slow_copy_i), .slow_local(slow_local_i),
         .addr_bus(),
         .aux(), .lcram2_sel(), .inhibit_cxxx(), .IO(), .EXTERNAL_IO(),
         .is_internal_io(), .is_internal(), .fastram_ce(), .slowram_ce(), .slowram_we(),
         .rom1_ce(), .rom2_ce(), .romc_ce(), .romd_ce(), .slot_ce(), .slot_internalrom_ce(),
         .rom_writethrough(),
         .region(), .is_local(), .forward_write(), .local_we(), .local_rom(), .rom_addr(),
-        .side_effect(),
+        .side_effect(), .slow_only(),
         .fast_rw(acc_fast_rw_o), .fast_int(acc_fast_int_o), .fast_rom(acc_fast_rom_o),
         .fast_rbank(acc_fast_rbank_o), .fast_aux(acc_fast_aux_o), .fast_fold(acc_fast_fold_o),
         .fast_exp(acc_fast_exp_o), .fast_sock(acc_fast_sock_o)
@@ -273,14 +276,14 @@ module gs_mmu_replica #(
         .PAGE2(page2), .HIRES_MODE(hires), .bank_latch(bank_latch),
         .shadow_all(cyareg[4]), .SLTROMSEL(sltromsel),
         .INTCXROM(intcxrom), .SLOTC3ROM(slotc3rom), .INTC8ROM(intc8rom), .ROMBANK(rombank),
-        .cxrom_local(cxrom_local_i), .exp_banks(exp_banks_i),
+        .cxrom_local(cxrom_local_i), .exp_banks(exp_banks_i), .slow_copy(slow_copy_i), .slow_local(slow_local_i),
         .addr_bus(pf_phys_o),
         .aux(), .lcram2_sel(), .inhibit_cxxx(), .IO(), .EXTERNAL_IO(),
         .is_internal_io(), .is_internal(), .fastram_ce(), .slowram_ce(), .slowram_we(),
         .rom1_ce(), .rom2_ce(), .romc_ce(), .romd_ce(), .slot_ce(), .slot_internalrom_ce(),
         .rom_writethrough(),
         .region(), .is_local(pf_local_o), .forward_write(), .local_we(), .local_rom(pf_local_rom_o), .rom_addr(pf_rom_addr_o),
-        .side_effect(pf_side_o),
+        .side_effect(pf_side_o), .slow_only(),
         .fast_rw(), .fast_int(), .fast_rom(), .fast_rbank(), .fast_aux(), .fast_fold(), .fast_exp(), .fast_sock()
     );
 
@@ -292,14 +295,14 @@ module gs_mmu_replica #(
         .PAGE2(page2), .HIRES_MODE(hires), .bank_latch(bank_latch),
         .shadow_all(cyareg[4]), .SLTROMSEL(sltromsel),
         .INTCXROM(intcxrom), .SLOTC3ROM(slotc3rom), .INTC8ROM(intc8rom), .ROMBANK(rombank),
-        .cxrom_local(cxrom_local_i), .exp_banks(exp_banks_i),
+        .cxrom_local(cxrom_local_i), .exp_banks(exp_banks_i), .slow_copy(slow_copy_i), .slow_local(slow_local_i),
         .addr_bus(pfw_phys_o),
         .aux(), .lcram2_sel(), .inhibit_cxxx(), .IO(), .EXTERNAL_IO(),
         .is_internal_io(), .is_internal(), .fastram_ce(), .slowram_ce(), .slowram_we(),
         .rom1_ce(), .rom2_ce(), .romc_ce(), .romd_ce(), .slot_ce(), .slot_internalrom_ce(),
         .rom_writethrough(),
         .region(), .is_local(pfw_local_o), .forward_write(pfw_forward_o), .local_we(pfw_local_we_o),
-        .local_rom(), .rom_addr(), .side_effect(),
+        .local_rom(), .rom_addr(), .side_effect(), .slow_only(),
         .fast_rw(), .fast_int(), .fast_rom(), .fast_rbank(), .fast_aux(), .fast_fold(), .fast_exp(), .fast_sock()
     );
 

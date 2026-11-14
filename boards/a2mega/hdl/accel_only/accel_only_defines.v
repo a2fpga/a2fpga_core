@@ -10,3 +10,6 @@
 // The near memory is lines of sixteen bytes, filled a line at a time (gs_accel NEAR_LINE; a read
 // of the DDR3 is its burst of sixteen), unless this is defined: then single bytes, as before.
 //`define ACC_BYTE_CACHE
+// The card keeps a copy of the Mega II's RAM below $C000 (banks E0/E1) in the DDR3 and, when asked
+// (request bit 4), serves reads of it (gs_accel SLOW_COPY), unless this is defined.
+//`define ACC_NO_SLOW_COPY

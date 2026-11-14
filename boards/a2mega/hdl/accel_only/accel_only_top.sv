@@ -54,6 +54,8 @@
 //                    bit 2 CXROM    internal $C100-$CFFF firmware from the image
 //                    bit 3 COPY     0 -> 1: read the ROM image through the socket
 //                                   (core held about 46 ms)
+//                    bit 4 SLOW     reads of banks E0/E1 below $C000 from the card's
+//                                   copy of that RAM (needs bit 1; any time, either way)
 //                Bits 0-2 take effect only once an image has been copied.
 //                With 29 = 00 the card is S6 on the new core: every step a
 //                socket cycle, every byte from the socket.
@@ -61,7 +63,7 @@
 // Telemetry: the S6 window, with two fields carrying something else -
 //   hold mismatches = verify count; hold samples = {mode, 8'h5A}
 //   (mode: 7 ROM image valid, 6 copy busy, 5 core held, 4 fast, 3 card
-//   memory, 2 cxrom).  `gs trace` shows 64 words, index = line number:
+//   memory, 2 cxrom, 1 E0/E1 reads from the card's copy).  `gs trace` shows 64 words, index = line number:
 //   see gs_accel.sv tele_word_o (bank:addr data = one 32-bit word).
 //
 `include "../datetime.svh"
@@ -452,13 +454,21 @@ module top (
     reg calib_g0 = 1'b0, calib_g1 = 1'b0;
     always @(posedge clk_gs_w) begin calib_g0 <= init_calib_complete_w; calib_g1 <= calib_g0; end
 
-    gs_accel #(.EXP_DDR(1'b1), .EXP_BANKS(126), .NEAR_KW(9), .NEAR_LINE(ACC_LINE)) u_acc (
+    // (ACC_SLOW: a copy of the Mega II's RAM below $C000 in the DDR3's first 128K, which
+    // the 126 expansion banks leave free - gs_accel SLOW_COPY; off with ACC_NO_SLOW_COPY)
+`ifdef ACC_NO_SLOW_COPY
+    localparam bit ACC_SLOW = 1'b0;
+`else
+    localparam bit ACC_SLOW = ACC_LINE;       // (it has only been run with the line memory)
+`endif
+    gs_accel #(.EXP_DDR(1'b1), .EXP_BANKS(126), .NEAR_KW(9), .NEAR_LINE(ACC_LINE), .SLOW_COPY(ACC_SLOW)) u_acc (
         .exp_ready_i(calib_g1), .m_req_o(xm_req_w), .m_ready_i(ddr3_mem_ports[0].available), .m_we_o(xm_we_w),
         .m_addr_o(xm_addr_w), .m_wdata_o(xm_wdata_w), .m_rvalid_i(xm_rvalid_w), .m_rdata_i(xm_rdata_w),
         .clk(clk_gs_w), .rst_n(device_reset_n_w & gs_pll_lock_w),
         .arm_i(gs_ctrl_s1[0]), .listen_i(gs_ctrl_s1[2]), .out_extra_i(gs_oe_s1),
         .cfg_fast_i(rq_key_w & gs_rq_s1[0]), .cfg_cardmem_i(rq_key_w & gs_rq_s1[1]),
         .cfg_cxrom_i(rq_key_w & gs_rq_s1[2]), .cfg_copy_i(rq_key_w & gs_rq_s1[3]),
+        .cfg_slow_i(rq_key_w & gs_rq_s1[4]),
         .clear_i(gs_ctrl_s1[7]),
         .gs_ph2_i(gs_ph2), .gs_rdy_i(gs_rdy), .gs_irq_n_i(gs_irq_n), .gs_nmi_n_i(gs_nmi_n),
         .gs_res_n_i(gs_res_n), .gs_abort_n_i(gs_abort_n), .gs_be_i(gs_be),
