@@ -5,10 +5,10 @@ section 3b ran on 2026-11-13 and runs the benchmark 12 to 14 times faster
 than the machine (section 3c). That run found a defect in the near
 memory's empty entry; the build with the fix (m0) is on the card since
 18:21 the same day and ran the same benchmark without it (section 3c).
-Built since and **not flashed** (t0, section 3e): the near memory as lines
-of sixteen bytes, a DDR3 read filling a whole line, and every step in the
-expansion banks two clks on a hit; three placements at 105 MHz with no
-violation.
+Built since (t0, section 3e): the near memory as lines of sixteen bytes, a
+DDR3 read filling a whole line, and every step in the expansion banks two
+clks on a hit; three placements at 105 MHz with no violation. **Flashed
+2026-11-14 08:53 (write verified); not yet run on the machine.**
 Parents: [`gs_socket_s7_accelerator_scoping.md`](gs_socket_s7_accelerator_scoping.md)
 (what the accelerator is) and
 [`gs_socket_s7_fast_core_exploration.md`](gs_socket_s7_fast_core_exploration.md)
@@ -728,7 +728,7 @@ pass, two of them fail without the change, and three are in the suite
 (155 runs, all passing). **m0, on the card, has the defect; the change is
 not built.**
 
-## 3e. The near memory as lines of sixteen bytes (2026-11-13/14, not flashed)
+## 3e. The near memory as lines of sixteen bytes (2026-11-13/14)
 
 The DDR3 answers every read with sixteen bytes, and the near memory of
 sections 3b to 3d kept one of them. It also kept an 11-bit tag beside
@@ -819,7 +819,9 @@ odd words there:
 
 (The tool stops when the constraint is met.) 13,088 logic cells, 11,842
 FF, 182 of 340 block RAMs. Build t0: stamp `20261114020946`, bitstream
-sha256 `dd5d16229b2438a8…6339edea96909e7720`. **Not flashed.** It carries
+sha256 `dd5d16229b2438a8…6339edea96909e7720`. **Flashed 2026-11-14
+08:50 to 08:53, IIgs off, first attempt, write verified; not yet run on
+the machine.** It carries
 everything since m0: the line memory, the two-clk step in every bank the
 card holds, and the ROM copy's grant across a second copy (section 3d).
 What to expect of it on the benchmark is section 3d's arithmetic - about
@@ -929,7 +931,8 @@ check the build stamp (`CORE:` line) before trusting a hardware test.
 Regenerate the constraints with `python3 hdl/accel_probe_138b/gen_sdc.py`
 and `python3 hdl/accel_probe_138b/gen_floorplan.py accel`.
 
-Provenance of t0 (the line memory, section 3e; not flashed): sources = the
+Provenance of t0 (the line memory, section 3e; flashed 2026-11-14 08:53):
+sources = the
 commit that adds this paragraph; the same tool and device; build stamp
 `20261114020946`; bitstream sha256
 `dd5d16229b2438a8…6339edea96909e7720`.

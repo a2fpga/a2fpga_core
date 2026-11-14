@@ -13,8 +13,8 @@ at 105 MHz.** **2026-11-13: S7d ran on the machine. Every test of the
 benchmark is 12 to 14 times the machine's speed (the program's average
 33 MHz); the run found a defect in the near memory's empty entry, fixed,
 flashed and run the same day (§10.7). 2026-11-14: the near memory as
-16-byte lines with a two-clk step in every bank, built and not flashed
-(§10.7).**
+16-byte lines with a two-clk step in every bank, built, flashed 08:53 and
+not yet run on the machine (§10.7).**
 
 ## 0. Summary
 
@@ -1001,4 +1001,4 @@ nineteen; every far read is a line (the DDR3's burst, the block memories
 sixteen wide) and fills it; a write changes a byte of a line that is
 there and installs nothing; a step in any bank the card holds is two clks
 on a hit. 176 bench runs, three placements at 105 MHz with no violation.
-Not flashed.
+Flashed 2026-11-14 08:53 (write verified); not yet run on the machine.
