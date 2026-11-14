@@ -251,20 +251,28 @@ static const char *card_name(uint8_t id)
     case 4:    return "DISK II";
     case 5:    return "UTHERNET II";
     case 6:    return "PRODOS HDD";
+    case CARD_VIDEX: return "VIDEX 80-COL";
     case 0xFF: return "DEFAULT";
     default:   return "?";
     }
 }
 
-/* cycle order for the per-slot choice */
-static const uint8_t k_slot_choices[] = { 0xFF, 0, 1, 2, 3, 4, 5, 6 };
+/* cycle order for the per-slot choice. VIDEX is offered only in slot 3:
+ * a Videx VideoTerm only ever works in slot 3 of an Apple ][+ (the
+ * gateware refuses to enable it anywhere else, and settings_slot_effective
+ * maps a stray one to EMPTY). */
+static const uint8_t k_slot_choices[] = { 0xFF, 0, 1, 2, 3, 4, 5, 6, CARD_VIDEX };
 #define N_SLOT_CHOICES ((int)sizeof(k_slot_choices))
+
+static bool slot_choice_allowed(int slot, uint8_t card)
+{
+    return card != CARD_VIDEX || slot == CARD_VIDEX_SLOT;
+}
 
 /* Effective card for a slot (DEFAULT resolves to the hardware map). */
 static uint8_t slot_effective(int i)
 {
-    uint8_t c = settings()->slot_cards[i];
-    return (c == 0xFF) ? settings_slot_hw_defaults[i] : c;
+    return settings_slot_effective(i);
 }
 
 static void slots_change(int id, int dir)
@@ -274,7 +282,9 @@ static void slots_change(int id, int dir)
     for (int i = 0; i < N_SLOT_CHOICES; i++)
         if (k_slot_choices[i] == *sc)
             idx = i;
-    idx = (idx + dir + N_SLOT_CHOICES) % N_SLOT_CHOICES;
+    do {
+        idx = (idx + dir + N_SLOT_CHOICES) % N_SLOT_CHOICES;
+    } while (!slot_choice_allowed(id, k_slot_choices[idx]));
     *sc = k_slot_choices[idx];
 
     /* A card id may only answer in ONE slot (the slotmaker decode cannot
@@ -297,6 +307,8 @@ static void slots_change(int id, int dir)
         snprintf(msg, sizeof(msg), " %s MOVED - SLOT %d NOW EMPTY",
                  card_name(eff), moved_from);
         set_status(msg);
+    } else if (eff == CARD_VIDEX) {
+        set_status(" VIDEX: ][+ ONLY - PR#3 FOR 80 COL");
     }
     screen_refresh();
 }
@@ -304,12 +316,8 @@ static void slots_change(int id, int dir)
 static void slots_apply_now(int id)
 {
     (void)id;
-    for (int i = 0; i < 8; i++) {
-        uint8_t c = settings()->slot_cards[i];
-        if (c == 0xFF)
-            c = settings_slot_hw_defaults[i];
-        fpga_spi_reg_write((uint8_t)(REG_SLOT_BASE + i), c);
-    }
+    for (int i = 0; i < 8; i++)
+        fpga_spi_reg_write((uint8_t)(REG_SLOT_BASE + i), settings_slot_effective(i));
     fpga_spi_reg_write(REG_SLOT_RECONFIG, 1);
     set_status(" APPLIED - REBOOT APPLE II");
     screen_refresh();

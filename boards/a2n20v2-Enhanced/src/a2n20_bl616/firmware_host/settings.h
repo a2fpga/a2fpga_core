@@ -74,6 +74,16 @@ typedef struct {
  * slots.hex — the FPGA's power-on slot configuration. */
 extern const uint8_t settings_slot_hw_defaults[8];
 
+/* Card ids (must match the gateware *_ID parameters in top.sv). */
+#define CARD_VIDEX      7      /* Videx VideoTerm: Apple ][+ SLOT 3 ONLY */
+#define CARD_VIDEX_SLOT 3
+
+/* Card id that slot i should actually be programmed with: DEFAULT (0xFF)
+ * resolves to the hardware map, and a card that can only live in one slot
+ * (Videx: slot 3) resolves to EMPTY anywhere else. Every path that writes
+ * the slot map to the FPGA goes through this. */
+uint8_t settings_slot_effective(int i);
+
 /* Load from flash (or defaults). Call once early in main. */
 void settings_init(void);
 

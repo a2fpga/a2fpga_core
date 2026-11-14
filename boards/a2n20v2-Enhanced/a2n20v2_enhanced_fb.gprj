@@ -88,6 +88,10 @@
         <File path="../../hdl/video/direct_display.sv" type="file.verilog" enable="1"/>
         <File path="../../hdl/video/scan_timer.sv" type="file.verilog" enable="1"/>
         <File path="../../hdl/video/framebuffer_writer.sv" type="file.verilog" enable="1"/>
+        <File path="../../hdl/video/videx_gen.sv" type="file.verilog" enable="1"/>
+        <File path="../../hdl/videx/videx_card.sv" type="file.verilog" enable="1"/>
+        <File path="../../hdl/videx/videx_rom.hex" type="file.other" enable="1"/>
+        <File path="../../hdl/videx/videx_charrom.hex" type="file.other" enable="1"/>
         <File path="../../hdl/video/sdram_framebuffer.sv" type="file.verilog" enable="1"/>
         <File path="../../hdl/video/video_control_if.sv" type="file.verilog" enable="1"/>
         <File path="../../hdl/video/video.hex" type="file.other" enable="1"/>

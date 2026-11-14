@@ -68,6 +68,11 @@ module top #(
     parameter bit HDD_ENABLE = 1,
     parameter bit [7:0] HDD_ID = 6,
 
+    // Videx VideoTerm 80-column card: framebuffer (_fb) builds only, and
+    // only ever in slot 3 of an Apple ][+ (enforced in videx_card).
+    parameter bit VIDEX_ENABLE = 1,
+    parameter bit [7:0] VIDEX_ID = 7,
+
     parameter bit ENSONIQ_ENABLE = 1,
     parameter bit ENSONIQ_MONO_MIX = 0, // If true, mono mix is used instead of stereo
 
@@ -926,6 +931,10 @@ module top #(
     wire [7:0] rgb_b_w;
     wire scanlines_w;
 
+    // Videx bus response (driven inside VIDEO_FRAMEBUFFER, tied off otherwise)
+    wire [7:0] videx_d_w;
+    wire       videx_rd;
+
 `ifdef VIDEO_FRAMEBUFFER
 
     // =====================================================================
@@ -1089,6 +1098,96 @@ module top #(
         .ssp_active_i(1'b0)
     );
 
+    // --- Videx VideoTerm 80-column (slot 3, Apple ][+) -> its own writer ---
+    wire        videx_mode_w;
+    wire [7:0]  videx_r10_w, videx_r11_w;
+    wire [10:0] videx_start_w, videx_cursor_w;
+    wire        videx_gen_rd_w;
+    wire [8:0]  videx_gen_addr_w;
+    wire [31:0] videx_gen_data_w;
+    wire        videx_gen_valid_w;
+    wire        videx_rom_en_w;
+
+    videx_card #(
+        .ID(VIDEX_ID),
+        .ENABLE(VIDEX_ENABLE)
+    ) videx_card (
+        .a2bus_if(a2bus_if),
+        .a2mem_if(a2mem_if),
+        .slot_if(slot_if),
+
+        .data_o(videx_d_w),
+        .rd_en_o(videx_rd),
+        .rom_en_o(videx_rom_en_w),
+
+        .videx_mode_o(videx_mode_w),
+        .crtc_r10_o(videx_r10_w),
+        .crtc_r11_o(videx_r11_w),
+        .start_addr_o(videx_start_w),
+        .cursor_addr_o(videx_cursor_w),
+
+        .gen_rd_i(videx_gen_rd_w),
+        .gen_addr_i(videx_gen_addr_w),
+        .gen_data_o(videx_gen_data_w),
+        .gen_valid_o(videx_gen_valid_w)
+    );
+
+    pixel_stream_if videx_ps();
+    wire videx_frame_active_w;
+
+    videx_gen videx_gen (
+        .clk_i(clk_logic_w),
+        .reset_n_i(system_reset_n_w),
+
+        .a2mem_if(a2mem_if),
+        .sw_gs_i(sw_gs_w),
+
+        .pixel_stream(videx_ps),
+
+        .videx_mode_i(videx_mode_w),
+        .crtc_r10_i(videx_r10_w),
+        .crtc_r11_i(videx_r11_w),
+        .start_addr_i(videx_start_w),
+        .cursor_addr_i(videx_cursor_w),
+
+        .vram_rd_o(videx_gen_rd_w),
+        .vram_addr_o(videx_gen_addr_w),
+        .vram_data_i(videx_gen_data_w),
+        .vram_valid_i(videx_gen_valid_w),
+
+        .videx_active_o(videx_frame_active_w)
+    );
+
+    wire        videx_fb_we_w;
+    wire [17:0] videx_fb_data_w;
+    wire        videx_fb_vsync_w;
+
+    framebuffer_writer #(
+        .GAP_CYCLES(4)
+    ) videx_fb_writer (
+        .clk_i(clk_logic_w),
+        .reset_n_i(system_reset_n_w),
+
+        .pixel_stream(videx_ps),
+
+        .scanline_i(scanline_w),
+        .hsync_i(hsync_w),
+        .vsync_i(vsync_w),
+
+        .fb_we_o(videx_fb_we_w),
+        .fb_data_o(videx_fb_data_w),
+        .fb_vsync_o(videx_fb_vsync_w),
+
+        .apple_r_o(),
+        .apple_g_o(),
+        .apple_b_o(),
+        .apple_active_o(),
+        .ssp_r_i(8'd0),
+        .ssp_g_i(8'd0),
+        .ssp_b_i(8'd0),
+        .ssp_active_i(1'b0)
+    );
+
     // Framebuffer source mux — apple or SHR, latched at the frame boundary.
     // Must go through the video_control_if override: when the MCU takeover
     // (boot console / menu) forces text mode while the machine is in SHR
@@ -1096,16 +1195,24 @@ module top #(
     // plane — latching raw SHRG here kept displaying the stale VGC plane
     // as garbage.
     reg use_vgc_r;
+    reg use_videx_r;
     always @(posedge clk_logic_w) begin
-        if (vsync_w) use_vgc_r <= video_control_if.shrg_mode(a2mem_if.SHRG_MODE);
+        if (vsync_w) begin
+            use_vgc_r   <= video_control_if.shrg_mode(a2mem_if.SHRG_MODE);
+            // Videx plane (640x216) whenever the card is live in 80-col mode,
+            // except while the MCU console/menu owns the screen (it renders
+            // into the APPLE plane). Same vsync edge videx_gen latches its
+            // own mode on, so plane and content switch together.
+            use_videx_r <= videx_mode_w && !video_control_if.enable;
+        end
     end
 
-    wire fb_we_mux_w          = use_vgc_r ? vgc_fb_we_w    : fb_we_w;
-    wire [17:0] fb_data_mux_w = use_vgc_r ? vgc_fb_data_w  : fb_data_w;
-    wire fb_vsync_mux_w       = use_vgc_r ? vgc_fb_vsync_w : fb_vsync_w;
+    wire fb_we_mux_w          = use_videx_r ? videx_fb_we_w    : use_vgc_r ? vgc_fb_we_w    : fb_we_w;
+    wire [17:0] fb_data_mux_w = use_videx_r ? videx_fb_data_w  : use_vgc_r ? vgc_fb_data_w  : fb_data_w;
+    wire fb_vsync_mux_w       = use_videx_r ? videx_fb_vsync_w : use_vgc_r ? vgc_fb_vsync_w : fb_vsync_w;
 
-    wire [10:0] fb_width_w  = use_vgc_r ? 11'd640 : 11'd560;
-    wire [9:0]  fb_height_w = use_vgc_r ? 10'd200 : 10'd192;
+    wire [10:0] fb_width_w  = (use_videx_r || use_vgc_r) ? 11'd640 : 11'd560;
+    wire [9:0]  fb_height_w = use_videx_r ? 10'd216 : use_vgc_r ? 10'd200 : 10'd192;
 
     // VDP raster counter for SuperSprite — synced to scan_timer; the f18a
     // `_fb` VHDL variants (selected by this config's file list) take this
@@ -1452,6 +1559,9 @@ module top #(
 
     end endgenerate
 
+    assign videx_d_w = 8'd0;   // Videx is framebuffer-only
+    assign videx_rd  = 1'b0;
+
 `endif  // !VIDEO_FRAMEBUFFER
 
     wire [15:0] sg_audio_l;
@@ -1642,7 +1752,7 @@ module top #(
 
     // Data output
 
-    assign data_out_en_w = ssp_rd || mb_rd || ssc_rd || u2_rd || diskii_rd || hdd_rd;
+    assign data_out_en_w = ssp_rd || mb_rd || ssc_rd || u2_rd || diskii_rd || hdd_rd || videx_rd;
 
     assign data_out_w = ssc_rd ? ssc_d_w :
         ssp_rd ? ssp_d_w :
@@ -1650,6 +1760,7 @@ module top #(
         u2_rd ? u2_d_w :
         diskii_rd ? diskii_d_w :
         hdd_rd ? hdd_d_w :
+        videx_rd ? videx_d_w :
         a2bus_if.data;
 
     // Interrupts

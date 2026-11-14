@@ -50,19 +50,19 @@ table.detail_table th.label {  min-width: 8%; width: 8%; }
 </tr>
 <tr>
 <td class="label">Design File</td>
-<td>/Users/edanuff/GitHub/a2fpga_core/boards/a2n20v2-Enhanced/impl/gwsynthesis/a2n20v2_enhanced_fb.vg</td>
+<td>/Users/jnorrid/data/wip/a2fpga-2026/a2fpga_core/boards/a2n20v2-Enhanced/impl/gwsynthesis/a2n20v2_enhanced_fb.vg</td>
 </tr>
 <tr>
 <td class="label">Physical Constraints File</td>
-<td>/Users/edanuff/GitHub/a2fpga_core/boards/a2n20v2-Enhanced/hdl/a2n20v2_enhanced.cst</td>
+<td>/Users/jnorrid/data/wip/a2fpga-2026/a2fpga_core/boards/a2n20v2-Enhanced/hdl/a2n20v2_enhanced.cst</td>
 </tr>
 <tr>
 <td class="label">Timing Constraints File</td>
-<td>/Users/edanuff/GitHub/a2fpga_core/boards/a2n20v2-Enhanced/hdl/a2n20v2_enhanced_dualrate.sdc</td>
+<td>/Users/jnorrid/data/wip/a2fpga-2026/a2fpga_core/boards/a2n20v2-Enhanced/hdl/a2n20v2_enhanced_dualrate.sdc</td>
 </tr>
 <tr>
 <td class="label">Tool Version</td>
-<td>V1.9.12.01</td>
+<td>V1.9.11.03 Education</td>
 </tr>
 <tr>
 <td class="label">Part Number</td>
@@ -78,7 +78,7 @@ table.detail_table th.label {  min-width: 8%; width: 8%; }
 </tr>
 <tr>
 <td class="label">Created Time</td>
-<td>Sat Aug  1 14:46:46 2026
+<td>Sat Oct 31 19:30:23 2026
 </td>
 </tr>
 <tr>
@@ -453,29 +453,10 @@ table.detail_table th.label {  min-width: 8%; width: 8%; }
 <tr>
 <td class="label">tmds_clk_p</td>
 <td>tmds_clk_n</td>
-<td>33/5</td>
+<td>33,34/5</td>
 <td>Y</td>
 <td>out</td>
-<td>IOB24[A]</td>
-<td>-</td>
-<td>LVCMOS33D</td>
-<td>8</td>
-<td>NONE</td>
-<td>NA</td>
-<td>NA</td>
-<td>NA</td>
-<td>NA</td>
-<td>NA</td>
-<td>NA</td>
-<td>3.3</td>
-</tr>
-<tr>
-<td class="label">tmds_clk_n</td>
-<td>tmds_clk_p</td>
-<td>34/5</td>
-<td>Y</td>
-<td>out</td>
-<td>IOB24[B]</td>
+<td>IOB24</td>
 <td>-</td>
 <td>LVCMOS33D</td>
 <td>8</td>
@@ -491,10 +472,10 @@ table.detail_table th.label {  min-width: 8%; width: 8%; }
 <tr>
 <td class="label">tmds_d_p[0]</td>
 <td>tmds_d_n[0]</td>
-<td>35/4</td>
+<td>35,36/4</td>
 <td>Y</td>
 <td>out</td>
-<td>IOB30[A]</td>
+<td>IOB30</td>
 <td>GCLKT_4</td>
 <td>LVCMOS33D</td>
 <td>8</td>
@@ -510,10 +491,10 @@ table.detail_table th.label {  min-width: 8%; width: 8%; }
 <tr>
 <td class="label">tmds_d_p[1]</td>
 <td>tmds_d_n[1]</td>
-<td>37/4</td>
+<td>37,38/4</td>
 <td>Y</td>
 <td>out</td>
-<td>IOB34[A]</td>
+<td>IOB34</td>
 <td>-</td>
 <td>LVCMOS33D</td>
 <td>8</td>
@@ -529,67 +510,10 @@ table.detail_table th.label {  min-width: 8%; width: 8%; }
 <tr>
 <td class="label">tmds_d_p[2]</td>
 <td>tmds_d_n[2]</td>
-<td>39/4</td>
+<td>39,40/4</td>
 <td>Y</td>
 <td>out</td>
-<td>IOB40[A]</td>
-<td>-</td>
-<td>LVCMOS33D</td>
-<td>8</td>
-<td>NONE</td>
-<td>NA</td>
-<td>NA</td>
-<td>NA</td>
-<td>NA</td>
-<td>NA</td>
-<td>NA</td>
-<td>3.3</td>
-</tr>
-<tr>
-<td class="label">tmds_d_n[0]</td>
-<td>tmds_d_p[0]</td>
-<td>36/4</td>
-<td>Y</td>
-<td>out</td>
-<td>IOB30[B]</td>
-<td>GCLKC_4</td>
-<td>LVCMOS33D</td>
-<td>8</td>
-<td>NONE</td>
-<td>NA</td>
-<td>NA</td>
-<td>NA</td>
-<td>NA</td>
-<td>NA</td>
-<td>NA</td>
-<td>3.3</td>
-</tr>
-<tr>
-<td class="label">tmds_d_n[1]</td>
-<td>tmds_d_p[1]</td>
-<td>38/4</td>
-<td>Y</td>
-<td>out</td>
-<td>IOB34[B]</td>
-<td>-</td>
-<td>LVCMOS33D</td>
-<td>8</td>
-<td>NONE</td>
-<td>NA</td>
-<td>NA</td>
-<td>NA</td>
-<td>NA</td>
-<td>NA</td>
-<td>NA</td>
-<td>3.3</td>
-</tr>
-<tr>
-<td class="label">tmds_d_n[2]</td>
-<td>tmds_d_p[2]</td>
-<td>40/4</td>
-<td>Y</td>
-<td>out</td>
-<td>IOB40[B]</td>
+<td>IOB40</td>
 <td>-</td>
 <td>LVCMOS33D</td>
 <td>8</td>
