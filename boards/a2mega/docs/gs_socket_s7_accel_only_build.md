@@ -964,9 +964,10 @@ number of the Mega II's cycles (0.98 us): 176 steps at 52.5 MHz are
 3.35 us, the read takes the rest of five cycles, 4.90 us, and the frame
 holds 3,406 passes: 35.1. Four cycles would read 43.9 and want the 176
 steps and the read inside 3.92 us, about 62 MHz of steps; six would
-read 29.3. The reading therefore says the loop's steps are two clks (at
-2.29 it would be six cycles), and says nothing finer: every step rate
-from the high 40s to about 60 MHz reads the same. This is arithmetic
+read 29.3. The reading therefore says nothing fine: a band of step
+rates some 15 MHz wide reads 35.1, from the mid or high 40s to about 60
+(where the band's ends are depends on the fixed part of the read, which
+is not measured: 0.6 to 1.4 us is the range considered). This is arithmetic
 from the source and the counters above, not a measurement of the loop:
 with the accessory open the card shows the core's socket time in bank
 00's I/O page (`C019` the most common low byte), each such cycle about
