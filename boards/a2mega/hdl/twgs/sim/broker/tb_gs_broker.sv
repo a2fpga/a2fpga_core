@@ -51,6 +51,8 @@
 //   +mbexp=N        expansion banks in the machine (default = +exp)
 //   +cxrom=1        serve internal $C100-$CFFF firmware from the card
 //   +irq            raise /IRQ twice once the test program reaches its loop
+//   +recopy         (+mode=copy) a second copy of the ROM image, asked for from fast mode after step 20000
+//                   (+recopyat=N: after step N)
 //   +reset          a warm reset (/RES low for 12 cycles) half way through
 //   +resetw         the same, with /RES falling in the middle of a socket write cycle
 //   +resetx         the same, with /RES falling while a step waits for the expansion memory (EXP_DDR)
@@ -149,7 +151,7 @@ module tb_gs_broker #(
     // copied through the socket, then fast (what gs_accel grants its control inputs)
     bit          cfg_copy = 0;
     logic        copy_req = 1'b0, copy_q = 1'b0, copy_start = 1'b0;
-    logic        copy_hold, copy_held, copy_stb, copy_flush, copy_we, copy_busy, copy_valid;
+    logic        copy_hold, copy_held, copy_stb, copy_flush, copy_we, copy_busy, copy_valid, copy_usable;
     logic [23:0] copy_a;
     logic [7:0]  copy_d, copy_wd, copy_copies;
     logic [17:0] copy_wa;
@@ -158,9 +160,10 @@ module tb_gs_broker #(
     longint      n_copy = 0, n_copy_tail = 0, n_copy_cur = 0;
     int          n_copies_want = 1;
     bit          do_recopy = 0, recopy_done = 0, hold_cyc_q = 0;
+    int          recopy_at = 20000;       // +recopyat=N: the second copy is asked for after step N
     logic        held_q = 1'b0, copy_busy_q = 1'b0;
-    wire         native_w = cfg_copy ? ~copy_valid : native_i;
-    wire         bypass_w = cfg_copy ? ~copy_valid : mem_bypass_i;
+    wire         native_w = cfg_copy ? ~copy_usable : native_i;
+    wire         bypass_w = cfg_copy ? ~copy_usable : mem_bypass_i;
 
     //---------------------------------------------------------------- DUT pins
     logic        gs_ph2_f, gs_rdy_f, gs_irq_n_f, gs_nmi_n_f, gs_res_n_f, gs_abort_n_f, gs_be_f;
@@ -322,7 +325,7 @@ module tb_gs_broker #(
         .hold_o(copy_hold), .idle_a_o(copy_a), .held_i(copy_held), .idle_stb_i(copy_stb), .idle_d_i(copy_d),
         .nm_flush_o(copy_flush), .nm_flush_idx_o(copy_fidx),
         .rom_we_o(copy_we), .rom_wa_o(copy_wa), .rom_wd_o(copy_wd),
-        .busy_o(copy_busy), .valid_o(copy_valid), .sum_o(copy_sum), .copies_o(copy_copies)
+        .busy_o(copy_busy), .valid_o(copy_valid), .usable_o(copy_usable), .sum_o(copy_sum), .copies_o(copy_copies)
     );
 
     //---------------------------------------------------------------- expansion memory of varying latency (EXP_DDR)
@@ -420,6 +423,34 @@ module tb_gs_broker #(
         if (u_brk.fast_q) n_fast2 <= n_fast2 + 1;
         else if (u_brk.st != 2'd3) n_loc_other <= n_loc_other + 1;      // (not a socket step)
     end
+    // step lengths in fast mode, by what the step was (statistics): clks from one
+    // step of the core to the next.  0 two-clk; other local steps: 1 internal, 2 / 3
+    // read below bank 04 (and ROM) / in banks 04-7F, 4 / 5 write likewise; 6 socket
+    longint sl_n [0:6], sl_c [0:6], sl_h [0:6][0:8];
+    longint t_step = 0;
+    initial for (int k = 0; k < 7; k++) begin sl_n[k] = 0; sl_c[k] = 0; for (int j = 0; j < 9; j++) sl_h[k][j] = 0; end
+    always_ff @(posedge clk) if (cpu_ce) begin
+        t_step <= clk_no;
+        if (brk_fast && cpu_rst_n) begin
+            int k, len;
+            bit hi;
+            len = int'(clk_no - t_step);
+            hi  = (u_brk.eff_addr[23:16] >= 8'h04) && !u_brk.eff_addr[23];
+            k   = u_brk.fast_q ? 0 : (u_brk.st == 2'd3) ? 6 : u_brk.internal ? 1 :
+                  u_brk.eff_we ? (hi ? 5 : 4) : (hi ? 3 : 2);
+            sl_n[k] <= sl_n[k] + 1;
+            sl_c[k] <= sl_c[k] + longint'(len);
+            sl_h[k][(len > 9) ? 8 : (len < 2) ? 0 : len - 2] <= sl_h[k][(len > 9) ? 8 : (len < 2) ? 0 : len - 2] + 1;
+        end
+    end
+    task automatic step_lengths();
+        static string nm [0:6] = '{"two-clk", "local internal", "local read, banks 00-03 and ROM", "local read, banks 04-7F",
+                                   "local write, banks 00-03", "local write, banks 04-7F", "socket"};
+        for (int k = 0; k < 7; k++) if (sl_n[k] != 0)
+            $display("---- step lengths: %-32s %8d steps, %6.2f clks each; of 2..9 clks and more: %0d %0d %0d %0d %0d %0d %0d %0d %0d",
+                     nm[k], sl_n[k], real'(sl_c[k]) / real'(sl_n[k]),
+                     sl_h[k][0], sl_h[k][1], sl_h[k][2], sl_h[k][3], sl_h[k][4], sl_h[k][5], sl_h[k][6], sl_h[k][7], sl_h[k][8]);
+    endtask
     initial begin
         for (int i = 0; i < (1<<NEAR_AW); i++) begin nmd[i] = 8'hEE; nmt[i] = NM_EMPTY; end
         nm_rdata = 8'h00; nm_rtag = NM_EMPTY;
@@ -1049,7 +1080,7 @@ module tb_gs_broker #(
             end
         end
         if (n_ram != 0) err($sformatf("card banks 00/01 differ from the ideal machine in %0d bytes", n_ram));
-        if (NEAR) near_check();
+        if (NEAR) begin near_check(); step_lengths(); end
         for (a = 0; a < cfg_exp * 65536; a++) begin
             v = mach_get(1, 0, 24'h020000 + a);
             if (lexp[a] != v[7:0]) n_exp++;
@@ -1303,6 +1334,7 @@ module tb_gs_broker #(
         if ($test$plusargs("resetpw")) begin do_reset = 1; do_resetpw = 1; end
         if ($test$plusargs("resetx")) begin do_reset = 1; do_resetx = 1; end
         if ($test$plusargs("recopy")) begin do_recopy = 1; n_copies_want = 2; end
+        void'($value$plusargs("recopyat=%d", recopy_at));
         void'($value$plusargs("mode=%s", mode_s));
         void'($value$plusargs("steps=%d", max_steps));
         void'($value$plusargs("exp=%d", cfg_exp));
@@ -1442,7 +1474,7 @@ module tb_gs_broker #(
             // +mode=copy: ask for the ROM image a little way into the program
             if (cfg_copy && !copy_req && steps > 3000 && !recopy_done) copy_req = 1'b1;
             // +recopy: and once more from fast mode, with idle cycles on the socket
-            if (cfg_copy && do_recopy && !recopy_done && copy_valid && steps > 20000) begin
+            if (cfg_copy && do_recopy && !recopy_done && copy_valid && steps > recopy_at) begin
                 recopy_done = 1;
                 copy_req = 1'b0;
                 wait_cycles(2);
@@ -1460,7 +1492,7 @@ module tb_gs_broker #(
                 if (irq_at == 0) irq_at = cyc_no + 150;
                 if (cyc_no >= irq_at) begin
                     @(posedge ph2_bus); #20; irq_n_bus = 1'b0;
-                    irq_at = cyc_no + 400;
+                    irq_at = cyc_no + 600;
                 end
             end
         end

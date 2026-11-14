@@ -39,7 +39,13 @@
 //
 // valid_o says a complete image has been copied since power-up; it drops
 // when a new copy starts and when one is cut short (the socket lost, /RES).
-// The caller must not let the card's memory be used without it.
+// usable_o is what the caller grants the card's memory on: valid_o, or a
+// complete image being copied again.  Nothing is written before the core is
+// held and the hold lasts until the copy is complete, so no step sees the
+// image in between; and a step must not fall back to the socket's bytes for
+// the length of a copy, because once the card's memory has been the memory of
+// record the machine's copy of RAM is stale.  (With valid_o alone the step
+// that was held ran from the socket: found in the bench, 2026-11-13.)
 //
 module gs_accel_romcopy #(
     parameter bit ROM3    = 1'b0,        // 0 = ROM 01, 128 KB at FE0000; 1 = ROM 3, 256 KB at FC0000
@@ -68,6 +74,7 @@ module gs_accel_romcopy #(
 
     output logic        busy_o,
     output logic        valid_o,
+    output logic        usable_o,
     output logic [15:0] sum_o,           // sum of the image's bytes, modulo 65536
     output logic [7:0]  copies_o         // complete copies since power-up (saturates)
 );
@@ -81,6 +88,7 @@ module gs_accel_romcopy #(
     // the two counts' last values, from registers: n moves once per PHI2 cycle and
     // f every second clk, and each flag is read a clk or more after its count moved
     logic               n_last, f_last;
+    logic               was_valid;       // the copy in progress is over a complete image
     always_ff @(posedge clk) begin
         n_last <= (n[AW-1:0] == '1);
         f_last <= (f == '1);
@@ -88,6 +96,7 @@ module gs_accel_romcopy #(
 
     assign hold_o         = (cs != C_IDLE);
     assign busy_o         = (cs != C_IDLE);
+    assign usable_o       = valid_o | ((cs != C_IDLE) & was_valid);
     assign idle_a_o       = ROM3 ? {6'b111111, n[17:0]} : {7'b1111111, n[16:0]};
     assign nm_flush_o     = (cs == C_FLUSH);
     assign nm_flush_idx_o = f;
@@ -96,13 +105,13 @@ module gs_accel_romcopy #(
         if (!rst_n) begin
             cs <= C_IDLE; n <= '0; f <= '0; f2 <= 1'b0; we_sr <= '0;
             rom_we_o <= 1'b0; rom_wa_o <= '0; rom_wd_o <= '0;
-            valid_o <= SIM_PRESET; sum_o <= '0; copies_o <= '0;
+            valid_o <= SIM_PRESET; sum_o <= '0; copies_o <= '0; was_valid <= 1'b0;
         end else begin
             we_sr    <= {we_sr[2:0], 1'b0};
             rom_we_o <= we_sr[1] | we_sr[2];
             unique case (cs)
                 C_IDLE: if (start_i & ready_i) begin
-                    cs <= C_WAIT; n <= '0; sum_o <= '0; valid_o <= 1'b0;
+                    cs <= C_WAIT; n <= '0; sum_o <= '0; valid_o <= 1'b0; was_valid <= valid_o;
                 end
                 C_WAIT: begin
                     if (!ready_i)    cs <= C_IDLE;

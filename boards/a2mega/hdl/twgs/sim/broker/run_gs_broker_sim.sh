@@ -243,6 +243,11 @@ if [[ "$SUITE" == "program" || "$SUITE" == "all" ]]; then
     run u_copy      b105_2k $T +mode=copy   +expect +irq +exp=126 +mbexp=126
     run u_copy_rst  b105_2k $T +mode=copy   +expect +irq +exp=126 +mbexp=126 +reset
     run u_recopy    b105_2k $T +mode=copy   +expect +irq +exp=126 +mbexp=126 +recopy
+    # ... the second copy asked for at other steps: the step that is held for it is then a read
+    # of expansion RAM, which must come from the card and not from the socket
+    run u_recopy_b  b105_2k $T +mode=copy   +expect +irq +exp=126 +mbexp=126 +recopy +recopyat=20014
+    run u_recopy_c  b105_2k $T +mode=copy   +expect +irq +exp=126 +mbexp=126 +recopy +recopyat=20021
+    run u_recopy_d  b105_2k $T +mode=copy   +expect +irq +exp=126 +mbexp=126 +recopy +recopyat=20105
     run c_copy      b110_2c $T +mode=copy   +expect +irq
     run c_copy_rst  b110_2c $T +mode=copy   +expect +irq +reset
     run c_recopy    b110_2c $T +mode=copy   +expect +irq +recopy
@@ -339,7 +344,7 @@ if [[ $DO_ROM -eq 1 ]]; then
     same "ROM 01 boot, 126 expansion banks ($STEPS steps)" m_native m_paced m_fast m_copy
 fi
 for n in "${NAMES[@]}"; do
-    case "$n" in d*|e_dl*|r_dl*|x*|y*|z*|w*|v*|c_*|e_dx*|r_dx*|e_copy|r_copy|f_*|s_*|g_*|t_*|u_*|m_*) grep -E '^---- (local reads|near memory|ROM copy|gs_accel|expansion memory)' "$OUT/$n/sim.log" | sed "s/^---- /$n: /" ;; esac
+    case "$n" in d*|e_dl*|r_dl*|x*|y*|z*|w*|v*|c_*|e_dx*|r_dx*|e_copy|r_copy|f_*|s_*|g_*|t_*|u_*|m_*) grep -E '^---- (local reads|near memory|step lengths|ROM copy|gs_accel|expansion memory)' "$OUT/$n/sim.log" | sed "s/^---- /$n: /" ;; esac
 done
 for n in "${NAMES[@]}"; do
     grep -E '^---- socket timing' "$OUT/$n/sim.log" | sed "s/^---- /$n: /"

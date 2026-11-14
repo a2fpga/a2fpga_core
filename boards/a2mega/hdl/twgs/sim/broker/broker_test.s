@@ -30,6 +30,7 @@ BRKCNT  = $0381                 ; incremented by the BRK handler
 WAIFLG  = $0382                 ; set once the loop has waited in WAI
 EXPFLG  = $0383                 ; set by T22 if the machine has RAM in bank 02
 TOPFLG  = $0384                 ; set by T24 if the machine has RAM in bank 7F
+HIFLG   = $0385                 ; set by T23 if the machine has RAM in bank 04
 LOOPCNT = $0390
 
 resn    .set 0
@@ -52,6 +53,7 @@ main:
         stz WAIFLG
         stz EXPFLG
         stz TOPFLG
+        stz HIFLG
         lda #$80
         sta $C036               ; FPI fast mode
 
@@ -559,6 +561,14 @@ t22r:   res                     ; $34, or $00 without a bank 02
         lda $6100               ; bank 00's byte, not 04's
         sta $E16106             ; (on the socket)
         res                     ; $11 (written only with a bank 04)
+        ; code and its data in bank 04, called from the loop: a program loaded above
+        ; bank 03, where no step is one of the cheap view's
+        ldx #hicode_end - hicode - 1
+t23c:   lda f:$FF0000 + hicode,x
+        sta $046040,x
+        dex
+        bpl t23c
+        inc HIFLG
         lda #$3C
         sta $086100
         lda $086100
@@ -617,6 +627,10 @@ noexp:
         lda $7FD955             ; ... and a byte of it nothing has written
         sta $E10452
 notop:
+        lda HIFLG
+        beq nohi
+        jsl $046040             ; code and data in bank 04
+nohi:
         inc LOOPCNT+1
         ; once, after the first interrupt has been served: wait in WAI for the
         ; second (runs without interrupts never get here)
@@ -669,6 +683,22 @@ mll:    dex
         lda $E16100
         rtl
 megaloop_end:
+
+; copied to 04/6040 by T23: eight-bit code, its data in its own bank
+hicode:
+        phb
+        lda #$04
+        pha
+        plb                     ; data bank 04
+        ldx #$02
+hcl:    inc $6200               ; a R-M-W in the bank
+        lda $6200
+        sta $6201
+        dex
+        bne hcl
+        plb
+        rtl
+hicode_end:
 
 ; copied to RAM at $1100 by T16b
 ramcode2:

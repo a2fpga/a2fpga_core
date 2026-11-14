@@ -604,6 +604,82 @@ set does to the 16K entries. The DDR3's power-on self-test writes sixteen
 bytes of its pattern at 40/0000 before the card is armed; nothing reads
 them back before writing, as far as is known, and they are still there.
 
+## 3d. Where the step rate goes (2026-11-13, m0 on the card)
+
+The benchmark's 33 MHz against 52.5 MHz steps, measured: the card's
+counters (telemetry words 0 to 5 and 11) logged over the console 2.4 times
+a second while the program ran ten rounds twice, both passes in fast mode
+(20 rounds, 567 samples inside the run). The tests show as plateaus; the
+two shortest (sieve, 0.55 s; floating point, 0.58 s) are a sample or two
+each and the sieve is not resolved.
+
+| test | steps, M/s | the program's MHz | socket cycles, M/s | reads not in the near memory, M/s | clks per step |
+|---|---|---|---|---|---|
+| selection sort | 32.7 | 33.22 | 0.008 | 0.007 | 3.21 |
+| Fibonacci calls | 31.8 | 32.24 | 0.008 | 0.003 | 3.30 |
+| integer math | 33.9 | 34.61 | 0.008 | 0.002 | 3.09 |
+| floating point (10 samples) | 35.4 | 36.73 | 0.204 | 0.376 | 2.97 |
+| Gamm units | 31.1 | 31.63 | 0.193 | 0.579 | 3.38 |
+| at the program's prompt | 15.4 | | 0.453 | 0.498 | 6.83 |
+
+**The program's MHz is the step rate**, test for test, within four
+percent. To pass 48 on this program the core has to step 48 M times a
+second while it runs.
+
+**In the three tests that only compute, the loss is one thing: a step in
+banks 04 to 7F takes four clks, not two.** They take 8,000 socket cycles a
+second (about one percent of the time) and miss the near memory a few
+thousand times a second, and still average 3.1 to 3.3 clks a step. The
+bench says why (`---- step lengths`, new in `tb_gs_broker`, with code and
+data in bank 04 called from the test program's loop): a read or a write in
+banks 04-7F that hits the near memory completes in exactly 4 clks, every
+time, where a step of the cheap view completes in 2. Section 3b chose
+that: the five high tag bits are read a clk after the rest and only the
+registered compare sees them, so no step in those banks is the cheap
+view's. With 2 clks for a step elsewhere and 4 there, 3.1 to 3.3 clks a
+step is 55 to 65 % of the steps in bank 04 and above - the program's code
+and data (section 3b sampled 70 % of its steps in bank 04). Of the time:
+62 % is the two clks every step has, 37 % the two more on steps in the
+high banks, 1 % socket cycles.
+
+**In the two floating-point tests** 41 % (Gamm) and 33 % of the time is
+not a two-clk step: 0.2 M socket cycles a second and 0.4 to 0.6 M reads a
+second that are not in the near memory. The counters cannot split the two
+(no counter of clks, only of events; a fit over the two tests gives about
+80 clks for a socket cycle and 50 for a miss, from ten samples of one of
+them). What the socket cycles are is not known; a toolbox call goes
+through bank E1, the machine's, and that is the first guess.
+
+**At the prompt** the program polls the keyboard: 0.45 M socket cycles a
+second, each a cycle at the machine's slow rate.
+
+**What follows.** A two-clk step for a near-memory hit in banks 04-7F
+would take the three computing tests from 3.2 to about 2.05 clks a step:
+some 51 M steps a second, 51 on the program's scale. It needs the high
+tag bits in the first-clk decision (or one bit that stands for them), and
+that compare is the path the 105 MHz build closes by 0.02 ns; a three-clk
+step there (35 MHz in those banks, about 40 M steps a second on these
+tests) is the smaller change. For the floating-point tests: counters of
+clks by kind of step, to split socket cycles from misses before choosing.
+None of it is done.
+
+**A defect found on the way, in the source only so far.** The bank 04
+code changed which step a second ROM copy lands on in the bench's
+copy-again run, and that run failed: the step that was held for the copy
+read its byte from the socket. `gs_accel_romcopy`'s `valid_o` drops when
+a copy starts, the grants of fast mode and card memory dropped with it,
+and the one step held across the copy ran as a socket step - of a machine
+whose RAM is stale once the card's memory has been the memory of record.
+A first copy is not affected (nothing has been granted yet), and neither
+is anything this page's ladder does; it takes a second copy asked for in
+fast mode. Now the grants stand on `usable_o`: a complete image, or a
+complete image being copied again (nothing is written before the core is
+held, and it is held until the copy is complete). In the bench the second
+copy can be asked for at any step (`+recopyat`): 45 points on two builds
+pass, two of them fail without the change, and three are in the suite
+(155 runs, all passing). **m0, on the card, has the defect; the change is
+not built.**
+
 ## 4. What is verified, and what is not
 
 Verified in simulation (the broker suite, `hdl/twgs/sim/broker`):

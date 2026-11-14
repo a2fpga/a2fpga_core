@@ -175,10 +175,10 @@ module gs_accel #(
     );
 
     // ---- what the control inputs are granted
-    logic        rom_valid, copy_busy, copy_start, cfg_copy_q;
+    logic        rom_valid, rom_ok, copy_busy, copy_start, cfg_copy_q;
     logic        x_ovf, x_rwait, x_rsel, x_wbusy;
     logic [7:0]  x_rdata;
-    wire         cardmem = cfg_cardmem_i & rom_valid & (~EXP_DDR | (exp_ready_i & ~x_ovf));
+    wire         cardmem = cfg_cardmem_i & rom_ok & (~EXP_DDR | (exp_ready_i & ~x_ovf));
     wire         fast    = cfg_fast_i & cardmem;
     // (cxrom goes straight into the decode of the step in progress: it is taken only
     // while no step is, with the core in reset or held - so at /RES and at a ROM copy)
@@ -187,7 +187,7 @@ module gs_accel #(
         if (!rst_n) begin cfg_copy_q <= 1'b0; copy_start <= 1'b0; cxrom <= 1'b0; end
         else begin
             cfg_copy_q <= cfg_copy_i; copy_start <= cfg_copy_i & ~cfg_copy_q;
-            if (!cpu_rst_n | held) cxrom <= cfg_cxrom_i & rom_valid;
+            if (!cpu_rst_n | held) cxrom <= cfg_cxrom_i & rom_ok;
         end
     end
 
@@ -273,7 +273,7 @@ module gs_accel #(
         .hold_o(hold), .idle_a_o(idle_a), .held_i(held), .idle_stb_i(idle_stb), .idle_d_i(idle_d),
         .nm_flush_o(nm_flush), .nm_flush_idx_o(nm_flush_idx),
         .rom_we_o(rom_we), .rom_wa_o(rom_wa), .rom_wd_o(rom_wd),
-        .busy_o(copy_busy), .valid_o(rom_valid), .sum_o(rom_sum), .copies_o(rom_copies)
+        .busy_o(copy_busy), .valid_o(rom_valid), .usable_o(rom_ok), .sum_o(rom_sum), .copies_o(rom_copies)
     );
 
     // ---- the card's memories of record: for every data bit eight blocks of
