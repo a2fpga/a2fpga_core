@@ -82,6 +82,8 @@ module tb_gs_broker #(
     parameter int FAR_CLKS  = 1,       // broker: clks the far memories' data has to reach it (2 with gs_accel beside)
     parameter bit EXP_DDR   = 1'b0,    // the card's expansion banks are in a memory of varying latency behind
                                        // gs_accel_exp (the DDR3): here gs_exp_mem_sim; the near memory's tag is split
+    parameter bit NEAR_SPLIT = 1'b0,   // EXP_DDR: the near memory's tag is split, its address bits above A17 read
+                                       // a clk late (the broker's and gs_accel's NEAR_SPLIT); else the tag is whole
     parameter int ACC_EXP   = 0,       // ACCEL_SHADOW: gs_accel's expansion banks; it is compared in runs with +exp= this
     parameter bit ROM_PRESET = 1'b1    // 1 = the bench loads the card's ROM image; 0 = it starts empty and
                                        // +mode=copy has the design read it through the socket
@@ -203,7 +205,7 @@ module tb_gs_broker #(
     logic        lm_wen_q1 = 1'b0, lm_wen_q2 = 1'b0;
     localparam int NTW = NEAR_KW + 2;
     // the tag of an entry that holds nothing (the broker's NM_EMPTY)
-    localparam logic [NTW-1:0] NM_EMPTY = EXP_DDR ? NTW'((3 << NEAR_KW) | 15) : '1;
+    localparam logic [NTW-1:0] NM_EMPTY = NEAR_SPLIT ? NTW'((3 << NEAR_KW) | 15) : '1;
     logic               nm_ren, nm_wen;
     logic [NEAR_AW-1:0] nm_ra, nm_wa;
     logic [7:0]         nm_rdata, nm_wdata;
@@ -248,7 +250,7 @@ module tb_gs_broker #(
 
     gs_accel_broker #(.STEP_CLKS(STEP_CLKS), .ADDR_CLKS(ADDR_CLKS), .PARK_ADDR(PARK), .DATA_LATE(DATA_LATE), .RA_COPIES(RA_COPIES), .CE_COPIES(4),
                       .NEAR(NEAR), .NEAR_AW(NEAR_AW), .NEAR_KW(NEAR_KW), .SOCK_PRE(SOCK_PRE), .FAR_CLKS(FAR_CLKS),
-                      .EXP_WAIT(EXP_DDR), .NEAR_SPLIT(EXP_DDR)) u_brk (
+                      .EXP_WAIT(EXP_DDR), .NEAR_SPLIT(NEAR_SPLIT)) u_brk (
         .clk(clk), .rst_n(rst_n),
         .native_i(native_w), .mem_bypass_i(bypass_w),
         .cxrom_local_i(cfg_cxrom[0]), .exp_banks_i(cfg_exp[6:0]),
@@ -458,7 +460,7 @@ module tb_gs_broker #(
     always_ff @(posedge clk) begin
         if (nm_ren) begin
             nm_rdata <= (nm_wen && nm_wa == nm_ra) ? ~nm_wdata : nmd[nm_ra];
-            if (!EXP_DDR) nm_rtag <= (nm_wen && nm_wa == nm_ra) ? nm_wtag : nmt[nm_ra];
+            if (!NEAR_SPLIT) nm_rtag <= (nm_wen && nm_wa == nm_ra) ? nm_wtag : nmt[nm_ra];
             else begin
                 // split tag: {ROM, A12} and A14-A17 now
                 logic [NTW-1:0] t;
@@ -469,12 +471,12 @@ module tb_gs_broker #(
         end
         // ... the high address bits a clk later, at the step's own address (a read in the clk
         // of a write to that entry returns the other value, the worst case)
-        if (EXP_DDR && nm_ren_hi) begin
+        if (NEAR_SPLIT && nm_ren_hi) begin
             logic [NTW-1:0] t;
             t = nmt[nm_ra_hi];
             nm_rtag[NEAR_KW-1:4] <= (nm_wen && nm_wa == nm_ra_hi) ? ~t[NEAR_KW-1:4] : t[NEAR_KW-1:4];
         end
-        if (nm_ren_hi && !EXP_DDR) begin $display("ERROR: split near-memory read without EXP_DDR"); $finish; end
+        if (nm_ren_hi && !NEAR_SPLIT) begin $display("ERROR: split near-memory read without NEAR_SPLIT"); $finish; end
         if (nm_wen) begin
             nmd[nm_wa] <= nm_wdata;
             nmt[nm_wa] <= nm_wtag;
@@ -495,11 +497,11 @@ module tb_gs_broker #(
         n_bad = 0; n_valid = 0;
         for (int i = 0; i < (1<<NEAR_AW); i++) if (nmt[i] != NM_EMPTY) begin
             n_valid++;
-            if (nmt[i][NTW-1] && !(EXP_DDR && nmt[i][NTW-2])) begin
+            if (nmt[i][NTW-1] && !(NEAR_SPLIT && nmt[i][NTW-2])) begin
                 want = lrom[{nmt[i][3:0], 14'(i)}];
             end else begin
                 // (split tag: {1, 1} marks RAM above bank 03, where nothing moves A12)
-                a12  = (EXP_DDR && nmt[i][NTW-1]) ? i[12] : i[12] ^ nmt[i][NTW-2];
+                a12  = (NEAR_SPLIT && nmt[i][NTW-1]) ? i[12] : i[12] ^ nmt[i][NTW-2];
                 ph   = 24'({nmt[i][NEAR_KW-1:0], 14'(i)});
                 ph[12] = a12[0];
                 want = (ph[23:17] == 7'd0) ? lram[ph[16:0]] : lexp[23'(ph - 24'h020000)];
@@ -1253,7 +1255,7 @@ module tb_gs_broker #(
     end else begin : g_noam
         assign {am_ready, am_rvalid} = '0; assign am_rdata = '0;
     end
-    gs_accel #(.NEAR_KW(NEAR_KW), .EXP_BANKS(ACC_EXP), .EXP_DDR(EXP_DDR), .SIM_ROM_VALID(ROM_PRESET)) u_acc (
+    gs_accel #(.NEAR_KW(NEAR_KW), .EXP_BANKS(ACC_EXP), .EXP_DDR(EXP_DDR), .NEAR_SPLIT(NEAR_SPLIT), .SIM_ROM_VALID(ROM_PRESET)) u_acc (
         .exp_ready_i(1'b1), .m_req_o(am_req), .m_ready_i(am_ready), .m_we_o(am_we), .m_addr_o(am_addr),
         .m_wdata_o(am_wdata), .m_rvalid_i(am_rvalid), .m_rdata_i(am_rdata),
         .clk(clk), .rst_n(rst_n),

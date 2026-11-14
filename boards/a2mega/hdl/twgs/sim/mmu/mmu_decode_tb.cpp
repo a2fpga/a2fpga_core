@@ -29,7 +29,7 @@ using namespace iigs;
 
 static Vgs_mmu_decode* dut;
 static long n_tests = 0, n_fail = 0;
-static long n_fast_r = 0, n_fast_w = 0, n_fast_i = 0, n_fast_s = 0;      // vectors in the cheap view's classes
+static long n_fast_r = 0, n_fast_w = 0, n_fast_i = 0, n_fast_s = 0, n_fast_x = 0;      // vectors in the cheap view's classes
 
 struct Dut { Out o; Ext e; };
 
@@ -145,7 +145,20 @@ static void run_one(const In& s)
     if (d.e.local_rom || x.local_rom) CHECK(d.e.rom_addr, x.rom_addr, "rom_addr", "%05x")
     // the cheap view (near memory): a subset of "the card's alone", and for that
     // subset the same ROM / bank / A12 answers as the full decode (golden model)
-    if (dut->fast_rw) {
+    if (dut->fast_exp) {
+        // expansion RAM of the card: read or write, the byte at its own address
+        n_fast_x++;
+        CHECK((unsigned)dut->fast_rw, (unsigned)s.vpb_n, "fast_exp: fast_rw", "%u")
+        if (dut->fast_rw) {
+            CHECK(x.local, 1u, "fast_exp: local", "%u")
+            CHECK(x.side_effect, 0u, "fast_exp: side", "%u")
+            CHECK(x.forward_write, 0u, "fast_exp: forward", "%u")
+            CHECK(x.local_we, (unsigned)s.we, "fast_exp: local_we", "%u")
+            CHECK(x.local_rom, 0u, "fast_exp: rom", "%u")
+            CHECK((unsigned)dut->fast_rom, 0u, "fast_exp: fast_rom", "%u")
+            CHECK(r.addr_bus, ((uint32_t)s.bank << 16) | s.addr, "fast_exp: phys", "%06x")
+        }
+    } else if (dut->fast_rw) {
         CHECK(x.local, 1u, "fast_rw: local", "%u")
         CHECK(x.side_effect, 0u, "fast_rw: side", "%u")
         if (s.we) {
@@ -328,8 +341,8 @@ int main(int argc, char** argv)
         printf("mmu_decode_tb: phase 4 done: %ld tests, %ld failures\n", n_tests - before, n_fail - fbefore);
     }
 
-    printf("mmu_decode_tb: cheap view: %ld read, %ld write, %ld internal-cycle and %ld socket-only vectors checked\n",
-           n_fast_r, n_fast_w, n_fast_i, n_fast_s);
+    printf("mmu_decode_tb: cheap view: %ld read, %ld write, %ld expansion, %ld internal-cycle and %ld socket-only vectors checked\n",
+           n_fast_r, n_fast_w, n_fast_x, n_fast_i, n_fast_s);
     printf("mmu_decode_tb: TOTAL %ld tests, %ld failures -> %s\n",
            n_tests, n_fail, n_fail ? "FAIL" : "PASS");
     delete dut;

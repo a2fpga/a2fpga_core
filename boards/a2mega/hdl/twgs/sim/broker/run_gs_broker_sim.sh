@@ -81,9 +81,11 @@ build b110_2c +define+CLK110 -GNEAR_KW=4 -GROM_PRESET=0 "${NEARX[@]}" & p11=$!
 build b110_2e +define+CLK110 -GNEAR_KW=4 -GACC_EXP=2 "${NEARX[@]}" & p12=$!
 # ... and with the expansion banks in a memory of varying latency behind gs_accel_exp (EXP_DDR:
 # the DDR3 as the bench models it), the near memory tagging every bank with a split tag
-build b110_2r +define+CLK110 -GNEAR_KW=9 -GACC_EXP=2 -GEXP_DDR=1 "${NEARX[@]}" & p13=$!
-build b110_2s +define+CLK110 -GNEAR_KW=9 -GACC_EXP=8 -GEXP_DDR=1 "${NEARX[@]}" & p14=$!
-# ... and at 105 MHz (52.5 MHz steps), the clock the accelerator-only build runs at with the DDR3
+# (these two with the split tag: its high address bits read a clk late, no two-clk step in an expansion bank)
+build b110_2r +define+CLK110 -GNEAR_KW=9 -GACC_EXP=2 -GEXP_DDR=1 -GNEAR_SPLIT=1 "${NEARX[@]}" & p13=$!
+build b110_2s +define+CLK110 -GNEAR_KW=9 -GACC_EXP=8 -GEXP_DDR=1 -GNEAR_SPLIT=1 "${NEARX[@]}" & p14=$!
+# ... and at 105 MHz (52.5 MHz steps), the clock the accelerator-only build runs at with the DDR3,
+# with the whole tag as that build has it: a step in an expansion bank is a two-clk step too
 build b105_2s +define+CLK105 -GNEAR_KW=9 -GACC_EXP=8 -GEXP_DDR=1 "${NEARX[@]}" & p15=$!
 # ... with every bank the card can hold (02-7F), as that build has them: the top of bank 7F is
 # the highest tag a RAM entry of the near memory can have; and (b105_2k) with the ROM image

@@ -493,7 +493,7 @@ module gs_accel_broker #(
     logic [23:0] r_phys;
     logic [17:0] r_rom_addr;
     logic        r_local, r_fwd, r_local_we, r_local_rom, r_side;
-    logic        r_fast_rw, r_fast_int_a, r_fast_rom, r_fast_aux, r_fast_fold, r_fast_sock;
+    logic        r_fast_rw, r_fast_int_a, r_fast_rom, r_fast_aux, r_fast_fold, r_fast_exp, r_fast_sock;
     logic [1:0]  r_fast_rbank;
     logic [23:0] pf_phys;
     logic [17:0] pf_rom_addr;
@@ -521,7 +521,7 @@ module gs_accel_broker #(
         .acc_rom_addr_o(r_rom_addr), .acc_side_effect_o(r_side),
         .acc_fast_rw_o(r_fast_rw), .acc_fast_int_o(r_fast_int_a), .acc_fast_rom_o(r_fast_rom),
         .acc_fast_rbank_o(r_fast_rbank), .acc_fast_aux_o(r_fast_aux), .acc_fast_fold_o(r_fast_fold),
-        .acc_fast_sock_o(r_fast_sock),
+        .acc_fast_exp_o(r_fast_exp), .acc_fast_sock_o(r_fast_sock),
         .pf_addr_i(cpu_na_i), .pf_phys_o(pf_phys), .pf_rom_addr_o(pf_rom_addr),
         .pf_local_o(pf_local), .pf_local_rom_o(pf_local_rom), .pf_side_o(pf_side),
         .pf_ram_ra_o(pf_ram_ra), .pf_rom_ra_o(pf_rom_ra),
@@ -812,9 +812,25 @@ module gs_accel_broker #(
     // address; an internal cycle that is has ea_r in $C0xx, and the cheap view of
     // the address it repeats is the one bit ea_kfi)
     wire                  r_fast_int = r_fast_int_a | (pl_io_int & ea_kfi);
-    wire  [23:0]          f_phys = {7'd0, r_fast_aux, ea_r[15:13], ea_r[12] ^ r_fast_fold, ea_r[11:0]};
-    wire  [NTW-1:0]       f_tag  = r_fast_rom ? nm_tag(1'b1, 24'd0, {r_fast_rbank, ea_r[15:14]}, 1'b0)
-                                              : nm_tag(1'b0, f_phys, 4'd0, ea_r[12]);
+    // (an expansion bank: the address itself - the cheap view gives no fold there,
+    // and the bank's own bit 0.  Such a step is the cheap view's only where the whole
+    // tag is compared in the first clk - not NEAR_SPLIT - and the tag can name the
+    // byte.)
+    wire                  f_xok  = !NEAR_SPLIT & ~nm_far_only(ea_r);
+    wire  [23:0]          f_phys = {ea_r[23:17] & {7{r_fast_exp}}, r_fast_aux, ea_r[15:13], ea_r[12] ^ r_fast_fold, ea_r[11:0]};
+    wire  [NTW-1:0]       f_tag_m = r_fast_rom ? nm_tag(1'b1, 24'd0, {r_fast_rbank, ea_r[15:14]}, 1'b0)
+                                               : nm_tag(1'b0, f_phys, 4'd0, ea_r[12]);
+    // The tag's address bits above A17 are the address's own in every step the cheap
+    // view takes: a RAM step's as they stand (banks 00/01 have none), a ROM step's
+    // none - its bank has bit 23 set, or is 00/01.  They are taken from the address
+    // register and not through the cheap view: these are the bits a whole tag adds to
+    // the first-clk compare, and they cost it a gate, not a decode.  (Checked below.)
+    wire  [NTW-1:0]       f_tag;
+    if (NEAR_KW > 4) begin : g_ft
+        assign f_tag = {f_tag_m[NTW-1:NTW-2], ea_r[18 +: NEAR_KW-4] & {(NEAR_KW-4){~ea_r[23]}}, f_tag_m[3:0]};
+    end else begin : g_ftm
+        assign f_tag = f_tag_m;
+    end
     // (near memory: the far memories' output registers are not reused - a write
     // may still be on its way to them when the next step is decoded)
     assign ld_hit   = NEAR ? ((nh_dq ^ aq_bad) & near_r) : (fresh_ok | (DATA_LATE ? aq_hit ^ aq_bad : r_hit));
@@ -846,8 +862,12 @@ module gs_accel_broker #(
     // Near memory: the first clk of the step.  The cheap view says the step is the
     // card's alone; a read also needs the entry launched for it to be the byte.
     wire  first     = (st == ST_ADDR) & (ph == 4'd0);
-    wire  go0       = NEAR & first & ~mode_native & rdy_c & use_lm_r & near_r &
-                      (internal ? r_fast_int : r_fast_rw);
+    // (a step in an expansion bank may write to the expansion memory: where such steps
+    // are the cheap view's, every step of it waits for room in the queue, as at the
+    // strobe - rw_c)
+    wire  go_rdy    = NEAR_SPLIT ? rdy_c : rw_c;
+    wire  go0       = NEAR & first & ~mode_native & go_rdy & use_lm_r & near_r &
+                      (internal ? r_fast_int : (r_fast_rw & (f_xok | ~r_fast_exp)));
     wire  fa0       = go0 & (internal | eff_we);
     wire  fb0       = go0 & ~internal & ~eff_we;
     // (NEAR_SPLIT: the cheap view's tag has no address bit above the low four set, and an
@@ -1389,9 +1409,13 @@ module gs_accel_broker #(
     assign nm_ra_hi_o  = ea_r[NEAR_AW-1:0];
     initial if (NEAR_SPLIT && !(NEAR && NEAR_KW > 4 && ADDR_CLKS >= 2)) $fatal(1, "gs_accel_broker: NEAR_SPLIT needs NEAR, NEAR_KW > 4, ADDR_CLKS >= 2");
 `ifdef VERILATOR
-    // the cheap view's tag never has an address bit above the low four, nor the mark of one
-    always @(posedge clk) if (rst_n && NEAR && NEAR_KW > 4 && (fa0 | fb0) && ((|f_tag[NTW-3:4]) || (&f_tag[NTW-1:NTW-2]))) begin
+    // (NEAR_SPLIT) the cheap view's tag never has an address bit above the low four, nor the mark of one
+    always @(posedge clk) if (rst_n && NEAR && NEAR_SPLIT && (fa0 | fb0) && !internal && ((|f_tag[NTW-3:4]) || (&f_tag[NTW-1:NTW-2]))) begin
         $display("ERROR: broker cheap-view tag with a high address bit: %h @%0t", f_tag, $time); $finish;
+    end
+    // the cheap view's tag, its high address bits taken from the address register, is the tag the functions give
+    always @(posedge clk) if (rst_n && NEAR && (fa0 | fb0) && !internal && f_tag !== f_tag_m) begin
+        $display("ERROR: broker cheap-view tag %h, the functions give %h (ea_r %06h) @%0t", f_tag, f_tag_m, ea_r, $time); $finish;
     end
     // the empty entry's tag is no byte's: not any RAM's the tag can name, nor any ROM's
     initial if (NEAR) begin

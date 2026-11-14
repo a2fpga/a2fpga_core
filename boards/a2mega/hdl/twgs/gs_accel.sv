@@ -45,10 +45,13 @@
 // Expansion memory (EXP_DDR = 1): EXP_BANKS banks from 02 up (126: to 7F) in a
 // memory outside this module, behind gs_accel_exp's port (m_*: the DDR3,
 // through whatever crosses to its clock).  The near memory then tags every
-// bank it must (NEAR_KW = 9 for all of them; its high tag bits are read a clk
-// late: the broker's NEAR_SPLIT), a near miss in those banks waits for the
-// memory, and cfg_cardmem_i also needs exp_ready_i and a queue that never
-// overflowed.  Or -
+// bank it must (NEAR_KW = 9 for all of them), a near miss in those banks waits
+// for the memory, and cfg_cardmem_i also needs exp_ready_i and a queue that
+// never overflowed.  The tag is read whole with the core's next address, so a
+// step in an expansion bank is a two-clk step like any other; or, with
+// NEAR_SPLIT, its high address bits are read a clk late from blocks of their
+// own (the broker's NEAR_SPLIT: fourteen blocks on the core's next address, as
+// without the banks, and four clks for a step in them).  Or -
 //
 // Expansion memory (EXP_BANKS = 2): banks 02/03 in block RAM, beside banks
 // 00/01 and on the same terms - the card's memory of record under
@@ -77,6 +80,7 @@ module gs_accel #(
                                          // image, which is all this module has (the bench also runs it with 10)
     parameter int EXP_BANKS = 0,         // expansion banks held in block RAM: 0, or 2 (banks 02/03)
     parameter bit EXP_DDR   = 1'b0,      // 1 = the EXP_BANKS expansion banks (1..126) are in the memory at the m_* port
+    parameter bit NEAR_SPLIT = 1'b0,     // EXP_DDR: the near-memory tag's address bits above A17 in blocks of their own
     parameter bit SIM_ROM_VALID = 1'b0   // SIMULATION ONLY: the bench loaded the ROM image (gs_accel_romcopy SIM_PRESET)
 ) (
     input  logic        clk,
@@ -149,8 +153,9 @@ module gs_accel #(
     initial if (!EXP_DDR && EXP_BANKS != 0 && EXP_BANKS != 2) $fatal(1, "gs_accel: EXP_BANKS in block RAM must be 0 or 2");
     initial if (EXP_DDR && !(EXP_BANKS >= 1 && EXP_BANKS <= 126 && NEAR_KW >= 5 && NEAR_KW <= 9 && (2 + EXP_BANKS) <= (1 << (NEAR_KW - 2))))
         $fatal(1, "gs_accel: EXP_DDR needs 1..126 EXP_BANKS and a NEAR_KW (5..9) that reaches them");
-    localparam int NM_LO = EXP_DDR ? 14 : 8 + NTW;            // near-memory entry bits read with the core's next address
-    localparam int NM_HI = EXP_DDR ? NEAR_KW - 4 : 0;         // ... and a clk later, at the step's address (NEAR_SPLIT)
+    initial if (NEAR_SPLIT && !EXP_DDR) $fatal(1, "gs_accel: NEAR_SPLIT is for EXP_DDR");
+    localparam int NM_LO = NEAR_SPLIT ? 14 : 8 + NTW;         // near-memory entry bits read with the core's next address
+    localparam int NM_HI = NEAR_SPLIT ? NEAR_KW - 4 : 0;      // ... and a clk later, at the step's address (NEAR_SPLIT)
 
     // ---- socket PHY
     logic [23:0] phy_a;
@@ -221,7 +226,7 @@ module gs_accel #(
 
     gs_accel_broker #(.STEP_CLKS(STEP_CLKS), .ADDR_CLKS(ADDR_CLKS), .SLOW_CLKS(SLOW_CLKS), .DATA_LATE(1'b1), .RA_COPIES(8), .CE_COPIES(4),
                       .NEAR(1'b1), .NEAR_AW(NEAR_AW), .NEAR_KW(NEAR_KW), .ROM3(ROM3), .FAR_CLKS(2), .WEN_ONE(1'b1),
-                      .EXP_WAIT(EXP_DDR), .NEAR_SPLIT(EXP_DDR)) u_brk (
+                      .EXP_WAIT(EXP_DDR), .NEAR_SPLIT(NEAR_SPLIT)) u_brk (
         .clk(clk), .rst_n(rst_n),
         .native_i(~fast), .mem_bypass_i(~cardmem),
         .cxrom_local_i(cxrom), .exp_banks_i(7'(EXP_BANKS)),
@@ -335,8 +340,8 @@ module gs_accel #(
     // address is the core's next address, its latest output; the blocks sit in two
     // rows of block RAM, and those of the second take the core's second copy of it
     // (NA_OUT_B) so that neither copy's net spans both rows.
-    localparam logic [14:0] ROW_B = 15'b111_0000_1100_1100;          // entry bits placed in the second row (up to 15)
-    // With EXP_DDR the entry is {high address bits (A18 up) | ROM, A12, A14-A17, byte}: the
+    localparam logic [18:0] ROW_B = 19'b100_1111_0000_1100_1100;     // entry bits placed in the second row (up to 19)
+    // With NEAR_SPLIT the entry is {high address bits (A18 up) | ROM, A12, A14-A17, byte}: the
     // fourteen bits after the bar are exactly the entry of a build without it, read as
     // before, and are all the cheap view needs (the broker marks a tag with a high
     // address bit in them: nm_tag); the high address bits are in blocks of their own,
@@ -346,11 +351,13 @@ module gs_accel #(
     // (NM_EMPTY: the mark of a high address bit, with none set).  Stored inverted too,
     // the zeros read as RAM at the top of bank 7F: a byte there was read out of an
     // entry that held nothing, after power-up and after every ROM copy.
-    wire [NM_LO-1:0]  nm_wv  = EXP_DDR ? {~nm_wtag[NTW-1:NTW-2], ~nm_wtag[3:0], nm_wdata}
-                                       : (NM_LO)'({~nm_wtag, nm_wdata});
+    // (Without it the entry is {tag, byte}, the tag inverted: the zeros read as all
+    // ones, the empty entry of a whole tag.)
+    wire [NM_LO-1:0]  nm_wv  = NEAR_SPLIT ? {~nm_wtag[NTW-1:NTW-2], ~nm_wtag[3:0], nm_wdata}
+                                          : (NM_LO)'({~nm_wtag, nm_wdata});
     logic [NM_LO-1:0] nm_q;
     for (genvar b = 0; b < NM_LO; b++) begin : g_nb
-        localparam bit SECOND = (NM_LO <= 15) ? ROW_B[b] : ((b % 4) >= 2);
+        localparam bit SECOND = (NM_LO <= 19) ? ROW_B[b] : ((b % 4) >= 2);
         logic nmem [0:(1<<NEAR_AW)-1];
         wire [NEAR_AW-1:0] ra = SECOND ? cpu_na_b[NEAR_AW-1:0] : nm_ra;
         always_ff @(posedge clk) if (nm_ren) nm_q[b] <= nmem[ra];
@@ -360,7 +367,7 @@ module gs_accel #(
 `endif
     end
     assign nm_rdata = nm_q[7:0];
-    if (EXP_DDR) begin : g_split
+    if (NEAR_SPLIT) begin : g_split
         logic [NM_HI-1:0] nh_q;
         // (their write a clk after the rest of the entry's, from a register of its own:
         // they are read a clk after the rest, and an entry written in or since the clk

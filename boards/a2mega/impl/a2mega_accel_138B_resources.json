@@ -5,7 +5,7 @@
 "alu": 38,
 "bsram": 0,
 "dsp": 0,
-"lut": 140,
+"lut": 139,
 "reg": 535,
 "rom16": 0,
 "ssram": 0
@@ -14,7 +14,7 @@
 "alu": 0,
 "bsram": 0,
 "dsp": 0,
-"lut": 68,
+"lut": 67,
 "reg": 0,
 "rom16": 0,
 "ssram": 0
@@ -32,7 +32,7 @@
 "alu": 104,
 "bsram": 0,
 "dsp": 0,
-"lut": 309,
+"lut": 307,
 "reg": 74,
 "rom16": 0,
 "ssram": 0
@@ -41,7 +41,7 @@
 "alu": 0,
 "bsram": 0,
 "dsp": 0,
-"lut": 448,
+"lut": 418,
 "reg": 104,
 "rom16": 0,
 "ssram": 0
@@ -95,7 +95,7 @@
 "alu": 60,
 "bsram": 9,
 "dsp": 0,
-"lut": 807,
+"lut": 815,
 "reg": 975,
 "rom16": 0,
 "ssram": 0
@@ -110,7 +110,7 @@
 "ssram": 0
 },
 "top/g_na[0].AddrBusNextInc": {
-"alu": 109,
+"alu": 112,
 "bsram": 0,
 "dsp": 0,
 "lut": 10,
@@ -119,7 +119,7 @@
 "ssram": 0
 },
 "top/g_na[1].AddrBusNextInc": {
-"alu": 111,
+"alu": 112,
 "bsram": 0,
 "dsp": 0,
 "lut": 0,
@@ -185,7 +185,7 @@
 "alu": 0,
 "bsram": 0,
 "dsp": 0,
-"lut": 552,
+"lut": 523,
 "reg": 195,
 "rom16": 0,
 "ssram": 0
@@ -194,8 +194,8 @@
 "alu": 0,
 "bsram": 147,
 "dsp": 0,
-"lut": 538,
-"reg": 409,
+"lut": 546,
+"reg": 389,
 "rom16": 0,
 "ssram": 0
 },
@@ -209,11 +209,11 @@
 "ssram": 0
 },
 "top/u_brk": {
-"alu": 255,
+"alu": 251,
 "bsram": 0,
 "dsp": 0,
-"lut": 1047,
-"reg": 669,
+"lut": 1046,
+"reg": 668,
 "rom16": 0,
 "ssram": 0
 },
@@ -221,8 +221,8 @@
 "alu": 22,
 "bsram": 0,
 "dsp": 0,
-"lut": 86,
-"reg": 90,
+"lut": 87,
+"reg": 91,
 "rom16": 0,
 "ssram": 0
 },
@@ -230,7 +230,7 @@
 "alu": 0,
 "bsram": 0,
 "dsp": 0,
-"lut": 1395,
+"lut": 1375,
 "reg": 228,
 "rom16": 0,
 "ssram": 0
@@ -248,7 +248,7 @@
 "alu": 18,
 "bsram": 0,
 "dsp": 0,
-"lut": 220,
+"lut": 218,
 "reg": 343,
 "rom16": 0,
 "ssram": 0
@@ -257,7 +257,7 @@
 "alu": 0,
 "bsram": 0,
 "dsp": 0,
-"lut": 64,
+"lut": 63,
 "reg": 0,
 "rom16": 0,
 "ssram": 0
@@ -284,7 +284,7 @@
 "alu": 16,
 "bsram": 0,
 "dsp": 0,
-"lut": 51,
+"lut": 52,
 "reg": 38,
 "rom16": 0,
 "ssram": 0
@@ -293,7 +293,7 @@
 "alu": 0,
 "bsram": 0,
 "dsp": 0,
-"lut": 84,
+"lut": 86,
 "reg": 39,
 "rom16": 0,
 "ssram": 0
@@ -305,11 +305,11 @@
 340
 ],
 "CLS": [
-11630,
+11717,
 69120
 ],
 "Logic": [
-11070,
+10999,
 138240
 ],
 "PLL": [
@@ -317,7 +317,7 @@
 12
 ],
 "Register": [
-11416,
+11396,
 139095
 ]
 },

@@ -141,6 +141,7 @@ module gs_mmu_decode #(
     output wire [1:0]  fast_rbank,    // ... in its bank rom_addr[17:16]
     output wire        fast_aux,      // fast_rw, RAM: bank bit 0 of the physical address
     output wire        fast_fold,     // fast_rw read, RAM: the language card moves A12
+    output wire        fast_exp,      // fast_rw, RAM of an expansion bank: the physical address is the logical one
     // ... and the opposite certainty, from the bank alone: a read or a write here
     // is a cycle on the socket and nothing else (never local, nothing stored,
     // nothing to forward), whatever the switches say
@@ -479,7 +480,9 @@ module gs_mmu_decode #(
   //           the ROM banks
   //   writes  banks 00/01 below $C000 outside every page that can be shadowed
   //           ($0400-$07FF, $0800-$0BFF on a ROM 3, $2000-$9FFF)
-  //   never a vector pull; never $Cxxx; never an expansion or Mega II bank
+  //   both    an expansion bank the card backs, while only banks 00/01 shadow
+  //           (CYAREG[4] clear): plain RAM, all of it, at its own address
+  //   never a vector pull; never $Cxxx of banks 00/01; never a Mega II bank
   wire f_main = (bank_log[7:1] == 7'd0);
   wire f_romb = (bank_log[7:1] == 7'h7F) | (~rom_select & (bank_log[7:1] == 7'h7E));
   wire f_lo   = (addr_log[15:14] != 2'b11);                                  // below $C000
@@ -492,12 +495,14 @@ module gs_mmu_decode #(
                 (addr_log[15:10] == 6'b000001) ? ((STORE80 & PAGE2) | (~STORE80 & f_rw)) :
                 (addr_log[15:13] == 3'b001)    ? ((STORE80 & PAGE2 & HIRES_MODE) | ((~STORE80 | ~HIRES_MODE) & f_rw)) :
                                                  f_rw;
-  assign fast_rw    = vpb_n & (we ? (f_main & f_lo & ~f_shw)
-                                  : ((f_main & (f_lo | (f_lc & ~(rom_select & ROMBANK)))) | f_romb));
+  wire f_exp  = ~bank_log[7] & (|bank_log[6:1]) & (bank_log < exp_top) & ~shadow_all;
+  assign fast_rw    = vpb_n & (f_exp | (we ? (f_main & f_lo & ~f_shw)
+                                           : ((f_main & (f_lo | (f_lc & ~(rom_select & ROMBANK)))) | f_romb)));
+  assign fast_exp   = f_exp;
   assign fast_int   = (addr_log[15:12] != 4'hC);
   assign fast_rom   = f_romb | (f_main & f_lc & RDROM & ~shadow[6]);
   assign fast_rbank = f_romb ? bank_log[1:0] : 2'b11;
-  assign fast_aux   = bank_log[0] | f_aux0;
+  assign fast_aux   = bank_log[0] | (f_main & f_aux0);        // (an expansion bank: its own bit 0)
   assign fast_fold  = f_main & (addr_log[15:12] == 4'hD) & ~LCRAM2 & ~RDROM & ~shadow[6];
   //   the socket's alone: a Mega II bank, an expansion bank the card does not
   //   back, any other bank from $80 up that is not a ROM bank

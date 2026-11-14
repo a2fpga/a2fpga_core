@@ -107,7 +107,10 @@ NEAR_SITES = ["R46[18][A]", "R46[18][B]", "R64[18][A]", "R64[18][B]",      # dat
               "R46[20]", "R46[17]",                                        # tag bits 8-13 (a pair of bits is
                                                                            # one memory to the synthesizer: both in one row)
               "R46[21][A]", "R46[21][B]", "R64[21][A]", "R64[21][B]",
-              "R64[20]"]                                                   # tag bit 14 (gs_accel NEAR_KW = 5)
+              "R64[20]",                                                   # tag bit 14 (gs_accel NEAR_KW = 5)
+              "R64[17]",                                                   # bit 15
+              "R46[22]", "R46[16]",                                        # bits 16, 17 (the whole tag of NEAR_KW = 9:
+              "R64[22]"]                                                   # bit 18     19 blocks)
 
 def write_accel():
     """hdl/accel_only/accel_only_138b.cst, the accelerator-only board build: the pin
@@ -130,9 +133,9 @@ def write_accel():
     topsrc = (HERE.parent / "accel_only" / "accel_only_top.sv").read_text()
     kw = re.search(r"\.NEAR_KW\((\d+)\)", topsrc)
     # entry bits read with the core's next address: data, {ROM, A12}, NEAR_KW address bits - or, with the
-    # expansion banks on the DDR3 (EXP_DDR), the fourteen of NEAR_KW = 4: the tag's high address bits are in
-    # blocks of their own, read from a register, which need no site
-    nbits = 14 if re.search(r"\.EXP_DDR\(1", topsrc) else 8 + 2 + (int(kw.group(1)) if kw else 4)
+    # split tag (NEAR_SPLIT), the fourteen of NEAR_KW = 4: the tag's high address bits are in blocks of
+    # their own, read from a register, which need no site
+    nbits = 14 if re.search(r"\.NEAR_SPLIT\(1", topsrc) else 8 + 2 + (int(kw.group(1)) if kw else 4)
     assert nbits <= len(NEAR_SITES), "no site for that many near-memory bits"
     lines = [f'INS_LOC "{nb(b)}" BSRAM_{NEAR_SITES[b]};' for b in range(nbits)]
     hdr = ("// Accelerator-only build (hdl/accel_only/accel_only_top.sv, a2mega_accel_138B.gprj).\n"
