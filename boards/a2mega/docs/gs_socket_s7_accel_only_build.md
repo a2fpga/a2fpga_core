@@ -32,8 +32,8 @@ its times is 7 % under the AppleSqueezer GS Turbo's published ones.
 **Closed since (section 3k): with `Place_Option` 1 and the PHI2 period
 counter without its adder, three placements of three at 105 MHz have no
 violation (p0, p1, p2). p1 flashed 2026-11-15 and brought up to paced
-card memory with the copy, no mismatch, then fast (`1B`) at a prompt;
-no benchmark on it yet.**
+card memory with the copy, no mismatch, then fast (`1B`): five runs of
+the benchmark average 50.75 MHz, q1's figure.**
 Parents: [`gs_socket_s7_accelerator_scoping.md`](gs_socket_s7_accelerator_scoping.md)
 (what the accelerator is) and
 [`gs_socket_s7_fast_core_exploration.md`](gs_socket_s7_fast_core_exploration.md)
@@ -1571,9 +1571,29 @@ Then fast (`1B`) with the machine idle at a prompt (Ed's word, and the
 bus addresses of six seconds were a prompt's: the ROM's banks, 00, the
 program's bank 04, E0/E1): mode 9A, no stall, the machine runs on. Over
 10.6 s at that prompt: 33.3 M core steps a second, 0.162 M socket cycles
-a second for the core, 21.95 M line hits and 0.49 M misses a second. No
-benchmark on p1 yet, so its speed is not measured; the accelerator's
-logic is q1's apart from the period counter.
+a second for the core, 21.95 M line hits and 0.49 M misses a second.
+
+The benchmark on p1, five runs averaged (Ed, the same morning):
+
+| test | accelerated, ticks | MHz | q1, ten runs: ticks | q1 MHz |
+|---|---|---|---|---|
+| sieve | 19.80 | 52.66 | 19.8 | 52.66 |
+| string sort | 55.20 | 52.96 | 55.2 | 52.96 |
+| floating point | 27.20 | 47.26 | 27.1 | 47.43 |
+| Gamm | 89.80 | 45.80 | 89.8 | 45.80 |
+| Fibonacci | 96.20 | 52.95 | 96.3 | 52.90 |
+| integer | 74.60 | 52.89 | 74.6 | 52.89 |
+| sum, average | 362.8 | **50.75** | 362.9 | 50.77 |
+
+p1 is q1 to the report's resolution: an average of five runs moves in
+steps of 0.2 tick, and the two tests that differ differ by 0.1. No base
+pass was run: the program was told to use its stored times for an 8 MHz
+TransWarp GS (153.4, 422.6, 168.2, 560.4, 733.4, 517.2), so the base and
+improvement columns of this report are against that card and not this
+machine. The MHz column does not use them: on every report it is a
+constant of the test divided by the accelerated time. So the build that
+meets the timing rule on three placements measures what the experiment
+measured, past the Squeezer's 391 ticks by the same margin.
 
 ## 4. What is verified, and what is not
 
