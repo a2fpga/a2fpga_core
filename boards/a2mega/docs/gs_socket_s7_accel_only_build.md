@@ -1439,7 +1439,18 @@ and the tools. Checked on q1 the same night: after a power cycle, with
 the card at its power-up state (mode 00, no copy; PHI2 averaging 2.66
 MHz), the first round of a base pass was back in the machine's range on
 every test (Ed's reading of the screen; the pass was not run to its
-report). It matters beyond the benchmark: paced
+report). A second report followed from that state (ten runs; the base pass on
+socket bytes before the card was brought up at the program's speed
+prompt: copy sum `7EE8`, 10 s of each verify with no mismatch, `1B`):
+base 413, 1159, 476, 1545, 2021, 1564 - the machine's, as on every
+earlier build - and accelerated 19.8, 55.2, 27.1, 89.8, 96.3, 74.6:
+52.66, 52.96, 47.43, 45.80, 52.90, 52.89, average **50.77 MHz**. The
+first report repeats to a tenth of a tick on five tests, so the
+floating point test's 27.1 against x0's 26.7 is this build's and not
+chance; its cause is not known. Against its own base pass q1 is 20.9,
+21.0, 17.6, 17.2, 21.0 and 21.0 times the machine, 19.8 on the sum.
+
+It matters beyond the benchmark: paced
 card memory is the only way back from fast mode without a reset, so a
 speed setting of "off" would today be slower than the machine for a
 program in expansion RAM.
