@@ -31,7 +31,8 @@ sieve, the sort, Fibonacci and integer math at 52.7 to 52.9; the sum of
 its times is 7 % under the AppleSqueezer GS Turbo's published ones.
 **Closed since (section 3k): with `Place_Option` 1 and the PHI2 period
 counter without its adder, three placements of three at 105 MHz have no
-violation (p0, p1, p2). Not flashed; the card still runs q1.**
+violation (p0, p1, p2). p1 flashed 2026-11-15 and brought up to paced
+card memory with the copy, no mismatch; no fast pass on it yet.**
 Parents: [`gs_socket_s7_accelerator_scoping.md`](gs_socket_s7_accelerator_scoping.md)
 (what the accelerator is) and
 [`gs_socket_s7_fast_core_exploration.md`](gs_socket_s7_fast_core_exploration.md)
@@ -1458,7 +1459,7 @@ card memory is the only way back from fast mode without a reset, so a
 speed setting of "off" would today be slower than the machine for a
 program in expansion RAM.
 
-## 3k. Closing the timing (2026-11-14 night; closed: three placements at 105 MHz with no violation; not flashed)
+## 3k. Closing the timing (2026-11-14 night; closed: three placements at 105 MHz with no violation; p1 flashed 2026-11-15)
 
 ### The first round: a guard band, not kept
 
@@ -1548,7 +1549,25 @@ source's.
 Kept: p1 (stamp `20261114213411`) and p2 (`20261114215549`); section 5
 has the sums. p0's bitstream was not kept: an older file of that name
 in the scratch directory was read-only, the copy failed, and the next
-build replaced the file. Its timing report is kept. None is on the card.
+build replaced the file. Its timing report is kept.
+
+### p1 on the card (2026-11-15)
+
+p1 was flashed over USB with the IIgs off (read-back verify, first
+attempt, 10:40), the board power-cycled, the IIgs switched on. That p1
+is what runs rests on the checked sum of the file, the verified flash
+and the power cycle. The ladder, at a prompt:
+
+| step | result |
+|---|---|
+| before anything | no stall, PHI2 386.5 ns a cycle (the machine's range; the counter's change is a 256th of a clk a cycle and cannot be seen here, the bench comparison of the first round is its proof) |
+| DDR3 | word 12 = `057E` |
+| ROM copy (register 29 = `08`) | mode 80, one copy, sum `7EE8` |
+| card memory, paced, verify (`0A`), 12 s | mode 88, verify count 0, no mismatch address |
+| the same with the copy of E0/E1 (`1A`), 15 s | mode 8A, both verify counts 0, word 13 = `0F` (the copy whole, SLOW in effect) |
+
+Left in `1A`. No fast pass on p1 yet, so its speed is not measured; the
+accelerator's logic is q1's apart from the period counter.
 
 ## 4. What is verified, and what is not
 
@@ -1656,7 +1675,7 @@ and `python3 hdl/accel_probe_138b/gen_floorplan.py accel`.
 
 Provenance of p1 and p2 (the closed build of section 3k: section 3j's
 logic, the period counter change, `Place_Option` 1; three placements
-with no violation; not flashed): sources = the commit that adds this
+with no violation; p1 flashed 2026-11-15): sources = the commit that adds this
 paragraph; the same tool and device. p1: build stamp `20261114213411`,
 bitstream sha256 `53133d7907a9ee8a…bb40bcf65b6bc376`. p2: build stamp
 `20261114215549`, bitstream sha256 `777cd2829cf717a9…80f3d3cb912e0ba9`.
