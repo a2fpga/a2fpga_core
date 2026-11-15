@@ -18,8 +18,8 @@ when a request bit asks, switchable at any step. Simulated in full; **at
 105 MHz five placements of ten have no violation, which is not closure.**
 One clean placement (x0) is on the card since 2026-11-14 15:39 as an
 experiment, by Ed's decision: the floating point tests go from 37.81 and
-35.76 to 45.91 and 44.22, the average from 44.02 to 46.92; the switch
-works while the machine runs.
+35.76 to 48.14 and 44.51 over ten runs, the average from 44.24 to 47.48;
+the switch works while the machine runs.
 Parents: [`gs_socket_s7_accelerator_scoping.md`](gs_socket_s7_accelerator_scoping.md)
 (what the accelerator is) and
 [`gs_socket_s7_fast_core_exploration.md`](gs_socket_s7_fast_core_exploration.md)
@@ -1232,7 +1232,19 @@ one run without it:
 | integer math | 86 | 86 | 45.88 | 45.88 |
 | average | | | 44.02 | 46.92 |
 
-The two tests that wait for the slow memory gain 21 and 24 %; the others
+Ten runs, the same evening, against section 3f's ten without it:
+
+| test | ticks without | ticks with | Actual MHz without | with |
+|---|---|---|---|---|
+| sieve | 20.80 | 20.90 | 50.12 | 49.89 |
+| string sort | 59.40 | 59.10 | 49.21 | 49.46 |
+| floating point, 100 iterations | 33.90 | 26.70 | 37.92 | 48.14 |
+| 15,000 Gamm units | 115.10 | 92.40 | 35.73 | 44.51 |
+| Fibonacci | 109.80 | 109.40 | 46.39 | 46.56 |
+| integer math | 85.60 | 85.20 | 46.09 | 46.31 |
+| average | | | 44.24 | 47.48 |
+
+The two tests that wait for the slow memory gain 27 and 25 % over ten runs; the others
 do not move. Less than section 3g's arithmetic gave (24 to 26 and 81 to
 85 ticks): that took every socket cycle in E0/E1 away, and what the
 telemetry shows in the Gamm stretch is 43.5 M steps a second where it
@@ -1253,8 +1265,7 @@ register 29 changed `1B`, `0B`, `1B` with eight seconds in each:
 That loop runs twice as fast with it. The E0/E1 mismatch count is still
 0 after it.
 
-Not done: a whole base pass in paced verify with the copy; a ten-run
-report; what the remaining socket cycles of the floating point tests
+Not done: a whole base pass in paced verify with the copy; what the remaining socket cycles of the floating point tests
 are; and the timing, which is where section 3h left it.
 
 ## 4. What is verified, and what is not
