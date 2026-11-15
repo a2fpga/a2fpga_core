@@ -1268,6 +1268,57 @@ That loop runs twice as fast with it. The E0/E1 mismatch count is still
 Not done: a whole base pass in paced verify with the copy; what the remaining socket cycles of the floating point tests
 are; and the timing, which is where section 3h left it.
 
+## 3i. The computing tests' other clks: writes to the program's stack (2026-11-14, x0 on the card)
+
+Against the AppleSqueezer GS Turbo's published times for this benchmark
+(22, 62, 27, 91, 107, 82 ticks; stock 410, 1151, 472, 1535, 2006, 1553)
+section 3h's ten runs (20.9, 59.1, 26.7, 92.4, 109.4, 85.2) are level in
+total - 18.23 times the stock machine for both - ahead on the sieve, the
+sort and the first floating point test, and behind on Gamm, Fibonacci
+and integer math, by 1.5 to 4 %. Those last are the tests section 3g
+left at 2.29 clks a step with almost no socket cycle and no miss: in the
+Fibonacci stretch of section 3h's log, 46.0 M steps a second, 0.004 M
+socket cycles, 0.001 M misses - 2.28 clks a step, which is one step in
+seven at four clks if that is what they are.
+
+**They are writes the cheap view does not take.** A step is two clks
+when the first-clk view (`gs_mmu_decode` `fast_rw`) says it is the
+card's alone. For a write in banks 00/01 that view excludes every page
+that CAN be shadowed - `$0400-$07FF` and all of `$2000-$9FFF` - without
+looking at the shadow register, and such a write waits for the full
+decode: four clks (the bench's "local write" class). On the machine:
+
+- the shadow register reads `1E` with the benchmark up (telemetry word
+  9): hi-res 1 and 2, super hi-res and the auxiliary hi-res pages all
+  inhibited. Nothing in `$2000-$9FFF` is shadowed;
+- the program's direct page and stack are in that range. In paced mode
+  (every step a socket cycle, so the last socket address is the last
+  step's) 342 samples at the report's prompt have 94 in bank 00: pages
+  38 (18 samples), 3C (6) and 66 (4) beside the zero page, the system's
+  stack in BE/BF and the firmware in C3 to C5. The first mismatch of
+  the old verify count after fast mode was at 00/3BEC.
+
+So every push, every store to a local and every store through the
+direct page in this program is a four-clk step. Recursion and integer
+arithmetic on stack frames are mostly that; the sieve and the sort
+write to arrays in the program's own bank (an expansion bank: two clks)
+and lose less. It is an inference from the rule, the register and the
+addresses - the telemetry does not count writes - but nothing else in a
+stretch without socket cycles or misses takes more than two clks except
+an internal cycle at `$Cxxx` and a write at `$D000` and up.
+
+**What would take it away:** the cheap view asking two things the
+replica already holds - main `$2000-$5FFF` is shadowed only if
+`shadow[1]` or `[2]` is clear, main `$6000-$9FFF` never, auxiliary
+`$2000-$9FFF` only if `shadow[3]` is clear or an auxiliary hi-res page
+is shadowed (`shadow[4]` clear with `[1]` or `[2]`). Two terms of the
+shadow register and the bank bit the view already makes for the tag.
+The decode sweep proves a cheap view a subset of the full decode on
+every vector, so the rule cannot be wrong unnoticed. The bound is the
+program's own "expected time" column for 52.5 MHz: 19.9, 55.7, 24.5,
+78.3, 97.0, 75.2 ticks. Not built: it is logic in the step's first clk,
+where this design has no margin (section 3h).
+
 ## 4. What is verified, and what is not
 
 Verified in simulation (the broker suite, `hdl/twgs/sim/broker`):
