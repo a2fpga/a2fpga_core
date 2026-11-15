@@ -5,7 +5,7 @@
 "alu": 87,
 "bsram": 0,
 "dsp": 0,
-"lut": 193,
+"lut": 190,
 "reg": 315,
 "rom16": 0,
 "ssram": 0
@@ -41,7 +41,7 @@
 "alu": 527,
 "bsram": 0,
 "dsp": 0,
-"lut": 707,
+"lut": 700,
 "reg": 824,
 "rom16": 0,
 "ssram": 0
@@ -50,7 +50,7 @@
 "alu": 0,
 "bsram": 0,
 "dsp": 0,
-"lut": 38,
+"lut": 40,
 "reg": 23,
 "rom16": 0,
 "ssram": 0
@@ -59,7 +59,7 @@
 "alu": 34,
 "bsram": 1,
 "dsp": 0,
-"lut": 503,
+"lut": 504,
 "reg": 251,
 "rom16": 24,
 "ssram": 0
@@ -77,7 +77,7 @@
 "alu": 0,
 "bsram": 0,
 "dsp": 0,
-"lut": 78,
+"lut": 77,
 "reg": 35,
 "rom16": 0,
 "ssram": 0
@@ -95,7 +95,7 @@
 "alu": 22,
 "bsram": 0,
 "dsp": 1,
-"lut": 112,
+"lut": 108,
 "reg": 54,
 "rom16": 0,
 "ssram": 0
@@ -104,7 +104,7 @@
 "alu": 22,
 "bsram": 0,
 "dsp": 1,
-"lut": 116,
+"lut": 115,
 "reg": 54,
 "rom16": 0,
 "ssram": 0
@@ -122,7 +122,7 @@
 "alu": 60,
 "bsram": 11,
 "dsp": 0,
-"lut": 903,
+"lut": 898,
 "reg": 1004,
 "rom16": 0,
 "ssram": 0
@@ -131,7 +131,7 @@
 "alu": 0,
 "bsram": 0,
 "dsp": 0,
-"lut": 48,
+"lut": 39,
 "reg": 39,
 "rom16": 0,
 "ssram": 0
@@ -140,7 +140,7 @@
 "alu": 0,
 "bsram": 0,
 "dsp": 0,
-"lut": 46,
+"lut": 38,
 "reg": 39,
 "rom16": 0,
 "ssram": 0
@@ -149,7 +149,7 @@
 "alu": 0,
 "bsram": 0,
 "dsp": 0,
-"lut": 55,
+"lut": 38,
 "reg": 39,
 "rom16": 0,
 "ssram": 0
@@ -158,7 +158,7 @@
 "alu": 0,
 "bsram": 0,
 "dsp": 0,
-"lut": 52,
+"lut": 38,
 "reg": 40,
 "rom16": 0,
 "ssram": 0
@@ -230,7 +230,7 @@
 "alu": 69,
 "bsram": 0,
 "dsp": 0,
-"lut": 736,
+"lut": 754,
 "reg": 734,
 "rom16": 0,
 "ssram": 0
@@ -239,7 +239,7 @@
 "alu": 16,
 "bsram": 0,
 "dsp": 0,
-"lut": 34,
+"lut": 40,
 "reg": 24,
 "rom16": 0,
 "ssram": 0
@@ -284,8 +284,8 @@
 "alu": 0,
 "bsram": 1,
 "dsp": 0,
-"lut": 287,
-"reg": 159,
+"lut": 304,
+"reg": 166,
 "rom16": 0,
 "ssram": 0
 },
@@ -293,16 +293,16 @@
 "alu": 0,
 "bsram": 0,
 "dsp": 0,
-"lut": 12,
+"lut": 11,
 "reg": 169,
 "rom16": 0,
 "ssram": 0
 },
 "top/i_aux_channel": {
-"alu": 79,
+"alu": 80,
 "bsram": 0,
 "dsp": 1,
-"lut": 602,
+"lut": 622,
 "reg": 351,
 "rom16": 0,
 "ssram": 0
@@ -311,7 +311,7 @@
 "alu": 42,
 "bsram": 0,
 "dsp": 0,
-"lut": 509,
+"lut": 508,
 "reg": 679,
 "rom16": 0,
 "ssram": 0
@@ -320,7 +320,7 @@
 "alu": 0,
 "bsram": 0,
 "dsp": 0,
-"lut": 114,
+"lut": 118,
 "reg": 72,
 "rom16": 0,
 "ssram": 0
@@ -338,7 +338,7 @@
 "alu": 0,
 "bsram": 0,
 "dsp": 0,
-"lut": 29,
+"lut": 24,
 "reg": 0,
 "rom16": 0,
 "ssram": 0
@@ -356,7 +356,7 @@
 "alu": 0,
 "bsram": 0,
 "dsp": 0,
-"lut": 88,
+"lut": 90,
 "reg": 43,
 "rom16": 0,
 "ssram": 0
@@ -365,7 +365,7 @@
 "alu": 0,
 "bsram": 0,
 "dsp": 0,
-"lut": 12,
+"lut": 13,
 "reg": 11,
 "rom16": 0,
 "ssram": 0
@@ -374,7 +374,7 @@
 "alu": 11,
 "bsram": 0,
 "dsp": 0,
-"lut": 49,
+"lut": 48,
 "reg": 223,
 "rom16": 0,
 "ssram": 0
@@ -389,11 +389,11 @@
 "ssram": 0
 },
 "top/i_hr_ctrl": {
-"alu": 178,
+"alu": 216,
 "bsram": 0,
 "dsp": 0,
-"lut": 928,
-"reg": 740,
+"lut": 946,
+"reg": 844,
 "rom16": 0,
 "ssram": 0
 },
@@ -410,7 +410,7 @@
 "alu": 16,
 "bsram": 0,
 "dsp": 0,
-"lut": 108,
+"lut": 109,
 "reg": 109,
 "rom16": 0,
 "ssram": 0
@@ -428,7 +428,7 @@
 "alu": 0,
 "bsram": 0,
 "dsp": 0,
-"lut": 52,
+"lut": 49,
 "reg": 45,
 "rom16": 0,
 "ssram": 0
@@ -509,7 +509,7 @@
 "alu": 0,
 "bsram": 0,
 "dsp": 0,
-"lut": 1106,
+"lut": 1105,
 "reg": 724,
 "rom16": 0,
 "ssram": 0
@@ -536,8 +536,8 @@
 "alu": 0,
 "bsram": 0,
 "dsp": 0,
-"lut": 551,
-"reg": 248,
+"lut": 555,
+"reg": 247,
 "rom16": 0,
 "ssram": 0
 },
@@ -545,7 +545,7 @@
 "alu": 36,
 "bsram": 1,
 "dsp": 0,
-"lut": 87,
+"lut": 88,
 "reg": 97,
 "rom16": 0,
 "ssram": 0
@@ -554,7 +554,7 @@
 "alu": 0,
 "bsram": 0,
 "dsp": 0,
-"lut": 623,
+"lut": 627,
 "reg": 195,
 "rom16": 0,
 "ssram": 0
@@ -572,7 +572,7 @@
 "alu": 31,
 "bsram": 0,
 "dsp": 0,
-"lut": 92,
+"lut": 94,
 "reg": 43,
 "rom16": 0,
 "ssram": 0
@@ -581,7 +581,7 @@
 "alu": 31,
 "bsram": 2,
 "dsp": 0,
-"lut": 106,
+"lut": 108,
 "reg": 125,
 "rom16": 0,
 "ssram": 0
@@ -590,16 +590,16 @@
 "alu": 0,
 "bsram": 1,
 "dsp": 0,
-"lut": 15,
+"lut": 16,
 "reg": 6,
 "rom16": 0,
 "ssram": 0
 },
 "top/u_core": {
-"alu": 21,
+"alu": 20,
 "bsram": 0,
 "dsp": 2,
-"lut": 688,
+"lut": 705,
 "reg": 950,
 "rom16": 0,
 "ssram": 0
@@ -632,10 +632,10 @@
 "ssram": 0
 },
 "top/u_framebuffer": {
-"alu": 182,
+"alu": 181,
 "bsram": 13,
 "dsp": 0,
-"lut": 821,
+"lut": 817,
 "reg": 1073,
 "rom16": 0,
 "ssram": 0
@@ -680,7 +680,7 @@
 "alu": 18,
 "bsram": 1,
 "dsp": 0,
-"lut": 154,
+"lut": 149,
 "reg": 98,
 "rom16": 0,
 "ssram": 0
@@ -689,16 +689,16 @@
 "alu": 0,
 "bsram": 0,
 "dsp": 0,
-"lut": 36,
+"lut": 38,
 "reg": 11,
 "rom16": 0,
 "ssram": 0
 },
 "top/u_shim": {
-"alu": 7,
+"alu": 8,
 "bsram": 0,
 "dsp": 0,
-"lut": 422,
+"lut": 425,
 "reg": 175,
 "rom16": 0,
 "ssram": 0
@@ -716,7 +716,7 @@
 "alu": 12,
 "bsram": 0,
 "dsp": 1,
-"lut": 348,
+"lut": 347,
 "reg": 349,
 "rom16": 0,
 "ssram": 0
@@ -728,15 +728,15 @@
 56
 ],
 "CLS": [
-11154,
+11218,
 11520
 ],
 "Logic": [
-15240,
+15317,
 23040
 ],
 "Register": [
-13377,
+13487,
 23280
 ]
 },

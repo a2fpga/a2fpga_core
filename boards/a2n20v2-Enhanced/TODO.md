@@ -22,6 +22,10 @@
 
 - [ ] **Dual-rate / `_fb` CDC request path is not timing-verified** (word-granularity corruption
       hazard): [upstream #52](https://github.com/a2fpga/a2fpga_core/issues/52)
+- [ ] Lift the HDD read-only containment in `firmware_host/disk.c` (`mount_hdd`, `rw = false`):
+      the shifted/interleaved-word corruption it guarded against was the shared `hdl/disk/hdd.sv`
+      write drain, fixed 2026-11-13 ([a2p25 write-up](../a2p25/docs/HDD_BLOCK_WRITE_SHIFT.md));
+      needs a write test on this board first
 - [ ] Startup gate when the card is powered before the Apple (supplemental power): the reset
       contract is jumped and the Apple does not boot. Reported in agent notes with a proposed
       fix (an `a2_alive` level gate that re-arms the hold); nothing for it is in the tree

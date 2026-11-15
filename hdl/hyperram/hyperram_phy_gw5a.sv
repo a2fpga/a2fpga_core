@@ -34,9 +34,13 @@
 // CK high pulse spans [T/4, 3T/4] of the data cycle — rising edge centred
 // on the first byte, falling edge centred on the second (HyperBus write and
 // CA data are centre-aligned to CK). ck_en is re-timed through a negedge
-// stage so neither hop is shorter than T/2 (posedge -> negedge = T/2,
-// negedge -> clk_mem_90 posedge = 3T/4); ck_en is presented in the SAME
-// cycle as the data byte pair it clocks.
+// clk_mem_90 stage so neither hop is shorter than T/2: clk_mem posedge ->
+// clk_mem_90 negedge = 3T/4 for the fabric hop from the controller's FSM
+// (which routed 4.6 ns in the a2p25 full core at 97 % CLS when this stage
+// was on clk_mem's negedge and had only T/2), then clk_mem_90 negedge ->
+// posedge = T/2 into the ODDR next to the pin. The ODDR samples the same
+// cycle's ck_en at the same edge either way; ck_en is presented in the
+// SAME cycle as the data byte pair it clocks.
 //
 // Input path: pad -> IODELAY (dynamic, 12.5 ps/tap in the Gowin model,
 // 256 taps = 3.2 ns, less than the 4.63 ns bit time at 108 MHz) -> IDDR
@@ -92,12 +96,12 @@ module hyperram_phy_gw5a #(
     // ---------------------------------------------------------------------
     // CK
     // ---------------------------------------------------------------------
-    reg ck_en_neg;
-    always @(negedge clk_mem) ck_en_neg <= ck_en;
+    reg ck_en_n90;
+    always @(negedge clk_mem_90) ck_en_n90 <= ck_en;
 
     ODDR u_ck (
         .CLK (clk_mem_90),
-        .D0  (ck_en_neg),
+        .D0  (ck_en_n90),
         .D1  (1'b0),
         .TX  (1'b0),
         .Q0  (hr_ck),

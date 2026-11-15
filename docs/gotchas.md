@@ -1,6 +1,6 @@
 # Gotchas & Hard-Won Lessons
 
-> Status (2026-10-25): current. The Ensoniq-on-DDR3 entry below was rewritten; everything
+> Status (2026-11-13): current (two Gowin synthesis entries added). The Ensoniq-on-DDR3 entry below was rewritten; everything
 > else was reviewed against the code in the 2026-10 audit and stands.
 
 Non-obvious traps that have each cost real debugging time. Read the relevant section before
@@ -28,6 +28,18 @@ working in these areas. **When you discover a new one, add it here** — that's 
   use explicit wire ports (not interfaces) as defense-in-depth.
 - **`$clog2(1) == 0`** → zero-width register. Avoid parameter values that produce this
   (e.g. `GAP_CYCLES = 1`).
+- **A register whose D input is constant is NOT removed, and nothing behind it is pruned**
+  (GowinSynthesis V1.9.12, GW5A). Feature logic that an unreachable FSM state would enable, or a
+  mode flop that only ever loads a parameter-derived 0, stays in the netlist at full size. Tie the
+  feature off at a *wire* from a parameter (`wire x_xc = XC_EN && x_xc_r;`, `if (XC_EN) begin …
+  end` around the dead states) so synthesis sees the constant combinationally. Found 2026-11-13 in
+  `hdl/hyperram/hyperram_ctrl.sv`: the PROTOCOL 0 a2p25 full core carried the whole Xccela /
+  device-detect layer (+390 LUT in a 97 % CLS design) until the selects were gated at wires.
+- **Closing a cone in a small test project does not close it in the full core.** The a2p25
+  full core runs at 96–97 % CLS; a one-clk_mem-period clk→clk_mem path that had +0.5 ns in
+  `a2p25_psram_test_ck108_xc` missed by 0.8 ns in `a2p25.gprj` (2026-11-05 → 11-13). Any change
+  to a shared module on a knife-edge clock needs the full-core rebuild before it is called closed
+  (see `boards/a2p25/docs/MODERNIZATION_PLAN.md` §8).
 
 ## Interface / array traps
 

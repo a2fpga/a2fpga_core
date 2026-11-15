@@ -20,7 +20,9 @@ IIgs sound is the fabric DOC5503 on PSRAM.
       storage), image storage strategy without an SD card
 - [ ] Keep the DOC's per-frame LATE count at zero as the core grows (telnet `z`); the fetch
       cache and port priority 0 are the current fix ([docs/RESOURCE_AUDIT.md](docs/RESOURCE_AUDIT.md))
-- [ ] HDD image corruption seen around installs (open; not root-caused)
+- [x] HDD image corruption seen around installs: the HDD card stored every written word one
+      word late (`hdd.sv` drain, fixed 2026-11-13, bench `sim/disk/run.sh`); hardware
+      confirmation pending — [docs/HDD_BLOCK_WRITE_SHIFT.md](docs/HDD_BLOCK_WRITE_SHIFT.md)
 - [ ] Known risks, plan section 7: D-PHY amplitude margin at the SN75DP130 input (EQ override
       is the knob), the D-PHY PLL cascade soak, `TX_CLK_O` gating check via telemetry,
       HyperRAM CK# floating on non-Infineon parts (never write CR1), IODELAY semantics vs UG289

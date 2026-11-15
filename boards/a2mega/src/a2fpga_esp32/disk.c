@@ -253,11 +253,16 @@ static FILE *open_image(const char *name, bool *rw)
     return f;
 }
 
-/* Flush stdio buffers and push the data to the card. */
-static void image_sync(FILE *f)
+/* Flush stdio buffers and push the data to the volume. Returns false if
+ * either step failed (stick gone, write error) so the caller can log it;
+ * the volume protocol has no error channel back to the card, so the Apple
+ * still sees the block as written — the log is the only evidence. */
+static bool image_sync(FILE *f)
 {
-    fflush(f);
-    fsync(fileno(f));
+    bool ok = (fflush(f) == 0);
+    if (fsync(fileno(f)) != 0)
+        ok = false;
+    return ok;
 }
 
 static void mount_drive(int v)
@@ -598,21 +603,30 @@ static void serve_drive(int v)
                 uint16_t mask = gcr_decode_dos_track(g_trackbuf, MAX_TRACK_BYTES,
                                                      g_order[v], g_secbuf);
                 if (mask != 0) {
-                    if (fseek(g_img[v], fpos, SEEK_SET) == 0) {
-                        fwrite(g_secbuf, 1, DSK_TRACK_BYTES, g_img[v]);
-                        image_sync(g_img[v]);
-                    }
+                    bool ok = false;
+                    if (fseek(g_img[v], fpos, SEEK_SET) == 0)
+                        ok = fwrite(g_secbuf, 1, DSK_TRACK_BYTES, g_img[v]) ==
+                             DSK_TRACK_BYTES;
+                    if (!image_sync(g_img[v]))
+                        ok = false;
+                    if (!ok)
+                        DLOGW("DISK II: D%d TRK%lu WRITE FAILED",
+                              v + 1, (unsigned long)track);
                 }
                 if (mask != 0xFFFF)
                     DLOGW("DISK II: D%d TRK%lu wr partial mask=%04X",
                           v + 1, (unsigned long)track, (unsigned)mask);
             } else {
+                bool ok = false;
                 if (fseek(g_img[v], (long)g_base[v] +
                                     (long)lba * (long)SECTOR_BYTES,
-                          SEEK_SET) == 0) {
-                    fwrite(g_trackbuf, 1, nbyte, g_img[v]);
-                    image_sync(g_img[v]);
-                }
+                          SEEK_SET) == 0)
+                    ok = fwrite(g_trackbuf, 1, nbyte, g_img[v]) == nbyte;
+                if (!image_sync(g_img[v]))
+                    ok = false;
+                if (!ok)
+                    DLOGW("DISK II: D%d TRK%lu WRITE FAILED",
+                          v + 1, (unsigned long)(lba / 13u));
             }
         }
     } else {
@@ -681,11 +695,17 @@ static void serve_hdd(int u)
     if (req & A2HDD_REQ_WR) {
         /* write: block window -> image file */
         if (g_hdd_writable[u] && lba < g_hdd_blocks[u]) {
-            fpga_mem_read(A2SPACE_HDD, addr, g_blockbuf, SECTOR_BYTES);
-            if (fseek(g_hdd_img[u], fpos, SEEK_SET) == 0) {
-                fwrite(g_blockbuf, 1, SECTOR_BYTES, g_hdd_img[u]);
-                image_sync(g_hdd_img[u]);
-            }
+            bool ok = fpga_mem_read(A2SPACE_HDD, addr, g_blockbuf, SECTOR_BYTES);
+            if (ok && fseek(g_hdd_img[u], fpos, SEEK_SET) == 0)
+                ok = fwrite(g_blockbuf, 1, SECTOR_BYTES, g_hdd_img[u]) ==
+                     SECTOR_BYTES;
+            else
+                ok = false;
+            if (!image_sync(g_hdd_img[u]))
+                ok = false;
+            if (!ok)
+                DLOGW("HDD: UNIT %d BLK %lu WRITE FAILED", u + 1,
+                      (unsigned long)lba);
         }
     } else {
         /* read: image file -> block window */

@@ -233,6 +233,72 @@ Xccela strobe-arrival trim (`xc_trim`) at request time. This also
 applies to PROTOCOL 0 builds: the clk_mem cone is now shallower than
 before the Xccela work (worst setup +0.51 ns vs +0.15 ns on 10-10).
 
+### 4.5 Full-core timing re-closure of `hyperram_ctrl` (2026-11-13)
+
+The 11-05 retime closed `a2p25_psram_test_ck108_xc` at +0.51 ns but the
+full core (`a2p25.gprj`, 97 % CLS) was not rebuilt: on 11-13 it had 14
+setup violations (worst −0.78 ns) on one tree and 2 (worst −0.38 ns) on
+another, all inside `i_hr_ctrl` on the one-clk_mem-period crossings
+between the 54 MHz front end (clk_hr) and the 108 MHz core (clk_mem).
+Rebuilt here, the unchanged tree gave 1 violation (−0.80 ns):
+`c_we` (clk_hr) → latency mux → 8-bit adder → mux → `rd_ck_tot` CE
+(clk_mem), the request-accept cone. The other rolls' endpoints
+(`rq_wp_m`/`rq_data_m` → `c_len`/`c_addr` CE and `cal_fail`,
+`req_tgl` → `have_hw0`) are the same two crossings seen from other
+placements.
+
+Structural fixes, all in `hdl/hyperram/hyperram_ctrl.sv` and
+`hyperram_phy_gw5a.sv`, PROTOCOL 0 cycle-exact (the `hyperram` bench
+reports identical transfer, 2x and calibration numbers):
+
+- **Request-time constants computed on clk.** `issue()` now latches, in
+  the cycle it toggles `req_tgl`, every value the core used to derive at
+  accept time (CA frame, CK counts, cycle targets, release/timeout
+  offsets, 2x fallback targets, Xccela trim): the `c_*` registers. The
+  core copies the few it later modifies and compares against the rest
+  directly; the clk→clk_mem accept cone is a copy or one mux, and the
+  accept condition's fanout dropped from ~285 to ~100 flops (the `ca`,
+  `x_regdata`, `x_hw` and 14 timing copies are gone).
+- **Done handshake off the command registers.** `done_tgl_m`/`rq_wp_m`/
+  `err_m` → clk now only gate `fstate`, `done_seen` and the done outputs:
+  the Xccela MR4 half of a `cfg_cr0_write` issues from its own state
+  (`F_CFG_MR4`), the boot-probe decisions moved one clk later
+  (`F_DET_XCD`/`F_DET_HBD`), and the calibration compare runs one clk
+  behind the read-queue drain (`cmp_v`/`cmp_word`/`cmp_pat`; `cal_fail`
+  is still set before `F_CAL_RDD` reads it). Boot is 7 clk longer in
+  PROTOCOL 2; user requests are unchanged.
+- **Read CK count as a maintained flag.** `ck_cnt < rd_ck_tot` (8-bit
+  magnitude compare in front of the CK / `to_cyc` / `rel_cyc` logic,
+  +0.15 ns after the first fix) became `rd_ck_more`, cleared by an
+  equality against `rd_ck_last` and re-armed by every update of it.
+- **tRWR gap counter compiled out** when `GAP_LOAD = 0` (it is, at 108 MHz
+  with `CS_LEAD = 1`), removing `gap_cnt` from the accept condition.
+- **PROTOCOL 0 really prunes the Xccela layer.** Gowin does not remove a
+  register with a constant D input, so `proto_xccela`, `c_xc`, `c_det`
+  kept the whole Xccela/detect layer alive in the full core (+390 LUT).
+  The selects are now tied off at wires (`XC_EN`), `i_hr_ctrl` is back
+  to 924–948 LUT (pre-Xccela snapshot 928). See docs/gotchas.md.
+- **CK enable retimed through negedge clk_mem_90** in the PHY: the long
+  FSM→PHY hop gets 3T/4 instead of T/2 (it routed 4.63 ns, −0.22 ns, on
+  one roll), the local hop into the ODDR T/2; same ODDR edge, so pin
+  behaviour is unchanged (the bench's pin timing checks pass).
+- **Write-buffer read registered a halfword ahead** (`wr_ent`): the 16:1
+  × 36 mux into `p_dq` was the controller's remaining 6-level path
+  (+0.10 ns on one roll); one byte-select level remains.
+
+Simulation: `hyperram`, `hyperram_bist`, `hyperram_ports`, `hyperram_auto`,
+`xccela`, `xccela_auto`, `xccela_cold`, `psram_test_top`, `psram_test_top_xc`
+all pass (27/27 runs), PROTOCOL 0 results bit-identical to the 11-05 source;
+PROTOCOL 2 differs only in refresh-collision counts (boot 130 ns longer).
+Not run on hardware. Three full-core placements of the final source
+(§8): 0/0 violations each, clk_mem 117–131 MHz vs 108, the controller's
+worst path +0.68 ns or better. The design-wide worst slack is set by
+pre-existing cones outside the controller and still swings roll to roll
+(+1.05 / +0.14 / +0.14 ns: `framebuffer_1080p` `h_trigger_r` and
+`scanline_dim` `y_lock_r` and the top's `aud_acc` on clk_pix, the DP PHY
+`rd_pair` gray-pointer CE on clk_tx, the DOC fetch cache on clk_hr) — the
+candidates for the next structural pass at 97 % CLS.
+
 ## 5. HyperRAM CK# floats — OK on Infineon, check per vendor
 
 Both boards leave CK# unconnected:
@@ -712,3 +778,7 @@ Plan and gap table: [ESP32_FEATURE_PORT.md](ESP32_FEATURE_PORT.md) (10-12). Key 
 | 2026-10-11 | `a2p25_dp_test_hold` (LINK_CHECK=0, the 10-10 first-light policy, bench only) | this commit | Gowin V1.9.12.01 | 0/0; worst setup +0.29 | `4eb4705442788e960f2c8cf3772b379ea95f4830925df963f9f7f15fd71eb6ef` |
 | 2026-10-10 | `a2p25_dp_test` + HPD_DISCONNECT_RESETS=1 (**replug recovery verified**: Y 11→22→33, bars return) | this commit | Gowin V1.9.12.01 | 0/0 | `bc08d218a69cf396d0b618d27176b416c6d7a92a0cbf4be69d36ca5dd076a9c2` |
 | 2026-11-03 | **`a2p25_psram_test_ck108_xc`** (PROTOCOL 2, Xccela second-source bring-up; §4.4) | this commit | Gowin V1.9.12.01 | 0/0; clk_mem 114.3 vs 108 (worst setup +0.51 ns); sim `psram_test_top` / `_xc` / `hyperram*` / `xccela*` all PASS; not yet on hardware | `e3b50bccbfbf492bc6a4195f15b0cb804f669732f669c00096a6fea68170c440` |
+| 2026-11-13 | `a2p25` full core, unchanged tree (regression baseline for §4.5) | 9eb3c8dc | Gowin V1.9.12.01 | **1 setup violation, −0.80 ns**: `i_hr_ctrl/c_we` (clk_hr) → `rd_ck_tot` CE (clk_mem); clk_mem 113.6; CLS 97 %; i_hr_ctrl 1211 LUT / 882 REG | (not kept) |
+| 2026-11-13 | **`a2p25` full core, `hyperram_ctrl` re-closure (§4.5), placement 1 of 3** | this commit | Gowin V1.9.12.01 | 0/0; clk_mem 131.0 vs 108, clk_hr 65.8, clk_pix 175.8, clk_tx 117.5, clk100 115.3; design worst setup +1.05 (framebuffer, clk_pix), i_hr_ctrl worst +1.62; CLS 96 %; i_hr_ctrl 945 LUT / 844 REG | `c4c15a0603fe2363e5ef356115d7381a62fbbed1bdbc4819685de498973942c7` |
+| 2026-11-13 | same source, placement 2 of 3 | this commit | Gowin V1.9.12.01 | 0/0; clk_mem 117.0, clk_hr 64.0, clk_pix 152.3, clk_tx 102.7, clk100 108.5; design worst +0.14 (`i_phy` gray pointer, clk_tx — pre-existing), i_hr_ctrl worst +0.71 | `7a84ec149808e4d8467e9edbc86a32ce782bb110560a9fb28fc57cb04f68704b` |
+| 2026-11-13 | same source, placement 3 of 3 (**committed PnR state**) | this commit | Gowin V1.9.12.01 | 0/0; clk_mem 117.8, clk_hr 65.6, clk_pix 151.6, clk_tx 110.4, clk100 118.4; design worst +0.14 (framebuffer `h_trigger_r`, clk_pix — pre-existing), i_hr_ctrl worst +0.68 (reset sync clk_hr→clk_mem); CLS 96 %; i_hr_ctrl 960 LUT / 844 REG; not run on hardware | `f169b2bdafd394aaa6ece3172d9944f682d3b5be00ac3768ab43246c080c00e5` |

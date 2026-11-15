@@ -5,34 +5,34 @@
 1. PnR Messages
 
   <Report Title>: PnR Report
-  <Design File>: /Users/edanuff/GitHub/a2fpga_core/.claude/worktrees/nostalgic-shamir-4b4f64/boards/a2p25/impl/gwsynthesis/a2p25.vg
-  <Physical Constraints File>: /Users/edanuff/GitHub/a2fpga_core/.claude/worktrees/nostalgic-shamir-4b4f64/boards/a2p25/hdl/a2p25.cst
-  <Timing Constraints File>: /Users/edanuff/GitHub/a2fpga_core/.claude/worktrees/nostalgic-shamir-4b4f64/boards/a2p25/hdl/a2p25.sdc
+  <Design File>: /Users/edanuff/GitHub/a2fpga_core/.claude/worktrees/vigilant-wiles-6d6a98/boards/a2p25/impl/gwsynthesis/a2p25.vg
+  <Physical Constraints File>: /Users/edanuff/GitHub/a2fpga_core/.claude/worktrees/vigilant-wiles-6d6a98/boards/a2p25/hdl/a2p25.cst
+  <Timing Constraints File>: /Users/edanuff/GitHub/a2fpga_core/.claude/worktrees/vigilant-wiles-6d6a98/boards/a2p25/hdl/a2p25.sdc
   <Tool Version>: V1.9.12.01
   <Part Number>: GW5A-LV25MG121NC1/I0
   <Device>: GW5A-25
   <Device Version>: A
-  <Created Time>:Sun Oct 25 01:45:32 2026
+  <Created Time>:Fri Nov 13 20:49:25 2026
 
 
 2. PnR Details
 
   Running placement:
-    Placement Phase 0: CPU time = 0h 0m 11s, Elapsed time = 0h 0m 17s
+    Placement Phase 0: CPU time = 0h 0m 16s, Elapsed time = 0h 0m 17s
     Placement Phase 1: CPU time = 0h 0m 2s, Elapsed time = 0h 0m 2s
-    Placement Phase 2: CPU time = 0h 0m 44s, Elapsed time = 0h 0m 51s
-    Placement Phase 3: CPU time = 0h 0m 31s, Elapsed time = 0h 0m 36s
-    Total Placement: CPU time = 0h 1m 28s, Elapsed time = 0h 1m 46s
+    Placement Phase 2: CPU time = 0h 0m 55s, Elapsed time = 0h 0m 57s
+    Placement Phase 3: CPU time = 0h 0m 33s, Elapsed time = 0h 0m 35s
+    Total Placement: CPU time = 0h 1m 46s, Elapsed time = 0h 1m 52s
  Running routing:
-    Routing Phase 0: CPU time = 0h 0m 0.024s, Elapsed time = 0h 0m 0.028s
-    Routing Phase 1: CPU time = 0h 0m 39s, Elapsed time = 0h 0m 46s
-    Routing Phase 2: CPU time = 0h 0m 0.604s, Elapsed time = 0h 0m 0.661s
+    Routing Phase 0: CPU time = 0h 0m 0.025s, Elapsed time = 0h 0m 0.026s
+    Routing Phase 1: CPU time = 0h 0m 47s, Elapsed time = 0h 0m 51s
+    Routing Phase 2: CPU time = 0h 0m 0.553s, Elapsed time = 0h 0m 0.634s
     Routing Phase 3: CPU time = 0h 0m 0s, Elapsed time = 0h 0m 0s
-    Total Routing: CPU time = 0h 0m 40s, Elapsed time = 0h 0m 46s
+    Total Routing: CPU time = 0h 0m 48s, Elapsed time = 0h 0m 52s
  Generate output files:
-    CPU time = 0h 0m 6s, Elapsed time = 0h 0m 7s
+    CPU time = 0h 0m 2s, Elapsed time = 0h 0m 3s
 
- Total Time and Memory Usage: CPU time = 0h 2m 15s, Elapsed time = 0h 2m 40s, Peak memory usage = 911MB
+ Total Time and Memory Usage: CPU time = 0h 2m 36s, Elapsed time = 0h 2m 46s, Peak memory usage = 958MB
 
 
 3. Resource Usage Summary
@@ -40,15 +40,15 @@
   --------------------------------------------------------------------------------
   Resources                   | Usage                               | Utilization
   --------------------------------------------------------------------------------
-  Logic                       | 15240/23040                         |  67%
-    --LUT,ALU,ROM16           | 15240(13308 LUT, 1908 ALU, 24 ROM16)| -
+  Logic                       | 15317/23040                         |  67%
+    --LUT,ALU,ROM16           | 15317(13322 LUT, 1971 ALU, 24 ROM16)| -
     --SSRAM(RAM16)            | 0                                   | -
-  Register                    | 13377/23280                         |  58%
+  Register                    | 13487/23280                         |  58%
     --Logic Register as Latch | 0/23040                             |  0%
-    --Logic Register as FF    | 13338/23040                         |  58%
+    --Logic Register as FF    | 13448/23040                         |  59%
     --I/O Register as Latch   | 0/240                               |  0%
     --I/O Register as FF      | 39/240                              |  17%
-  CLS                         | 11154/11520                         |  97%
+  CLS                         | 11218/11520                         |  98%
   I/O Port                    | 75/86                               |  88%
   I/O Buf                     | 59                                  | -
     --Input Buf               | 26                                  | -
@@ -107,7 +107,7 @@
   -------------------------------------------
   clk54_pll_w    | PRIMARY        |  TL BL
   a2bus_if.clk_logic| PRIMARY        |  TR TL BR BL
-  clk_mem_w      | PRIMARY        |  TR TL BR
+  clk_mem_w      | PRIMARY        |  BR
   clk_mem_90_w   | PRIMARY        |  TL
   clk100_w       | PRIMARY        |  TR TL BL
   clk_pixel_w    | PRIMARY        |  TR TL BL

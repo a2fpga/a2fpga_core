@@ -397,7 +397,11 @@ static void mount_hdd(int u)
          * shifted/interleaved words). Until that path is fixed and
          * verified, protect the images: reads are proven byte-faithful,
          * writes are not. GS/OS boots and games run fine read-only; saves
-         * are rejected by the card's write-protect status. */
+         * are rejected by the card's write-protect status.
+         * 2026-11-13: root-caused in hdl/disk/hdd.sv (the WRITE drain stored
+         * every word one word late; fixed, bench sim/disk/run.sh — see
+         * boards/a2p25/docs/HDD_BLOCK_WRITE_SHIFT.md). This containment can
+         * go once a write test on this board confirms the fix. */
         rw = false;
 
         uint32_t base  = 0;
