@@ -557,24 +557,26 @@ module gs_accel #(
     end
 
     // ---- telemetry
-    // PHI2 period / duty: clk ticks per 256 cycles (as gs_socket_ctl)
+    // PHI2 period / duty: clk ticks per 256 cycles (as gs_socket_ctl).  per_acc
+    // counts from 1, so the period is the register itself and not its increment
+    // (that adder into ph2_period_o was the worst path of a placement, 2026-11-14)
     logic [1:0]  ph2_s;
     logic [15:0] per_acc, hi_acc;
     logic [7:0]  cyc256;
     always_ff @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
-            ph2_s <= '0; per_acc <= '0; hi_acc <= '0; ph2_period_o <= '0; ph2_high_o <= '0; cyc256 <= '0;
+            ph2_s <= '0; per_acc <= 16'd1; hi_acc <= '0; ph2_period_o <= '0; ph2_high_o <= '0; cyc256 <= '0;
             last_addr_o <= '0;
         end else begin
             ph2_s <= {ph2_s[0], gs_ph2_i};
             if (issue_evt) last_addr_o <= phy_a;
             if (clear_i) begin
-                per_acc <= '0; hi_acc <= '0; ph2_period_o <= '0; ph2_high_o <= '0; cyc256 <= '0;
+                per_acc <= 16'd1; hi_acc <= '0; ph2_period_o <= '0; ph2_high_o <= '0; cyc256 <= '0;
             end else if (fall_evt) begin
                 if (cyc256 == 8'hFF) begin
-                    ph2_period_o <= per_acc + 1'b1;
+                    ph2_period_o <= per_acc;
                     ph2_high_o   <= hi_acc + {15'd0, ph2_s[1]};
-                    per_acc <= '0;
+                    per_acc <= 16'd1;
                     hi_acc  <= '0;
                 end else begin
                     per_acc <= per_acc + 1'b1;

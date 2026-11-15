@@ -29,6 +29,8 @@ decision: a whole base pass in paced verify shows no mismatch, and the
 benchmark's average over ten runs is **50.76 MHz** (x0: 47.48), the
 sieve, the sort, Fibonacci and integer math at 52.7 to 52.9; the sum of
 its times is 7 % under the AppleSqueezer GS Turbo's published ones.
+Closing the timing is section 3k: a first round (a 0.1 ns guard band in
+the place and route) gave one placement of three and is taken out again.
 Parents: [`gs_socket_s7_accelerator_scoping.md`](gs_socket_s7_accelerator_scoping.md)
 (what the accelerator is) and
 [`gs_socket_s7_fast_core_exploration.md`](gs_socket_s7_fast_core_exploration.md)
@@ -1454,6 +1456,60 @@ It matters beyond the benchmark: paced
 card memory is the only way back from fast mode without a reset, so a
 speed setting of "off" would today be slower than the machine for a
 program in expansion RAM.
+
+## 3k. Closing the timing: the first round (2026-11-14 night; not closed)
+
+**What the kept placements say.** The tightest paths of the thirteen
+placements kept since the copy of section 3h, grouped by the registers
+they start and end at: the placements that fail do so in more than
+twelve different groups, and no two in the same one - the near memory
+back into the near memory through the core, the instruction register
+into the near address, the address register into each of the first-clk
+decisions, the tag block into the hit copy, the hit copy into the core's
+A, X and Y, the line index into the line register, the copy machine's
+state, the PHI2 period counter. Every placement without a violation ends
+between +0.000 and +0.03 ns (the tool stops when the constraint is met),
+and the failing ones of section 3j's source end 0.03 to 0.08 ns short.
+So there is no one path to shorten. A registered copy of the shadow
+bits' AND was not built: the path it would shorten starts at the bank
+bits of the address register, and that path was already at +0.006 in x0,
+before the rule existed.
+
+**Two changes, built together (round g).**
+
+- The PHI2 period counter of the telemetry counts from 1, so the period
+  is the register itself and the adder into `ph2_period_o` (z0's worst
+  path) is gone. Checked against the old form in a bench of its own:
+  40,000,000 clks, 2,314 captures (4 after a wrap of the count), the two
+  outputs equal in every clk. The full regression passes on this source
+  (210 bench runs, both replicas, socket and arm benches, 10 core
+  benches). The 32 planted faults were not run again; the change is in
+  the telemetry only.
+- The place and route was asked for 0.1 ns more than the rule on the
+  accelerator's clock (0.6 ns of setup uncertainty where the rule is
+  0.5), so that it stops later. A report made that way shows every slack
+  0.1 ns less than the rule's.
+
+| placement | in the report (0.6) | by the rule (0.5) | |
+|---|---|---|---|
+| g0 | 0 violations, +0.020 | +0.120 | the first placement of this design with margin beyond the rule |
+| g1 | 93 violations, -0.669 | -0.569, 65 of the listed paths short | the whole broker: tag block to the hit copy, the address register to every first-clk copy, the hit to the broker's state |
+| g2 | none | none | the router did not finish in 40 minutes and the build was stopped |
+
+One of three, and the two that fail do so by far more than any placement
+at 0.5 did. In g1 the first-clk copies and the core's enable copies sit
+beside the core (rows 47 to 53) while the logic that makes them is
+twenty rows away in the broker (rows 67 to 75): each of those paths ends
+in 2.1 to 2.9 ns of wire, and one net of fan-out 20 crosses the broker
+twice (2.8 and 3.8 ns). In g0 two of the four copies are beside the core
+and two beside the broker, and the enable copies are in the broker. The
+0.1 ns did what was asked of it once and cost two placements; it is
+taken out again (the constraints are the committed ones, 0.5). The
+period counter change stays.
+
+Kept: g0 (stamp `20261114200313`, sha256 `a423257a45663c0c…514dae15251e8`,
+no violation at 0.6) and g1 (`20261114202509`, `d231c5143ada1a7c…c3c037f520b11c`,
+failing). Neither is on the card; the card runs q1.
 
 ## 4. What is verified, and what is not
 
