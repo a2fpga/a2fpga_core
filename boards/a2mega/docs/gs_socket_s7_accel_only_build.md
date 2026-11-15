@@ -22,9 +22,13 @@ experiment, by Ed's decision: the floating point tests go from 37.81 and
 the switch works while the machine runs.
 Built since and not on the card (section 3j): the first-clk write rule
 reads the shadow register, so the benchmark's stack and direct page
-writes (section 3i) are two clks. Simulated in full; **one placement of
-three at 105 MHz has no violation (the others miss by 0.033 and 0.045
-ns): not closed, not flashed.**
+writes (section 3i) are two clks. Simulated in full; **at 105 MHz two
+placements of five have no violation: not closed.** One clean placement
+(q1) is on the card since 2026-11-14 19:20 as an experiment, by Ed's
+decision: a whole base pass in paced verify shows no mismatch, and the
+benchmark's average over ten runs is **50.76 MHz** (x0: 47.48), the
+sieve, the sort, Fibonacci and integer math at 52.7 to 52.9; the sum of
+its times is 7 % under the AppleSqueezer GS Turbo's published ones.
 Parents: [`gs_socket_s7_accelerator_scoping.md`](gs_socket_s7_accelerator_scoping.md)
 (what the accelerator is) and
 [`gs_socket_s7_fast_core_exploration.md`](gs_socket_s7_fast_core_exploration.md)
@@ -1324,7 +1328,7 @@ program's own "expected time" column for 52.5 MHz: 19.9, 55.7, 24.5,
 78.3, 97.0, 75.2 ticks. Not built: it is logic in the step's first clk,
 where this design has no margin (section 3h).
 
-## 3j. The write rule with the shadow register in it (2026-11-14 evening; simulated in full; one placement of three clean; not flashed)
+## 3j. The write rule with the shadow register in it (2026-11-14 evening; simulated in full; timing not closed; one clean placement, q1, on the card as an experiment)
 
 Section 3i's rule, in its smallest form, is in the source:
 
@@ -1373,6 +1377,56 @@ Size: 12,900 logic cells of 69,120, 11,918 flip-flops, 182 block RAMs.
 None of the three is on the card. z1's bitstream was not kept (the roll
 script keeps only the first; the build stamp is in the netlist, so it
 cannot be made again). A fourth build would be a new placement.
+
+### On the machine: q1, as an experiment (2026-11-14 night)
+
+Ed's decision, as for x0: measure what the rule is worth before more
+time goes into the timing. The committed source was built until a
+placement had no violation, every bitstream kept: q0 -0.080 (10
+violations), **q1 +0.002, none**. Of this source's five placements two
+are clean; q1 is not a closed build. Flashed 19:16 to 19:20 with the
+machine off.
+
+| step | result |
+|---|---|
+| key, `gs set 29 0x08` | mode 80, 1 copy, sum `7EE8` |
+| `0x0A`, 15 s | mode 88, verify count 0 |
+| `0x1A` (paced verify with the copy), then **the benchmark's whole base pass of ten runs in that mode** | mode 8A, word 13 `0F`; verify count 0, copy verify count 0 at the end. This is the pass section 3h's experiment did not complete |
+| the program idle at its prompt (the address samples match the prompt's of section 3i), then `0x1B` | mode 9A; 33.24 M steps a second at the prompt (x0: 30.93) |
+| the accelerated pass, ten runs | below; verify words unchanged after it |
+
+The program's report, ten runs, 52.5 entered, beside x0's ten runs
+(section 3h) and the AppleSqueezer GS Turbo's published ticks:
+
+| test | x0 ticks | **q1 ticks** | Squeezer | x0 MHz | **q1 MHz** |
+|---|---|---|---|---|---|
+| sieve | 20.9 | **19.8** | 22 | 49.89 | **52.66** |
+| string sort | 59.1 | **55.3** | 62 | 49.46 | **52.86** |
+| floating point | 26.7 | **27.1** | 27 | 48.14 | **47.43** |
+| Gamm | 92.4 | **89.8** | 91 | 44.51 | **45.80** |
+| Fibonacci | 109.4 | **96.3** | 107 | 46.56 | **52.90** |
+| integer math | 85.2 | **74.6** | 82 | 46.31 | **52.89** |
+| sum / average | 393.7 | **362.9** | 391 | 47.48 | **50.76** |
+
+The sum is 7.2 % under the Squeezer's and 19.64 times the stock
+machine's 7,127 (the Squeezer: 18.23). Five tests are ahead of it; the
+first floating point test is level (27.1 against a published 27) and
+is 0.4 tick slower than x0's ten runs, which this build gives no reason
+for and ten runs at one tick's grain do not settle.
+
+Section 3i's inference holds. The log of the pass (telemetry every 0.4
+s) has the stretches with no socket cycle and no miss at 52.0 to 52.7 M
+steps a second: 2.00 to 2.02 clks a step, where x0 had 46.0 (2.28). Four
+tests now read above the 52.5 entered because the program's scale is
+the stock machine's nominal 2.8 MHz and those tests are at this
+design's bound: every step two clks. What is left is in the two
+floating point tests: their stretches run 2.3 to 3.4 clks a step with
+0.05 to 0.29 M socket cycles and up to 0.24 M misses a second; the
+whole pass averages 44.98 M steps a second.
+
+The report's base column (673, 1857, 487, 1679, 3066, 2211) is the pass
+in paced verify, not the stock machine's, so its improvement column
+means nothing here; the MHz column does not use it.
 
 ## 4. What is verified, and what is not
 
@@ -1477,6 +1531,12 @@ The a2mega directory holds many projects: always name the project, and
 check the build stamp (`CORE:` line) before trusting a hardware test.
 Regenerate the constraints with `python3 hdl/accel_probe_138b/gen_sdc.py`
 and `python3 hdl/accel_probe_138b/gen_floorplan.py accel`.
+
+Provenance of q1 (the write rule with the shadow register, section 3j;
+an experiment, one clean placement of a source that closed two of five;
+flashed 2026-11-14 19:20): sources = commit `b1aad584`; the same tool
+and device; build stamp `20261114181935`; bitstream sha256
+`2511dfa52b681192…31edcf9d3ad3`.
 
 Provenance of x0 (the copy of the Mega II's RAM, section 3h; an
 experiment, one clean placement of a source that closed two of three;
