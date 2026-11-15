@@ -1426,7 +1426,20 @@ whole pass averages 44.98 M steps a second.
 
 The report's base column (673, 1857, 487, 1679, 3066, 2211) is the pass
 in paced verify, not the stock machine's, so its improvement column
-means nothing here; the MHz column does not use it.
+means nothing here; the MHz column does not use it. Every earlier base
+pass was run on socket bytes (register 29 = `08`: the machine's own
+memory at the machine's pace) and gave 413, 1159, 476, 1546, 2020,
+1564. Paced card memory is slower than the machine by design since the
+DDR3 build (section 3b, "Waiting for the memory"; section 3e): a paced
+step fills no line, so every read of an expansion bank goes to the
+DDR3, and its socket cycle is issued again until the byte is there. The
+ratios say the same: 1.64, 1.60, 1.53 and 1.42 on the four tests that
+run in the program's own bank, 1.02 and 1.09 on the two that run in ROM
+and the tools. No pass on socket bytes has been run on x0 or q1; nothing
+in either changes that mode. It matters beyond the benchmark: paced
+card memory is the only way back from fast mode without a reset, so a
+speed setting of "off" would today be slower than the machine for a
+program in expansion RAM.
 
 ## 4. What is verified, and what is not
 
