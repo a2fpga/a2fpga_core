@@ -29,8 +29,9 @@ decision: a whole base pass in paced verify shows no mismatch, and the
 benchmark's average over ten runs is **50.76 MHz** (x0: 47.48), the
 sieve, the sort, Fibonacci and integer math at 52.7 to 52.9; the sum of
 its times is 7 % under the AppleSqueezer GS Turbo's published ones.
-Closing the timing is section 3k: a first round (a 0.1 ns guard band in
-the place and route) gave one placement of three and is taken out again.
+**Closed since (section 3k): with `Place_Option` 1 and the PHI2 period
+counter without its adder, three placements of three at 105 MHz have no
+violation (p0, p1, p2). Not flashed; the card still runs q1.**
 Parents: [`gs_socket_s7_accelerator_scoping.md`](gs_socket_s7_accelerator_scoping.md)
 (what the accelerator is) and
 [`gs_socket_s7_fast_core_exploration.md`](gs_socket_s7_fast_core_exploration.md)
@@ -1457,7 +1458,9 @@ card memory is the only way back from fast mode without a reset, so a
 speed setting of "off" would today be slower than the machine for a
 program in expansion RAM.
 
-## 3k. Closing the timing: the first round (2026-11-14 night; not closed)
+## 3k. Closing the timing (2026-11-14 night; closed: three placements at 105 MHz with no violation; not flashed)
+
+### The first round: a guard band, not kept
 
 **What the kept placements say.** The tightest paths of the thirteen
 placements kept since the copy of section 3h, grouped by the registers
@@ -1510,6 +1513,42 @@ period counter change stays.
 Kept: g0 (stamp `20261114200313`, sha256 `a423257a45663c0c…514dae15251e8`,
 no violation at 0.6) and g1 (`20261114202509`, `d231c5143ada1a7c…c3c037f520b11c`,
 failing). Neither is on the card; the card runs q1.
+
+### The second round: the placement option, closed
+
+The same source with the 0.5 ns rule as committed and one change in the
+place and route: `Place_Option` 1 in
+`impl/a2mega_accel_138B_process_config.json` (it was 0; `Route_Option`
+stays 0). The tool's command file of the last build shows
+`-place_option 1 -route_option 0`. Three placements, p0 to p2, each with
+its own build stamp in the netlist:
+
+| placement | setup violations | hold violations | worst slack beyond the 0.5 ns | the tightest path | built in |
+|---|---|---|---|---|---|
+| p0 | 0 | 0 | +0.010 | a line's data into the core's P | 13 min |
+| p1 | 0 | 0 | +0.009 | the broker's run copy into the last-address telemetry register | 21 min |
+| p2 | 0 | 0 | +0.004 | the PHY's enable into the copy machine's sum | 18 min |
+
+**Three of three: the rule is met.** Every clock of the design is at
+zero in each (the accelerator's, the logic clock, the DDR3's two, the
+50 MHz input, PHI2). What that does and does not say: the slack beyond
+the 0.5 ns is still a hundredth, as in every clean placement of this
+design, because the tool stops when the constraint is met; the margin is
+the 0.5 ns of the rule. Section 3j's source closed two of five with the
+old option; this source differs from it in the period counter (one of
+the failing groups) and the option, and which of the two did more is not
+separated. A source change from here is a new closure. A round with
+`Route_Option` 1 was prepared and not needed.
+
+Size: 13,215 logic cells, 11,918 flip-flops, 12,644 of 69,120 logic
+slices, 182 of 340 block RAMs (p1). The logic is the simulated logic of
+section 3j with the period counter change: the regression above is this
+source's.
+
+Kept: p1 (stamp `20261114213411`) and p2 (`20261114215549`); section 5
+has the sums. p0's bitstream was not kept: an older file of that name
+in the scratch directory was read-only, the copy failed, and the next
+build replaced the file. Its timing report is kept. None is on the card.
 
 ## 4. What is verified, and what is not
 
@@ -1614,6 +1653,13 @@ The a2mega directory holds many projects: always name the project, and
 check the build stamp (`CORE:` line) before trusting a hardware test.
 Regenerate the constraints with `python3 hdl/accel_probe_138b/gen_sdc.py`
 and `python3 hdl/accel_probe_138b/gen_floorplan.py accel`.
+
+Provenance of p1 and p2 (the closed build of section 3k: section 3j's
+logic, the period counter change, `Place_Option` 1; three placements
+with no violation; not flashed): sources = the commit that adds this
+paragraph; the same tool and device. p1: build stamp `20261114213411`,
+bitstream sha256 `53133d7907a9ee8a…bb40bcf65b6bc376`. p2: build stamp
+`20261114215549`, bitstream sha256 `777cd2829cf717a9…80f3d3cb912e0ba9`.
 
 Provenance of q1 (the write rule with the shadow register, section 3j;
 an experiment, one clean placement of a source that closed two of five;
