@@ -1,0 +1,355 @@
+#!/usr/bin/env python3
+"""Generate fast/mcode.sv (F65C816_mcode) from the stock 65C816/mcode.sv.
+
+The fast core's microcode is the stock table plus pre-decoded columns that
+are registered alongside the microinstruction, so control signals come out
+of flops instead of LUT trees after the register (S7 fast-core exploration,
+boards/a2mega/docs/gs_socket_s7_fast_core_exploration.md):
+
+  AF_TAB (25 bits)  rung 1 : ALU_TAB[M_TAB[i].ALUCtrl], rung 2d: expanded to
+                             {FST one-hot[7:0], SEC one-hot[7:0], SEL_ADD, fstOp, secOp, fc, w16}
+  XT_TAB (25 bits)  rung 2b: SB_SEL[7:0] one-hot of BUS_CTRL[5:3]
+                             DB_SEL[5:0] one-hot of BUS_CTRL[2:0] (values 0..5)
+                             W16_FORCE, W16_M, W16_X: w16 = FORCE | (M & ~MF & ~EF) | (X & ~XF & ~EF)
+                    rung 2c: PF_PLB, PF_PLD, PF_TSX (IR = AB / 2B / BA, the LOAD_P == 001 specials)
+                             PF_FORCE (IR = EB | 5B), PF_M8 (~LOAD_AXY[1] & BYTE_SEL[0]),
+                             PF_X8 (LOAD_AXY[1] & BYTE_SEL[0]), PF_M16 (~LOAD_AXY[1] & BYTE_SEL[1]),
+                             PF_X16 (LOAD_AXY[1] & BYTE_SEL[1]):
+                             flags-from-ALU = PF_FORCE | PF_M8&(MF|EF) | PF_X8&(XF|EF)
+                                            | PF_M16&(~MF&~EF | w16) | PF_X16&(~XF&~EF)
+
+Rung 2a: the module carries syn_romstyle = "logic" (the attribute is ignored
+on a localparam table; SUG550 §5.17).  Run from anywhere; rewrites
+fast/mcode.sv in place.
+"""
+import re, pathlib
+
+HERE = pathlib.Path(__file__).resolve().parent
+SRC = HERE.parent / "65C816" / "mcode.sv"
+DST = HERE / "mcode.sv"
+
+src = SRC.read_text()
+a0 = src.index("localparam logic [52:0] M_TAB[0:2047] = '{")
+a1 = src.index("localparam logic [7:0] ALU_TAB[0:16]")
+rows = re.findall(r"\{([^{}]*)\}", src[a0 + len("localparam logic [52:0] M_TAB[0:2047] = '{"):a1])
+assert len(rows) == 2048, len(rows)
+alu = re.findall(r"\{([^{}]*)\}", src[a1:src.index("};", a1)])
+assert len(alu) == 17, len(alu)
+
+def bits(r):
+    return ''.join(f.strip().split("'b")[1] for f in r.split(','))
+
+alu_bits = [bits(e) for e in alu]          # {fstOp[3], secOp[3], fc, w16}
+
+def expand_alu(a):
+    """stock 8-bit ALU control -> 25-bit one-hot-expanded control word"""
+    fst, sec = int(a[0:3], 2), int(a[3:6], 2)
+    return f"{1 << fst:08b}{1 << sec:08b}{int(sec in (3, 6, 7))}" + a
+
+# the fast ALU's adder takes its carry in from the carry flag alone (ALU.sv): no control
+# word may put a shift (fstOp 0-3: its carry out is a bit of the operand) in front of the adder
+for a in alu_bits:
+    assert not (int(a[3:6], 2) in (3, 6, 7) and int(a[0:3], 2) < 4), a
+AF_FETCH = "25'b" + expand_alu(alu_bits[0])
+FIELD_ALUCTRL, FIELD_REGAXY, FIELD_BUSCTRL, FIELD_BYTESEL = 12, 9, 11, 13   # MicroInst_r field order
+
+af, xt = [], []
+for i, r in enumerate(rows):
+    f = [x.strip().split("'b")[1] for x in r.split(',')]
+    assert len(f) == 16, r
+    ir, state = i >> 3, (i & 7) + 1
+    if 'X' in f[FIELD_ALUCTRL] or 'X' in f[FIELD_BUSCTRL] or 'X' in f[FIELD_REGAXY] or 'X' in f[FIELD_BYTESEL]:
+        af.append("25'b" + "x" * 25); xt.append("25'b" + "x" * 25); continue
+    ac = int(f[FIELD_ALUCTRL], 2); assert ac <= 16
+    a = alu_bits[ac]
+    af.append("25'b" + expand_alu(a))
+    bus = int(f[FIELD_BUSCTRL], 2)
+    sb_sel = 1 << (bus >> 3)
+    db = bus & 7
+    db_sel = (1 << db) if db <= 5 else 0
+    alu_w16 = a[7] == '1'
+    load_axy1 = f[FIELD_REGAXY][1] == '1'       # LOAD_AXY[1] (bit index 1 of a 3-bit field = middle char)
+    if alu_w16:
+        force, m, x = 1, 0, 0
+    elif ir in (0xEB, 0xAB):
+        force, m, x = 0, 0, 0
+    elif ir in (0x44, 0x54) and state == 5:
+        force, m, x = 1, 0, 0
+    else:
+        force, m, x = 0, (0 if load_axy1 else 1), (1 if load_axy1 else 0)
+    bs1, bs0 = f[FIELD_BYTESEL][0] == '1', f[FIELD_BYTESEL][1] == '1'
+    pf = (int(ir == 0xAB), int(ir == 0x2B), int(ir == 0xBA), int(ir in (0xEB, 0x5B)),
+          int((not load_axy1) and bs0), int(load_axy1 and bs0), int((not load_axy1) and bs1), int(load_axy1 and bs1))
+    xt.append("25'b" + f"{sb_sel:08b}{db_sel:06b}{force}{m}{x}" + ''.join(str(b) for b in pf))
+
+# fetch-cycle constant (STATE == 0): BUS_CTRL 000000 -> SB = A, DB = D_IN; LOAD_AXY 000 -> w16 from M
+FETCH_XT = "25'b00000001_000001_0_1_0_00000000"   # LOAD_P = 000 in the fetch cycle: PF bits unused
+
+out = src.replace("P65C816", "F65C816").replace("_P65C816_PKG", "_F65C816_PKG")
+# the fast package's struct types are renamed so the stock and fast cores can share a
+# compilation unit (both import their package at file scope)
+out = re.sub(r"\bMCode_r\b", "FMCode_r", out)
+out = re.sub(r"\bALUCtrl_r\b", "FALUCtrl_r", out)
+out = re.sub(r"\bMicroInst_r\b", "FMicroInst_r", out)
+out = out.replace("   output FMCode_r   M\n   );",
+    "   output FMCode_r   M\n   ) /* synthesis syn_romstyle = \"logic\" */;   // rung 2a: microcode ROMs in LUTs, not BSRAM")
+tabs = ("   // ---- generated by gen_fast_mcode.py from 65C816/mcode.sv — do not edit by hand\n"
+        "   // rung 1: ALU_TAB folded in (AF_TAB[i] = ALU_TAB[M_TAB[i].ALUCtrl])\n"
+        "   localparam logic [24:0] AF_FETCH = " + AF_FETCH + ";\n"
+        "   localparam logic [24:0] AF_TAB[0:2047] = '{\n" + ",\n".join("      " + a for a in af) + "\n   };\n"
+        "   // rung 2b: one-hot SB/DB selects and the w16 terms per microinstruction\n"
+        "   localparam logic [24:0] XT_TAB[0:2047] = '{\n" + ",\n".join("      " + a for a in xt) + "\n   };\n")
+anchor = "   FMicroInst_r         MI;\n   FALUCtrl_r        ALUFlags;\n"
+assert anchor in out
+out = out.replace(anchor, tabs + anchor + "   FALUCtrl_r        AF;\n   logic [24:0]     XT;\n")
+out = out.replace("   assign ALUFlags = ALU_TAB[MI.ALUCtrl];", "   assign ALUFlags = AF;")
+r1 = "         MI <= {3'b000, 4'b0000, 2'b00, 3'b000, 2'b00, 2'b00, 8'b00000000, 3'b001, 3'b000, 3'b000, 2'b00, 6'b000000, 5'b00000, 2'b00, 3'b000, 2'b11};\n      else\n"
+assert r1 in out
+out = out.replace(r1, "      begin\n" + r1.replace("      else\n", f"         AF <= AF_FETCH;\n         XT <= {FETCH_XT};\n      end\n      else\n"))
+r2 = "               MI <= {3'b000, 4'b0000, 2'b00, 3'b000, 2'b00, 2'b00, 8'b00000000, 3'b001, 3'b000, 3'b000, 2'b00, 6'b000000, 5'b00000, 2'b00, 3'b000, 2'b11};\n"
+assert r2 in out
+out = out.replace(r2, "            begin\n" + r2 + f"               AF <= AF_FETCH;\n               XT <= {FETCH_XT};\n            end\n")
+r3 = "              MI <= M_TAB[({IR, STATE2[2:0]})];\n"
+assert r3 in out
+out = out.replace(r3, "            begin\n" + r3 + "              AF <= AF_TAB[({IR, STATE2[2:0]})];\n              XT <= XT_TAB[({IR, STATE2[2:0]})];\n            end\n")
+m_old = "   assign M = {ALUFlags, MI.stateCtrl,"
+assert m_old in out
+out = out.replace(m_old, "   assign M = {XT[24:17], XT[16:11], XT[10], XT[9], XT[8], XT[7:0], ALUFlags, MI.stateCtrl,")
+
+# ---- S7 data-late step: the address fields of the NEXT microinstruction ----
+# F65C816_naf returns {addrBus[3:0], addrInc[1:0], byteSel[1], outBus[2:0], va[1:0]} of
+# row (IR, NextState), from the *registered* IR, so the core can form the next
+# step's address during the current step.  NextState 0 (fetch) and 1 (step 1)
+# return zero = PBR:PC, no increment, no write.  That, and the core's use of
+# the registered D / DBR / EF / IR in the next-address function, rest on
+# properties of the table that are asserted here.
+F_STATECTRL, F_ADDRBUS, F_ADDRINC, F_LOADP, F_LOADDKB, F_OUTBUS = 0, 1, 2, 3, 10, 14
+FLD = [[x.strip().split("'b")[1] for x in r.split(',')] for r in rows]
+def successors(i):
+    """row indices that can follow row i; None = the fetch step"""
+    ir, st, sc = i >> 3, (i & 7) + 1, FLD[i][F_STATECTRL]
+    nxt = {'000': [st + 1], '001': [st + 1, st + 2], '010': [0, 2] if (ir & 0x1F) == 0x10 and st == 1 else [0],
+           '011': [0, st + 1], '100': [st + 1, 0], '101': [st + 1, st + 2], '110': [st + 1, st + 2],
+           '111': [st + 1, st + 2]}[sc]
+    return [None if n == 0 else (ir << 3) | (n - 1) for n in nxt]
+READS = {'D': {'0011', '0111'}, 'DBR': {'0001'},
+         'EF': {'0101', '0011', '0111', '1000', '1100', '1111'}}
+na = []
+for i, f in enumerate(FLD):
+    ir, st = i >> 3, (i & 7) + 1
+    if 'X' in f[F_ADDRBUS]:
+        na.append("12'bxxxxxxxxxxxx"); continue
+    na.append("12'b" + f[F_ADDRBUS] + f[F_ADDRINC] + f[FIELD_BYTESEL][0] + f[F_OUTBUS] + f[15])
+    if st == 1 and f[15] == '00':   # the core's twoCls: last cycle iff STATE_CTRL == 010 (never a branch)
+        if f[F_STATECTRL] == '010': assert (ir & 0x1F) != 0x10, hex(ir)
+        else:                       assert None not in successors(i), (hex(ir), f[F_STATECTRL])
+    if st == 1:   # IR is new in step 1: its address must not depend on the opcode
+        assert (f[F_ADDRBUS], f[F_ADDRINC], f[F_OUTBUS]) == ('0000', '00', '000'), (hex(ir), f)
+    if f[7] == '111':   # MVN/MVP repeat: the core takes PCDec = (A != 0) instead of the ALU carry
+        assert f[FIELD_BUSCTRL] == '000101' and f[FIELD_ALUCTRL] == '10000' and alu_bits[16] == '10011000', (hex(ir), st, f)
+    loads = set()
+    if f[F_LOADDKB] == '01': loads.add('D')
+    if f[F_LOADDKB] == '11': loads.add('DBR')
+    if f[F_LOADP] == '101':  loads.add('EF')
+    for reg in loads:   # a register taken from its flop in the next-address function
+        for n in successors(i):
+            assert n is None or FLD[n][F_ADDRBUS] not in READS[reg], (reg, hex(ir), st, n)
+# SUCC_TAB: the address fields of BOTH possible successors of each row, {row(st+1), row(st+2)},
+# registered with the microinstruction (SN).  During a step the core then picks the next
+# step's fields with the NextState decision alone (fetch/step 1 -> zero, +1, +2), instead of
+# a ROM lookup behind NextState.  The fetch microinstruction's successor is step 1: zero.
+def na_bits(i):
+    return na[i].split("'b")[1] if i < len(na) and (i >> 3) == cur_ir else "x" * 12
+succ = []
+for i in range(len(FLD)):
+    cur_ir = i >> 3
+    succ.append("24'b" + ("x" * 24 if 'x' in na[i] else na_bits(i + 1) + na_bits(i + 2)))
+a = "   FMicroInst_r         MI;\n"
+assert out.count(a) == 1
+out = out.replace(a, "   // rung 3: address fields of the two possible successor rows (see gen_fast_mcode.py)\n"
+                     "   localparam logic [23:0] SUCC_TAB[0:2047] = '{\n" + ",\n".join("      " + x for x in succ) + "\n   };\n" + a)
+a = "   output FMCode_r   M\n   ) /* synthesis"
+assert out.count(a) == 1
+out = out.replace(a, "   output FMCode_r   M,\n   output logic [23:0] SN    // rung 3: {NAF of row st+1, NAF of row st+2} of the registered row\n   ) /* synthesis")
+for ind in ("         ", "               "):   # reset value and the fetch-step constant
+    a = "\n" + ind + "XT <= " + FETCH_XT + ";\n"
+    assert out.count(a) == 1, out.count(a)
+    out = out.replace(a, a + ind + "SN <= 24'b0;\n")
+a = "              XT <= XT_TAB[({IR, STATE2[2:0]})];\n"
+assert out.count(a) == 1
+out = out.replace(a, a + "              SN <= SUCC_TAB[({IR, STATE2[2:0]})];\n")
+# The next-step address is formed two ways (F65C816.sv): from the registers' NEXT values
+# with no increment, or from their CURRENT values plus the next step's ADDR_INC.  The
+# second is right only if the registers that address it are not loaded in the step
+# before: a step that loads AA/AB, DX, SP or PBR is never followed by an access through
+# that register with a nonzero increment.  Asserted here, row by row.
+F_ADDRCTRL, F_MUXCTRL, F_LOADSP = 6, 5, 8
+# AddrGen.sv forms the high address byte per use and drops the stock "AB = D_IN + the high
+# byte's carry" (ABSCtrl 10), which put the low byte's carry in front of the bank: no row uses it.
+for i, f in enumerate(FLD):
+    assert 'X' in f[F_ADDRCTRL] or f[F_ADDRCTRL][6:8] != '10', (hex(i >> 3), i & 7, f[F_ADDRCTRL])
+AA_MODES, DX_MODES, SP_MODES = {'0001', '0101', '0010', '0110'}, {'0011', '0111'}, {'1000', '1100'}
+for i, f in enumerate(FLD):
+    if 'X' in f[F_STATECTRL]: continue
+    ir = i >> 3
+    aal, aah, absc, ind = f[F_ADDRCTRL][0:3], f[F_ADDRCTRL][3:6], f[F_ADDRCTRL][6:8], f[F_MUXCTRL]
+    ld_aa = (aal in ('001', '010', '011') or (aal == '000' and ind[0] == '1') or
+             aah in ('001', '010', '011') or (aah == '000' and ind[0] == '1') or absc != '00')
+    ld_dx = aal in ('100', '101') or aah in ('100', '101', '110')
+    ld_sp = f[F_LOADSP] != '000'
+    ld_pbr = f[F_LOADDKB] == '10'
+    assert not (f[F_ADDRBUS] == '0000' and f[F_ADDRINC] != '00'), ('PC', hex(ir), i & 7)   # PBR:PC never takes an increment
+    for n in successors(i):
+        if n is None or 'X' in FLD[n][F_ADDRBUS]: continue
+        s = FLD[n]
+        if s[F_ADDRINC] == '00': continue
+        sp_use = (s[F_ADDRBUS] in SP_MODES or (ir in (0x62, 0xD4) and s[F_ADDRBUS] == '0101') or
+                  (ir in (0x00, 0x02) and s[F_OUTBUS] != '000'))
+        assert not (ld_aa and s[F_ADDRBUS] in AA_MODES), ('AA', hex(ir), i & 7)
+        assert not (ld_dx and s[F_ADDRBUS] in DX_MODES), ('DX', hex(ir), i & 7)
+        assert not (ld_sp and sp_use), ('SP', hex(ir), i & 7)
+        assert not (ld_pbr and s[F_ADDRBUS] == '0010'), ('PBR', hex(ir), i & 7)
+
+naf_mod = ("\n\n// S7 data-late step: address fields of the next microinstruction (see gen_fast_mcode.py).\n"
+           "// Simulation reference only: the core selects the same fields from the registered SN.\n"
+           "module F65C816_naf\n  (\n   input [7:0]         IR,      // registered opcode\n"
+           "   input [3:0]         STATE,   // NextState\n"
+           "   output logic [11:0] NAF      // {addrBus[3:0], addrInc[1:0], byteSel[1], outBus[2:0], va[1:0]}\n"
+           "   ) /* synthesis syn_romstyle = \"logic\" */;\n"
+           "   localparam logic [11:0] NA_TAB[0:2047] = '{\n" + ",\n".join("      " + a for a in na) + "\n   };\n"
+           "   wire [3:0] S2 = STATE - 4'd1;\n"
+           "   assign NAF = (STATE <= 4'd1) ? 12'b000000000000 : NA_TAB[({IR, S2[2:0]})];\n"
+           "endmodule\n")
+# Step 1 of each opcode, for the core's next-step bus status in the fetch step (the
+# opcode is still on the data bus): VA[0] of the row (VA[1] is 0 in every step 1), and
+# whether it is the last cycle of a two-cycle implied instruction (VA = 00, STATE_CTRL = 010).
+st1 = []
+for ir in range(256):
+    f = FLD[ir << 3]
+    assert f[15][0] == '0', (hex(ir), f[15])
+    st1.append("2'b" + f[15][1] + str(int(f[15] == '00' and f[F_STATECTRL] == '010')))
+st1_mod = ("\n\n// S7 data-late step: step 1 of each opcode (see gen_fast_mcode.py)\n"
+           "module F65C816_st1\n  (\n   input [7:0]   IR,      // the opcode being fetched\n"
+           "   output        VA1,     // VA[0] of its step 1\n"
+           "   output        TWOC     // its step 1 is the last cycle of a two-cycle implied instruction\n"
+           "   ) /* synthesis syn_romstyle = \"logic\" */;\n"
+           "   localparam logic [1:0] ST1_TAB[0:255] = '{\n" + ",\n".join("      " + a for a in st1) + "\n   };\n"
+           "   assign {VA1, TWOC} = ST1_TAB[IR];\n"
+           "endmodule\n")
+# ---- rung 4: the next microinstruction as candidates ----
+# The stock module looks the row up from (NextIR, NextState), both late: NextState hangs
+# off the page-cross carry and the flags, NextIR off the data bus in the fetch step.  But
+# NextState is only ever 0, STATE + 1 or STATE + 2, and in the fetch step (STATE = 0) it
+# is 1 with IR = the opcode on the bus.  So the module takes the REGISTERED IR / STATE and
+# looks up both successor rows from them, takes step 1 of the fetched opcode from the
+# rows {NIR, 0} (an eight-input function), and the late decision only selects.
+hdr_old = "   input [7:0] IR,\n   input [3:0] STATE,\n"
+assert out.count(hdr_old) == 1, out.count(hdr_old)
+out = out.replace(hdr_old,
+    "   input [7:0] IR,          // registered opcode\n"
+    "   input [3:0] STATE,       // registered state\n"
+    "   input [7:0] NIR,         // fetch step: the opcode on the data bus (00 for an interrupt)\n"
+    "   input       NS_ZERO,     // the next state is 0 (fetch)\n"
+    "   input       NS_INC2,     // the next state is STATE + 2 (else STATE + 1)\n")
+b0 = out.index("   always @(posedge CLK or negedge RST_N)\n   begin: xhdl0")
+b1 = out.index("   assign M = {", b0)
+FETCH_MI = "{3'b000, 4'b0000, 2'b00, 3'b000, 2'b00, 2'b00, 8'b00000000, 3'b001, 3'b000, 3'b000, 2'b00, 6'b000000, 5'b00000, 2'b00, 3'b000, 2'b11}"
+assert FETCH_MI in out[b0:b1]
+def load(ind, idx):
+    return (f"{ind}MI <= M_TAB[{idx}];\n{ind}AF <= AF_TAB[{idx}];\n"
+            f"{ind}XT <= XT_TAB[{idx}];\n{ind}SN <= SUCC_TAB[{idx}];\n")
+def fetch(ind):
+    return f"{ind}MI <= {FETCH_MI};\n{ind}AF <= AF_FETCH;\n{ind}XT <= {FETCH_XT};\n{ind}SN <= 24'b0;\n"
+blk = ("   wire [2:0] S_P1 = STATE[2:0] + 3'd1;\n"
+       "   always @(posedge CLK or negedge RST_N)\n   begin: xhdl0\n"
+       "      if (RST_N == 1'b0)\n      begin\n" + fetch("         ") + "      end\n"
+       "      else if (EN == 1'b1)\n      begin\n"
+       "         if (STATE == 4'b0000)\n         begin        // the fetch step: step 1 of the opcode on the bus\n"
+       + load("            ", "({NIR, 3'b000})") + "         end\n"
+       "         else if (NS_ZERO == 1'b1)\n         begin\n" + fetch("            ") + "         end\n"
+       "         else if (NS_INC2 == 1'b1)\n         begin\n" + load("            ", "({IR, S_P1})") + "         end\n"
+       "         else\n         begin\n" + load("            ", "({IR, STATE[2:0]})") + "         end\n"
+       "      end\n   end\n\n")
+out = out[:b0] + blk + out[b1:]
+
+# ---- rung 5: the successor rows from block RAM (F65C816_mcode_s) ----
+# With the core stepping no faster than every second clk (the two-clk step), IR and
+# STATE are registers a whole clk before the step ends, so the two successor rows can
+# be READ from them in a synchronous memory in the step's last clk but one, instead of
+# looked up in LUTs: the table is most of the core's logic.  Step 1 of the opcode on
+# the bus is still a lookup from the data (256 rows), and the late decision selects as
+# before.  A row is {MI, AF, XT, SN}; "don't care" bits are zero in the memory.
+def packed(i, keep_x=False):
+    r = bits(rows[i]) + af[i][4:] + xt[i][4:] + succ[i][4:]
+    assert len(r) == 127, (i, len(r))
+    return r.lower() if keep_x else r.replace('X', '0').replace('x', '0')
+FETCH_ROW = bits(FETCH_MI.strip("{}")) + AF_FETCH[4:] + FETCH_XT[4:].replace('_', '') + "0" * 24
+assert len(FETCH_ROW) == 127 and set(FETCH_ROW) <= {'0', '1'}
+m_new = "   assign M = {XT[24:17], XT[16:11], XT[10], XT[9], XT[8], XT[7:0], ALUFlags, MI.stateCtrl,"
+m_line = [l for l in out.split("\n") if l.startswith(m_new)]
+assert len(m_line) == 1
+sync_mod = ("\n\n// S7 rung 5: the microcode table as a synchronous memory with two read ports' worth\n"
+            "// of rows (see gen_fast_mcode.py); block RAM.\n"
+            "module F65C816_mrom\n  (\n   input                CLK,\n   input [10:0]         AA,\n   input [10:0]         AB,\n"
+            "   output logic [126:0] QA,\n   output logic [126:0] QB\n"
+            "   ) /* synthesis syn_romstyle = \"block_rom\" */;\n"
+            "   localparam logic [126:0] ROW_TAB[0:2047] = '{\n" + ",\n".join("      127'b" + packed(i) for i in range(2048)) + "\n   };\n"
+            "   always @(posedge CLK) QA <= ROW_TAB[AA];\n"
+            "   always @(posedge CLK) QB <= ROW_TAB[AB];\n"
+            "endmodule\n"
+            "\n\n// S7 rung 5: step 1 of each opcode, the whole row, a lookup from the data bus\n"
+            "module F65C816_mst1\n  (\n   input [7:0]    IR,      // the opcode being fetched\n   output [126:0] Q\n"
+            "   ) /* synthesis syn_romstyle = \"logic\" */;\n"
+            "   localparam logic [126:0] ST1ROW_TAB[0:255] = '{\n" + ",\n".join("      127'b" + packed(ir << 3, True) for ir in range(256)) + "\n   };\n"
+            "   assign Q = ST1ROW_TAB[IR];\n"
+            "endmodule\n"
+            "\n\n// S7 rung 5: F65C816_mcode for a core that steps no faster than every second clk.\n"
+            "// The successor rows of the registered row are read from block RAM in the clk before\n"
+            "// the step ends (IR and STATE are registers: the address is steady from the step's\n"
+            "// first clk); step 1 of the fetched opcode is a lookup from the data bus; the\n"
+            "// NextState decision selects.  Same ports and the same registered row as\n"
+            "// F65C816_mcode, which is the reference (the lockstep bench runs either).\n"
+            "module F65C816_mcode_s\n  (\n   input       CLK,\n   input       RST_N,\n   input       EN,\n"
+            "   input [7:0] IR,          // registered opcode\n"
+            "   input [3:0] STATE,       // registered state\n"
+            "   input [7:0] NIR,         // fetch step: the opcode on the data bus (00 for an interrupt)\n"
+            "   input       NS_ZERO,     // the next state is 0 (fetch)\n"
+            "   input       NS_INC2,     // the next state is STATE + 2 (else STATE + 1)\n"
+            "   output FMCode_r   M,\n"
+            "   output logic [23:0] SN    // {NAF of row st+1, NAF of row st+2} of the registered row\n"
+            "   );\n"
+            "   localparam logic [126:0] FETCH_ROW = 127'b" + FETCH_ROW + ";\n"
+            "   wire [2:0]   S_P1 = STATE[2:0] + 3'd1;\n"
+            "   wire [126:0] qa, qb, q1;\n"
+            "   F65C816_mrom Rom(.CLK(CLK), .AA({IR, STATE[2:0]}), .AB({IR, S_P1}), .QA(qa), .QB(qb));\n"
+            "   F65C816_mst1 St1(.IR(NIR), .Q(q1));\n"
+            "   // (the fetch step's own decision is always \"the next state is 1\": its row has\n"
+            "   // STATE_CTRL 000, so NS_ZERO and NS_INC2 are 0 there and need no qualifying)\n"
+            "   wire [126:0] early = (STATE == 4'b0000) ? q1 : qa;\n"
+            "   logic [126:0] R;\n"
+            "   always @(posedge CLK or negedge RST_N)\n"
+            "      if (RST_N == 1'b0)   R <= FETCH_ROW;\n"
+            "      else if (EN == 1'b1) R <= NS_ZERO ? FETCH_ROW : NS_INC2 ? qb : early;\n"
+            "   FMicroInst_r MI;\n   FALUCtrl_r   AF, ALUFlags;\n   logic [24:0] XT;\n"
+            "   assign {MI, AF, XT, SN} = R;\n"
+            "   assign ALUFlags = AF;\n"
+            + m_line[0] + "\n"
+            "`ifdef VERILATOR\n"
+            "   // the memory is read in the clk before the step ends: never two steps in two clks,\n"
+            "   // and the fetch step never asks for anything but step 1\n"
+            "   logic en_q;\n"
+            "   always @(posedge CLK or negedge RST_N)\n"
+            "      if (RST_N == 1'b0) en_q <= 1'b0;\n"
+            "      else begin\n"
+            "         en_q <= EN;\n"
+            "         if (EN && en_q) begin $display(\"ERROR: F65C816_mcode_s stepped in two successive clks @%0t\", $time); $finish; end\n"
+            "         if (EN && STATE == 4'b0000 && (NS_ZERO || NS_INC2)) begin\n"
+            "            $display(\"ERROR: F65C816_mcode_s: fetch step with NS_ZERO %b NS_INC2 %b @%0t\", NS_ZERO, NS_INC2, $time); $finish;\n"
+            "         end\n"
+            "      end\n"
+            "`endif\n"
+            "endmodule\n")
+
+out = out.rstrip("\n") + naf_mod + st1_mod + sync_mod
+DST.write_text(out)
+print(f"wrote {DST}: {len(af)} rows, {sum('x' in a for a in af)} X rows")

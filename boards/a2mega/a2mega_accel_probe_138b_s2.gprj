@@ -1,0 +1,24 @@
+<?xml version="1" encoding="UTF-8"?>
+<!DOCTYPE gowin-fpga-project>
+<Project>
+    <Template>FPGA</Template>
+    <Version>5</Version>
+    <Device name="GW5AST-138B" pn="GW5AST-LV138PG484AC1/I0">gw5ast138b-011</Device>
+    <FileList>
+        <File path="hdl/accel_probe_138b/accel_probe_step2_defines.v" type="file.verilog" enable="1"/>
+        <File path="hdl/twgs/fast/F65C816_pkg.sv" type="file.verilog" enable="1"/>
+        <File path="hdl/twgs/fast/mcode.sv" type="file.verilog" enable="1"/>
+        <File path="hdl/twgs/fast/AddSubBCD.sv" type="file.verilog" enable="1"/>
+        <File path="hdl/twgs/fast/ALU.sv" type="file.verilog" enable="1"/>
+        <File path="hdl/twgs/fast/AddrGen.sv" type="file.verilog" enable="1"/>
+        <File path="hdl/twgs/fast/AddrBus.sv" type="file.verilog" enable="1"/>
+        <File path="hdl/twgs/fast/F65C816.sv" type="file.verilog" enable="1"/>
+        <File path="hdl/twgs/gs_socket_phy.sv" type="file.verilog" enable="1"/>
+        <File path="hdl/twgs/gs_mmu_decode.sv" type="file.verilog" enable="1"/>
+        <File path="hdl/twgs/gs_mmu_replica.sv" type="file.verilog" enable="1"/>
+        <File path="hdl/twgs/gs_accel_broker.sv" type="file.verilog" enable="1"/>
+        <File path="hdl/accel_probe_138b/accel_probe_top.sv" type="file.verilog" enable="1"/>
+        <File path="hdl/accel_probe_138b/accel_probe_138b.cst" type="file.cst" enable="1"/>
+        <File path="hdl/accel_probe_138b/accel_probe_138b_s2.sdc" type="file.sdc" enable="1"/>
+    </FileList>
+</Project>

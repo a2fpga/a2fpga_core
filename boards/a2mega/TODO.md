@@ -27,7 +27,7 @@ FTP). The board has not been attached since 2026-10-11; the 2026-10-22 merge and
       image storage strategy (LittleFS + FTP today) are verified on the a2p25, not here
 - [ ] 138K socket: S6 auto-arm reset sequencing (which chip sinks /RESET on the IIgs is the
       open question, [docs/adb_micro_rom01_notes.md](docs/adb_micro_rom01_notes.md)); then the
-      S7 accelerator scoping ([docs/gs_socket_s7_accelerator_scoping.md](docs/gs_socket_s7_accelerator_scoping.md))
+      S7 accelerator scoping ([docs/gs_socket_s7_accelerator_scoping.md](docs/gs_socket_s7_accelerator_scoping.md)); fast-core exploration under way ([docs/gs_socket_s7_fast_core_exploration.md](docs/gs_socket_s7_fast_core_exploration.md): the accelerator-domain probe closes 54 MHz steps at 108 MHz, 2026-11-12); accelerator-only build made and simulated, first hardware run pending ([docs/gs_socket_s7_accel_only_build.md](docs/gs_socket_s7_accel_only_build.md))
 - [ ] Board rev 1.0a4: close the OPEN items of the requirements doc; the pre-revision exercise
       plan's remaining gates are a maintainer question
 - [ ] DDR3 arbiter: round-robin fairness below the two framebuffer ports before adding any new

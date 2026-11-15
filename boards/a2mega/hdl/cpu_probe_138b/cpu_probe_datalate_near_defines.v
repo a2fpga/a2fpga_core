@@ -1,0 +1,2 @@
+`define CPU_PROBE_DATALATE
+`define CPU_PROBE_NEAR_MEM

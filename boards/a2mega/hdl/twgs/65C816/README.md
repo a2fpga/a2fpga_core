@@ -28,6 +28,11 @@ Author:   srg320 — https://github.com/srg320
   can insert the IIgs's RAM-refresh and slow-bus stretch cycles.
 - Assorted fixes found while running the Apple IIgs ROM self-tests and
   the 65C816 instruction-level test suites.
+- WAI wake-up restored to the original's condition (2026-11-11): the
+  conversion tested `IRQ_N == 1` where the VHDL has `IRQ_N = '0'`, so a WAI
+  ended at once when no interrupt was pending and never ended when /IRQ went
+  low while it executed. Found by the S7 broker bench (`sim/broker`, the WAI
+  in `broker_test.s`).
 - Submodules carry a `P65C816_` prefix (`P65C816_ALU`, `P65C816_AddrGen`,
   `P65C816_AddSubBCD`, `P65C816_BCDAdder`, `P65C816_adder4`,
   `P65C816_bit_adder`, `P65C816_mcode`): the a2mega build also contains

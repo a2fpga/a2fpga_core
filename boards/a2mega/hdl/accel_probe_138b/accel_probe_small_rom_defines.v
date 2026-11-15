@@ -1,0 +1,1 @@
+`define ACCEL_PROBE_SMALL_ROM

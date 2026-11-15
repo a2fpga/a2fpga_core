@@ -1,0 +1,23 @@
+<?xml version="1" encoding="UTF-8"?>
+<!DOCTYPE gowin-fpga-project>
+<Project>
+    <Template>FPGA</Template>
+    <Version>5</Version>
+    <Device name="GW5AST-138B" pn="GW5AST-LV138PG484AC1/I0">gw5ast138b-011</Device>
+    <FileList>
+        <File path="hdl/cpu_probe_138b/cpu_probe_stock_defines.v" type="file.verilog" enable="1"/>
+        <File path="hdl/twgs/65C816/P65C816_pkg.sv" type="file.verilog" enable="1"/>
+        <File path="hdl/twgs/65C816/mcode.sv" type="file.verilog" enable="1"/>
+        <File path="hdl/twgs/65C816/bit_adder.v" type="file.verilog" enable="1"/>
+        <File path="hdl/twgs/65C816/adder4.v" type="file.verilog" enable="1"/>
+        <File path="hdl/twgs/65C816/BCDAdder.v" type="file.verilog" enable="1"/>
+        <File path="hdl/twgs/65C816/AddSubBCD.sv" type="file.verilog" enable="1"/>
+        <File path="hdl/twgs/65C816/ALU.sv" type="file.verilog" enable="1"/>
+        <File path="hdl/twgs/65C816/AddrGen.sv" type="file.verilog" enable="1"/>
+        <File path="hdl/twgs/65C816/P65C816.sv" type="file.verilog" enable="1"/>
+        <File path="hdl/cpu_probe_138b/cpu_probe_top.sv" type="file.verilog" enable="1"/>
+        <File path="hdl/cpu_probe_138b/cpu_probe_mem.hex" type="file.other" enable="1"/>
+        <File path="hdl/cpu_probe_138b/cpu_probe_138b.cst" type="file.cst" enable="1"/>
+        <File path="hdl/cpu_probe_138b/cpu_probe_138b.sdc" type="file.sdc" enable="1"/>
+    </FileList>
+</Project>

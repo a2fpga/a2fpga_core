@@ -1,0 +1,15 @@
+// S7 fast-core Fmax probe — 138B SOM on the 1.0a3 carrier.  Pins copied from
+// a2mega_dp_test_138b.cst: 50 MHz oscillator, SOM pushbutton, carrier LEDs.
+// The probe is a timing instrument; it is not meant to be flashed.
+IO_LOC  "clk50_in" V22;
+IO_PORT "clk50_in" IO_TYPE=LVCMOS33 PULL_MODE=NONE BANK_VCCIO=3.3;
+IO_LOC  "button" AB13;
+IO_PORT "button" IO_TYPE=LVCMOS33 PULL_MODE=UP BANK_VCCIO=3.3;
+IO_LOC  "led[0]" D15;
+IO_PORT "led[0]" IO_TYPE=LVCMOS33 PULL_MODE=NONE;
+IO_LOC  "led[1]" D14;
+IO_PORT "led[1]" IO_TYPE=LVCMOS33 PULL_MODE=NONE;
+IO_LOC  "led[2]" R14;
+IO_PORT "led[2]" IO_TYPE=LVCMOS33 PULL_MODE=NONE;
+IO_LOC  "led[3]" P14;
+IO_PORT "led[3]" IO_TYPE=LVCMOS33 PULL_MODE=NONE;

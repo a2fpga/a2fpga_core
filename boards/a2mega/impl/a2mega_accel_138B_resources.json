@@ -1,0 +1,325 @@
+{
+"board": "a2mega",
+"modules": {
+"top": {
+"alu": 38,
+"bsram": 0,
+"dsp": 0,
+"lut": 139,
+"reg": 535,
+"rom16": 0,
+"ssram": 0
+},
+"top/ALU": {
+"alu": 0,
+"bsram": 0,
+"dsp": 0,
+"lut": 67,
+"reg": 0,
+"rom16": 0,
+"ssram": 0
+},
+"top/AddSub": {
+"alu": 40,
+"bsram": 0,
+"dsp": 0,
+"lut": 16,
+"reg": 0,
+"rom16": 0,
+"ssram": 0
+},
+"top/AddrGen": {
+"alu": 104,
+"bsram": 0,
+"dsp": 0,
+"lut": 307,
+"reg": 74,
+"rom16": 0,
+"ssram": 0
+},
+"top/MCode": {
+"alu": 0,
+"bsram": 0,
+"dsp": 0,
+"lut": 418,
+"reg": 104,
+"rom16": 0,
+"ssram": 0
+},
+"top/Rom": {
+"alu": 0,
+"bsram": 24,
+"dsp": 0,
+"lut": 0,
+"reg": 0,
+"rom16": 0,
+"ssram": 0
+},
+"top/St1Rom": {
+"alu": 0,
+"bsram": 0,
+"dsp": 0,
+"lut": 16,
+"reg": 0,
+"rom16": 0,
+"ssram": 0
+},
+"top/a2bus_timing_inst": {
+"alu": 0,
+"bsram": 0,
+"dsp": 0,
+"lut": 0,
+"reg": 0,
+"rom16": 0,
+"ssram": 0
+},
+"top/apple_bus": {
+"alu": 5,
+"bsram": 0,
+"dsp": 0,
+"lut": 3,
+"reg": 6,
+"rom16": 0,
+"ssram": 0
+},
+"top/clocks_pll": {
+"alu": 0,
+"bsram": 0,
+"dsp": 0,
+"lut": 0,
+"reg": 0,
+"rom16": 0,
+"ssram": 0
+},
+"top/esp32_ospi": {
+"alu": 60,
+"bsram": 9,
+"dsp": 0,
+"lut": 815,
+"reg": 975,
+"rom16": 0,
+"ssram": 0
+},
+"top/g_exp.u_exp": {
+"alu": 22,
+"bsram": 1,
+"dsp": 0,
+"lut": 46,
+"reg": 60,
+"rom16": 0,
+"ssram": 0
+},
+"top/g_na[0].AddrBusNextInc": {
+"alu": 112,
+"bsram": 0,
+"dsp": 0,
+"lut": 10,
+"reg": 0,
+"rom16": 0,
+"ssram": 0
+},
+"top/g_na[1].AddrBusNextInc": {
+"alu": 112,
+"bsram": 0,
+"dsp": 0,
+"lut": 0,
+"reg": 0,
+"rom16": 0,
+"ssram": 0
+},
+"top/gen_cdc[0].u_cdc": {
+"alu": 13,
+"bsram": 3,
+"dsp": 0,
+"lut": 27,
+"reg": 142,
+"rom16": 0,
+"ssram": 0
+},
+"top/gen_cdc[1].u_cdc": {
+"alu": 13,
+"bsram": 0,
+"dsp": 0,
+"lut": 21,
+"reg": 48,
+"rom16": 0,
+"ssram": 0
+},
+"top/gen_evt_log.i_evt_log": {
+"alu": 0,
+"bsram": 2,
+"dsp": 0,
+"lut": 119,
+"reg": 30,
+"rom16": 0,
+"ssram": 0
+},
+"top/gen_no_denoise.cdc_phi1": {
+"alu": 0,
+"bsram": 0,
+"dsp": 0,
+"lut": 0,
+"reg": 3,
+"rom16": 0,
+"ssram": 0
+},
+"top/i_gs_pll": {
+"alu": 0,
+"bsram": 0,
+"dsp": 0,
+"lut": 0,
+"reg": 0,
+"rom16": 0,
+"ssram": 0
+},
+"top/pll_ddr3_inst": {
+"alu": 0,
+"bsram": 0,
+"dsp": 0,
+"lut": 0,
+"reg": 0,
+"rom16": 0,
+"ssram": 0
+},
+"top/proto": {
+"alu": 0,
+"bsram": 0,
+"dsp": 0,
+"lut": 523,
+"reg": 195,
+"rom16": 0,
+"ssram": 0
+},
+"top/u_acc": {
+"alu": 0,
+"bsram": 147,
+"dsp": 0,
+"lut": 546,
+"reg": 389,
+"rom16": 0,
+"ssram": 0
+},
+"top/u_board_plls": {
+"alu": 0,
+"bsram": 0,
+"dsp": 0,
+"lut": 1,
+"reg": 0,
+"rom16": 0,
+"ssram": 0
+},
+"top/u_brk": {
+"alu": 251,
+"bsram": 0,
+"dsp": 0,
+"lut": 1046,
+"reg": 668,
+"rom16": 0,
+"ssram": 0
+},
+"top/u_copy": {
+"alu": 22,
+"bsram": 0,
+"dsp": 0,
+"lut": 87,
+"reg": 91,
+"rom16": 0,
+"ssram": 0
+},
+"top/u_cpu": {
+"alu": 0,
+"bsram": 0,
+"dsp": 0,
+"lut": 1375,
+"reg": 228,
+"rom16": 0,
+"ssram": 0
+},
+"top/u_ddr3": {
+"alu": 126,
+"bsram": 0,
+"dsp": 0,
+"lut": 3698,
+"reg": 7195,
+"rom16": 0,
+"ssram": 0
+},
+"top/u_ddr3_ports": {
+"alu": 18,
+"bsram": 0,
+"dsp": 0,
+"lut": 218,
+"reg": 343,
+"rom16": 0,
+"ssram": 0
+},
+"top/u_decode": {
+"alu": 0,
+"bsram": 0,
+"dsp": 0,
+"lut": 63,
+"reg": 0,
+"rom16": 0,
+"ssram": 0
+},
+"top/u_phy": {
+"alu": 61,
+"bsram": 0,
+"dsp": 0,
+"lut": 118,
+"reg": 152,
+"rom16": 0,
+"ssram": 0
+},
+"top/u_pll": {
+"alu": 0,
+"bsram": 0,
+"dsp": 0,
+"lut": 0,
+"reg": 0,
+"rom16": 0,
+"ssram": 0
+},
+"top/u_pll_init": {
+"alu": 16,
+"bsram": 0,
+"dsp": 0,
+"lut": 52,
+"reg": 38,
+"rom16": 0,
+"ssram": 0
+},
+"top/u_replica": {
+"alu": 0,
+"bsram": 0,
+"dsp": 0,
+"lut": 86,
+"reg": 39,
+"rom16": 0,
+"ssram": 0
+}
+},
+"pnr_totals": {
+"BSRAM": [
+192,
+340
+],
+"CLS": [
+11717,
+69120
+],
+"Logic": [
+10999,
+138240
+],
+"PLL": [
+3,
+12
+],
+"Register": [
+11396,
+139095
+]
+},
+"project": "a2mega_accel_138B"
+}

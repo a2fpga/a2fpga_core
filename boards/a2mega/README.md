@@ -97,6 +97,8 @@ verified on the a2p25.
     - [ESP32_OSPI_DESIGN.md](docs/ESP32_OSPI_DESIGN.md), [ESP32_ENHANCED_PORT.md](docs/ESP32_ENHANCED_PORT.md)
   - **IIgs CPU socket (138K)**
     - [gs_socket_65816_scoping.md](docs/gs_socket_65816_scoping.md) — the in-socket 65C816: electrical contract, datasheet departures, the S4 integration record
-    - [gs_socket_s7_accelerator_scoping.md](docs/gs_socket_s7_accelerator_scoping.md) — accelerator scoping (open questions)
+    - [gs_socket_s7_accelerator_scoping.md](docs/gs_socket_s7_accelerator_scoping.md) — accelerator scoping (open questions); §9: memory-map replica and broker proven in simulation (2026-11-11)
+    - [gs_socket_s7_fast_core_exploration.md](docs/gs_socket_s7_fast_core_exploration.md) — fast-core exploration log: bench, Fmax probe, optimization ladder
+    - [gs_socket_s7_accel_only_build.md](docs/gs_socket_s7_accel_only_build.md) — the accelerator-only build (`a2mega_accel_138B.gprj`): contents, control registers, bring-up ladder; built and simulated, not flashed
     - [adb_micro_rom01_notes.md](docs/adb_micro_rom01_notes.md), [twgs_reference.md](docs/twgs_reference.md) — the IIgs ADB micro's reset behaviour and the TransWarp GS reference
   - [docs/archive/](docs/archive/README.md) — the DDR3 framebuffer refactor, Ensoniq-on-DDR3 post-mortem, JTAG research, the 2026-08 DP bring-up planning and AUX captures

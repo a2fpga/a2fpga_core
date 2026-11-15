@@ -1,0 +1,62 @@
+<?xml version="1" encoding="UTF-8"?>
+<!DOCTYPE gowin-fpga-project>
+<Project>
+    <Template>FPGA</Template>
+    <Version>5</Version>
+    <Device name="GW5AST-138B" pn="GW5AST-LV138PG484AC1/I0">gw5ast138b-011</Device>
+    <FileList>
+        <File path="hdl/accel_only/accel_only_defines.v" type="file.verilog" enable="1"/>
+        <File path="hdl/twgs/fast/F65C816_pkg.sv" type="file.verilog" enable="1"/>
+        <File path="hdl/twgs/fast/mcode.sv" type="file.verilog" enable="1"/>
+        <File path="hdl/twgs/fast/AddSubBCD.sv" type="file.verilog" enable="1"/>
+        <File path="hdl/twgs/fast/ALU.sv" type="file.verilog" enable="1"/>
+        <File path="hdl/twgs/fast/AddrGen.sv" type="file.verilog" enable="1"/>
+        <File path="hdl/twgs/fast/AddrBus.sv" type="file.verilog" enable="1"/>
+        <File path="hdl/twgs/fast/F65C816.sv" type="file.verilog" enable="1"/>
+        <File path="hdl/twgs/gs_socket_phy.sv" type="file.verilog" enable="1"/>
+        <File path="hdl/twgs/gs_mmu_decode.sv" type="file.verilog" enable="1"/>
+        <File path="hdl/twgs/gs_mmu_replica.sv" type="file.verilog" enable="1"/>
+        <File path="hdl/twgs/gs_accel_broker.sv" type="file.verilog" enable="1"/>
+        <File path="hdl/twgs/gs_accel_romcopy.sv" type="file.verilog" enable="1"/>
+        <File path="hdl/twgs/gs_bram16be.sv" type="file.verilog" enable="1"/>
+        <File path="hdl/twgs/gs_accel.sv" type="file.verilog" enable="1"/>
+        <File path="hdl/twgs/gs_accel_exp.sv" type="file.verilog" enable="1"/>
+        <File path="hdl/dp_test_138b/pll/gowin_gs_pll_mod.v" type="file.verilog" enable="1"/>
+        <File path="hdl/dp_test_138b/pll/gowin_mgmt_pll_mod.v" type="file.verilog" enable="1"/>
+        <File path="hdl/dp_test_138b/pll/gowin_pixel_pll_mod.v" type="file.verilog" enable="1"/>
+        <File path="hdl/dp_test_138b/gowin_plls_138b.sv" type="file.verilog" enable="1"/>
+        <File path="hdl/accel_only/gowin_acc_pll_mod.v" type="file.verilog" enable="1"/>
+        <File path="hdl/accel_only/gowin_acc_pll.sv" type="file.verilog" enable="1"/>
+        <File path="hdl/clocks_138b.sv" type="file.verilog" enable="1"/>
+        <File path="hdl/gowin/138B/ddr3_memory_interface/ddr3_memory_interface.v" type="file.verilog" enable="1"/>
+        <File path="hdl/gowin/138B/gowin_pll/pll_ddr3.v" type="file.verilog" enable="1"/>
+        <File path="hdl/gowin/138B/gowin_pll/pll_ddr3_mod.v" type="file.verilog" enable="1"/>
+        <File path="hdl/gowin/138B/gowin_pll/pll_usb.v" type="file.verilog" enable="1"/>
+        <File path="hdl/gowin/138B/gowin_pll/pll_usb_mod.v" type="file.verilog" enable="1"/>
+        <File path="../../hdl/ddr3/ddr3_port_cdc.sv" type="file.verilog" enable="1"/>
+        <File path="../../hdl/ddr3/ddr3_ports.sv" type="file.verilog" enable="1"/>
+        <File path="hdl/gowin/138B/gowin_pll/clk_pll.v" type="file.verilog" enable="1"/>
+        <File path="hdl/gowin/138B/gowin_pll/clk_pll_mod.v" type="file.verilog" enable="1"/>
+        <File path="hdl/gowin/138B/gowin_pll/pll_init.v" type="file.verilog" enable="1"/>
+        <File path="hdl/bus/apple_bus.sv" type="file.verilog" enable="1"/>
+        <File path="hdl/esp32/a2_event_log.sv" type="file.verilog" enable="1"/>
+        <File path="hdl/esp32/esp32_ospi_connector.sv" type="file.verilog" enable="1"/>
+        <File path="hdl/esp32/esp32_ospi_proto_proc.sv" type="file.verilog" enable="1"/>
+        <File path="../../hdl/bus/a2bus_control_if.sv" type="file.verilog" enable="1"/>
+        <File path="../../hdl/bus/a2bus_if.sv" type="file.verilog" enable="1"/>
+        <File path="../../hdl/bus/a2bus_timing.sv" type="file.verilog" enable="1"/>
+        <File path="../../hdl/bus/gs_detector.sv" type="file.verilog" enable="1"/>
+        <File path="../../hdl/disk/drive_volume_if.sv" type="file.verilog" enable="1"/>
+        <File path="../../hdl/f18a/f18a_gpu_if.sv" type="file.verilog" enable="1"/>
+        <File path="../../hdl/memory/mem_port_if.sv" type="file.verilog" enable="1"/>
+        <File path="../../hdl/slots/slotmaker_config_if.sv" type="file.verilog" enable="1"/>
+        <File path="../../hdl/video/video_control_if.sv" type="file.verilog" enable="1"/>
+        <File path="../../hdl/support/cdc.sv" type="file.verilog" enable="1"/>
+        <File path="../../hdl/support/cdc_denoise.sv" type="file.verilog" enable="1"/>
+        <File path="../../hdl/support/cdc_sampling.sv" type="file.verilog" enable="1"/>
+        <File path="../../hdl/support/sdpram32.sv" type="file.verilog" enable="1"/>
+        <File path="hdl/accel_only/accel_only_top.sv" type="file.verilog" enable="1"/>
+        <File path="hdl/accel_only/accel_only_138b.cst" type="file.cst" enable="1"/>
+        <File path="hdl/accel_only/accel_only_138b.sdc" type="file.sdc" enable="1"/>
+    </FileList>
+</Project>

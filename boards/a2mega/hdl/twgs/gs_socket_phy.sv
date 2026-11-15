@@ -81,7 +81,11 @@ module gs_socket_phy #(
     parameter int OUT_DELAY  = 2,   // clks after the synchronised fall before core outputs are sampled
     parameter int RISE_HOLD  = 1,   // extra clks the bank byte is held after the synchronised rise
     parameter int BE_MIN_CLKS = 12, // BE low shorter than this (~110 ns) is the FPI's per-cycle turnaround pulse: ignored
-    parameter int ALIVE_BITS = 17   // no PH2 fall for 2^ALIVE_BITS clks => not alive
+    parameter int ALIVE_BITS = 17,  // no PH2 fall for 2^ALIVE_BITS clks => not alive
+    parameter bit CORE_SUBST = 1'b1,// 1 = substitute internal cycles aimed at I/O space here (S6: the core's
+                                    // outputs come straight in); 0 = the caller already did (gs_accel_broker)
+    parameter bit WDATA_LATE = 1'b0 // 1 = take the write data again the clk after the issue (it is not driven
+                                    // before the PHI2 rise, so the caller gets one more clk for it)
 ) (
     input  logic        clk,            // pin-sequencer clock (~108 MHz)
     input  logic        rst_n,          // system reset, active low
@@ -198,7 +202,21 @@ module gs_socket_phy #(
         end
     end
 
-    wire enabled = armed & ph2_alive_o & (falls_seen >= 2'd2);
+    // enabled = armed & ph2_alive_o & (falls_seen >= 2), as a register: made from
+    // the next values of the three, so it is that function in every clk and what
+    // reads it (the pin enables, the broker's sequencer, the PH2 domain) reads a
+    // register.
+    logic enabled;
+    always_ff @(posedge clk or negedge rst_n) begin
+        if (!rst_n) enabled <= 1'b0;
+        else        enabled <= armed_s[0] & (fall_evt ? (falls_seen != 2'd0)
+                                                      : ((alive_cnt != {ALIVE_BITS{1'b1}}) & ph2_alive_o & (falls_seen >= 2'd2)));
+    end
+`ifdef VERILATOR
+    always @(posedge clk) if (rst_n && enabled !== (armed & ph2_alive_o & (falls_seen >= 2'd2))) begin
+        $display("ERROR: gs_socket_phy: the enable register is not armed & alive & two falls seen"); $finish;
+    end
+`endif
 
     //=========================================================================
     // PH2 domain (the core's clock domain): sample points at the fall
@@ -243,9 +261,10 @@ module gs_socket_phy #(
     logic [7:0] bank_q;          // bank byte of the last non-internal cycle
     // internal cycle whose address falls in I/O space ($C000-$C0FF of banks 00/01/E0/E1): the only
     // case where a phantom address has side effects; elsewhere the core's own address is presented
-    wire        internal_cyc = core_run & ~cpu_vpa_i & ~cpu_vda_i & (cpu_a_i[15:8] == 8'hC0) &
+    wire        internal_cyc = CORE_SUBST & core_run & ~cpu_vpa_i & ~cpu_vda_i & (cpu_a_i[15:8] == 8'hC0) &
                                ((cpu_a_i[23:17] == 7'd0) | (cpu_a_i[23:17] == 7'h70));
     logic [7:0] wdata_q;
+    logic       wd_again = 1'b0; // WDATA_LATE: the clk after a normal issue
     logic       d_oe_seq;        // sequencer wants the D pads driven
     logic       data_oe_n_seq;   // sequencer's U13 port-2 enable
     logic       run_q;           // core was running when the cycle was issued
@@ -364,6 +383,12 @@ module gs_socket_phy #(
 
                 default: state <= S_OFF;
             endcase
+            // WDATA_LATE: the write data, taken again the clk after a normal issue
+            wd_again <= WDATA_LATE & (state == S_ISSUE) & ~(stall_last & run_q);
+            if (wd_again)
+                wdata_q <= (force_slow_i && cpu_a_i[15:0] == 16'hC036 &&
+                            (cpu_a_i[23:17] == 7'd0 || cpu_a_i[23:17] == 7'h70))
+                           ? {1'b0, cpu_d_out_i[6:0]} : cpu_d_out_i;
         end
     end
 

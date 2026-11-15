@@ -1,0 +1,1 @@
+`define CPU_PROBE_SMALL_MEM

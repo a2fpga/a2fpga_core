@@ -824,7 +824,10 @@ module P65C816
 
          if (RDY_IN == 1'b1 & CE == 1'b1)
          begin
-            if ((NMI_SYNC == 1'b1 | IRQ_N == 1'b1 | ABORT_N == 1'b0) & WAIExec == 1'b1)
+            // WAI ends when an interrupt line is ASSERTED (IRQ_N low, masked or not), as in
+            // the VHDL original; the conversion had the IRQ_N test inverted, so WAI fell
+            // through with no interrupt pending and hung when one arrived during it.
+            if ((NMI_SYNC == 1'b1 | IRQ_N == 1'b0 | ABORT_N == 1'b0) & WAIExec == 1'b1)
                WAIExec <= 1'b0;
          end
       end
