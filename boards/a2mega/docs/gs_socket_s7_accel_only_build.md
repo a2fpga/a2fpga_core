@@ -1435,8 +1435,11 @@ step fills no line, so every read of an expansion bank goes to the
 DDR3, and its socket cycle is issued again until the byte is there. The
 ratios say the same: 1.64, 1.60, 1.53 and 1.42 on the four tests that
 run in the program's own bank, 1.02 and 1.09 on the two that run in ROM
-and the tools. No pass on socket bytes has been run on x0 or q1; nothing
-in either changes that mode. It matters beyond the benchmark: paced
+and the tools. Checked on q1 the same night: after a power cycle, with
+the card at its power-up state (mode 00, no copy; PHI2 averaging 2.66
+MHz), the first round of a base pass was back in the machine's range on
+every test (Ed's reading of the screen; the pass was not run to its
+report). It matters beyond the benchmark: paced
 card memory is the only way back from fast mode without a reset, so a
 speed setting of "off" would today be slower than the machine for a
 program in expansion RAM.
