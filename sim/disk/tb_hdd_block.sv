@@ -36,8 +36,7 @@ module tb_hdd_block;
         .data_o(data_o),
         .rd_en_o(rd_en_o),
         .ram_hdd_if(ram_if),
-        .volumes(volumes),
-        .storage_settled_i(1'b1)
+        .volumes(volumes)
     );
 
     // ---- bus interface defaults ------------------------------------------
