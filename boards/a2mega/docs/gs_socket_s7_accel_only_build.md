@@ -32,7 +32,8 @@ its times is 7 % under the AppleSqueezer GS Turbo's published ones.
 **Closed since (section 3k): with `Place_Option` 1 and the PHI2 period
 counter without its adder, three placements of three at 105 MHz have no
 violation (p0, p1, p2). p1 flashed 2026-11-15 and brought up to paced
-card memory with the copy, no mismatch; no fast pass on it yet.**
+card memory with the copy, no mismatch, then fast (`1B`) at a prompt;
+no benchmark on it yet.**
 Parents: [`gs_socket_s7_accelerator_scoping.md`](gs_socket_s7_accelerator_scoping.md)
 (what the accelerator is) and
 [`gs_socket_s7_fast_core_exploration.md`](gs_socket_s7_fast_core_exploration.md)
@@ -1566,8 +1567,13 @@ and the power cycle. The ladder, at a prompt:
 | card memory, paced, verify (`0A`), 12 s | mode 88, verify count 0, no mismatch address |
 | the same with the copy of E0/E1 (`1A`), 15 s | mode 8A, both verify counts 0, word 13 = `0F` (the copy whole, SLOW in effect) |
 
-Left in `1A`. No fast pass on p1 yet, so its speed is not measured; the
-accelerator's logic is q1's apart from the period counter.
+Then fast (`1B`) with the machine idle at a prompt (Ed's word, and the
+bus addresses of six seconds were a prompt's: the ROM's banks, 00, the
+program's bank 04, E0/E1): mode 9A, no stall, the machine runs on. Over
+10.6 s at that prompt: 33.3 M core steps a second, 0.162 M socket cycles
+a second for the core, 21.95 M line hits and 0.49 M misses a second. No
+benchmark on p1 yet, so its speed is not measured; the accelerator's
+logic is q1's apart from the period counter.
 
 ## 4. What is verified, and what is not
 
