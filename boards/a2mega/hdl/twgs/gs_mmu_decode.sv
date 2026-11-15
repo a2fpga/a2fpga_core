@@ -506,8 +506,13 @@ module gs_mmu_decode #(
   //           banks 00/01 at $D000-$FFFF (language-card RAM or the ROM image,
   //           both the card's - unless a ROM 01's ROMBANK is set);
   //           the ROM banks
-  //   writes  banks 00/01 below $C000 outside every page that can be shadowed
-  //           ($0400-$07FF, $0800-$0BFF on a ROM 3, $2000-$9FFF)
+  //   writes  banks 00/01 below $C000 outside every page that can be shadowed:
+  //           the text pages ($0400-$07FF, $0800-$0BFF on a ROM 3) whatever the
+  //           shadow register says, and $2000-$9FFF unless that register inhibits
+  //           hi-res 1, hi-res 2 and super hi-res all three (bits 1, 2, 3: nothing
+  //           is shadowed there then, in either bank, whatever bit 4 says - the
+  //           register of a machine in a desktop program, whose stack and direct
+  //           page are often in that range)
   //   both    an expansion bank the card backs, while only banks 00/01 shadow
   //           (CYAREG[4] clear): plain RAM, all of it, at its own address
   //   never a vector pull; never $Cxxx of banks 00/01; never a Mega II bank
@@ -515,9 +520,10 @@ module gs_mmu_decode #(
   wire f_romb = (bank_log[7:1] == 7'h7F) | (~rom_select & (bank_log[7:1] == 7'h7E));
   wire f_lo   = (addr_log[15:14] != 2'b11);                                  // below $C000
   wire f_lc   = (addr_log[15:14] == 2'b11) & (addr_log[13:12] != 2'b00);     // $D000-$FFFF
+  wire f_hgrq = shadow[1] & shadow[2] & shadow[3];
   wire f_shw  = (addr_log[15:10] == 6'b000001) |
                 (~rom_select & (addr_log[15:10] == 6'b000010)) |
-                (~addr_log[15] & (addr_log[14] | addr_log[13])) | (addr_log[15:13] == 3'b100);
+                (((~addr_log[15] & (addr_log[14] | addr_log[13])) | (addr_log[15:13] == 3'b100)) & ~f_hgrq);
   wire f_rw   = we ? RAMWRT : RAMRD;
   wire f_aux0 = ((addr_log[15:9] == 7'b0000000) | (addr_log[15:14] == 2'b11)) ? ALTZP :
                 (addr_log[15:10] == 6'b000001) ? ((STORE80 & PAGE2) | (~STORE80 & f_rw)) :

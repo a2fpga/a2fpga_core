@@ -89,13 +89,15 @@ set_multicycle_path 2 -setup -end -from [get_regs {u_acc/cxrom*}] -to [get_regs 
 set_multicycle_path 1 -hold  -end -from [get_regs {u_acc/cxrom*}] -to [get_regs {u_acc/u_brk/aq_* u_acc/u_brk/nh_dq*}]
 set_multicycle_path 2 -setup -end -from [get_regs {u_acc/u_brk/slow_q*}] -to [get_regs {u_acc/u_brk/aq_* u_acc/u_brk/nh_dq*}]
 set_multicycle_path 1 -hold  -end -from [get_regs {u_acc/u_brk/slow_q*}] -to [get_regs {u_acc/u_brk/aq_* u_acc/u_brk/nh_dq*}]
+set_multicycle_path 2 -setup -end -from [get_pins {*nmem_*_s/CLKB *nmem/bram/CLKB}] -to [get_regs {u_acc/u_brk/nh_dq*}]
+set_multicycle_path 1 -hold  -end -from [get_pins {*nmem_*_s/CLKB *nmem/bram/CLKB}] -to [get_regs {u_acc/u_brk/nh_dq*}]
 
 // ---- what a write is made with (its address, its near-memory index and tag, and
 // whether the near memory has its line): registered in every clk and used the clk
 // after the write is decided - the cheap view's in the step's second clk, any other
 // no sooner than the full decode is good, in its third.  From the step registers
 // they are two-clk paths (from the full decode's registered copy, and from the tag
-// read at the launch - through rtag_q in the board build - one)
+// read at the launch, one)
 set_multicycle_path 2 -setup -end -from [get_regs {u_acc/u_brk/ea_r* u_acc/u_brk/ea_k* u_acc/u_brk/pl_int* u_acc/u_brk/pl_we* u_acc/u_brk/pl_vp_n* u_acc/u_brk/pl_io_int*}] -to [get_regs {u_acc/u_brk/wa_r* u_acc/u_brk/widx_r* u_acc/u_brk/whit_r* u_acc/u_brk/winv_r* u_acc/u_brk/wf_r*}]
 set_multicycle_path 1 -hold  -end -from [get_regs {u_acc/u_brk/ea_r* u_acc/u_brk/ea_k* u_acc/u_brk/pl_int* u_acc/u_brk/pl_we* u_acc/u_brk/pl_vp_n* u_acc/u_brk/pl_io_int*}] -to [get_regs {u_acc/u_brk/wa_r* u_acc/u_brk/widx_r* u_acc/u_brk/whit_r* u_acc/u_brk/winv_r* u_acc/u_brk/wf_r*}]
 

@@ -712,6 +712,66 @@ t24n:
         lda $E15123
         res                     ; $A4
 
+        ; ---- T26 writes in $2000-$9FFF of banks 00/01 with the shadow register
+        ;      changed around them.  With hi-res 1, hi-res 2 and super hi-res all
+        ;      inhibited nothing there is shadowed - where a program under the
+        ;      desktop has its stack and direct page - and a card may take such a
+        ;      write in a step's first clk; the step after the register changes
+        ;      it must already go by the new value
+        lda #$1E
+        sta $C035               ; hi-res 1, 2, super hi-res, auxiliary hi-res inhibited
+        lda #$D1
+        sta $3BEC               ; the card's alone
+        sta $6100
+        sta $9FFF
+        sta $013BEC             ; ... in bank 01 too
+        lda #$16
+        sta $C035               ; super hi-res shadowed (bit 3 clear)
+        sta $013BED             ; forwarded: shadowed to E1
+        sta $3BED               ; main, hi-res 1 inhibited: stays on the card
+        lda #$0E
+        sta $C035               ; all three inhibited again (bit 4 clear: nothing for it to apply to)
+        sta $013BEE             ; the card's alone
+        sta $C005               ; RAMWRT on
+        lda #$D4
+        sta $3BEF               ; -> 01/3BEF, the card's alone
+        sta $C004
+        lda #$1C
+        sta $C035               ; hi-res 1 shadowed (bit 1 clear)
+        sta $2BF0               ; forwarded: shadowed to E0
+        lda #$1E
+        sta $C035
+        sta $2BF1               ; the card's alone, in the same line
+        lda #$1A
+        sta $C035               ; hi-res 2 shadowed (bit 2 clear)
+        sta $4BF2               ; forwarded: shadowed to E0
+        lda #$08
+        sta $C035               ; reset value
+        lda $E13BEC
+        res                     ; $00
+        lda $E13BED
+        res                     ; $16
+        lda $E13BEE
+        res                     ; $00
+        lda $E13BEF
+        res                     ; $00
+        lda $E02BF0
+        res                     ; $1C
+        lda $E02BF1
+        res                     ; $00
+        lda $E04BF2
+        res                     ; $1A
+        lda $E03BED
+        res                     ; $00
+        lda $3BEC
+        res                     ; $D1
+        lda $013BEF
+        res                     ; $D4
+        lda $9FFF
+        res                     ; $D1
+        lda $2BF1
+        res                     ; $1E
+
         lda #$A5
         sta SIG
         cli

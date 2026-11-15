@@ -502,6 +502,7 @@ module tb_gs_broker #(
     // read below bank 04 (and ROM) / in banks 04-7F, 4 / 5 write likewise; 6 socket
     longint sl_n [0:6], sl_c [0:6], sl_h [0:6][0:8];
     longint t_step = 0;
+    longint n_w29 = 0, n_w29_two = 0;       // fast mode: writes in $2000-$9FFF of banks 00/01; of them two-clk steps
     initial for (int k = 0; k < 7; k++) begin sl_n[k] = 0; sl_c[k] = 0; for (int j = 0; j < 9; j++) sl_h[k][j] = 0; end
     always_ff @(posedge clk) if (cpu_ce) begin
         t_step <= clk_no;
@@ -513,6 +514,11 @@ module tb_gs_broker #(
             k   = u_brk.fast_q ? 0 : (u_brk.st == 2'd3) ? 6 : u_brk.internal ? 1 :
                   u_brk.eff_we ? (hi ? 5 : 4) : (hi ? 3 : 2);
             sl_n[k] <= sl_n[k] + 1;
+            if (u_brk.eff_we && !u_brk.internal && u_brk.eff_addr[23:17] == 7'd0 &&
+                u_brk.eff_addr[15:0] >= 16'h2000 && u_brk.eff_addr[15:0] <= 16'h9FFF) begin
+                n_w29 <= n_w29 + 1;
+                if (u_brk.fast_q) n_w29_two <= n_w29_two + 1;
+            end
             sl_c[k] <= sl_c[k] + longint'(len);
             sl_h[k][(len > 9) ? 8 : (len < 2) ? 0 : len - 2] <= sl_h[k][(len > 9) ? 8 : (len < 2) ? 0 : len - 2] + 1;
         end
@@ -1468,7 +1474,7 @@ module tb_gs_broker #(
     endtask
 
     // expected test-program results ($0300...): -1 = depends on the configuration
-    int expect_tab [0:95] = '{
+    int expect_tab [0:107] = '{
         'hFF, 'h00, 'h5C, 'h3F, 'h11, 'hC3, 'h3C, 'hA5, 'hA6, 'hA7,
         'h77, 'h5A, 'h5A, 'h00, 'h30, 'hEE, 'h00, 'h11, 'h00, 'hB1,
         'hB1, 'hB1, 'h00, 'hB2, 'h00, 'hB3, 'hC8, 'h00, 'hC9, 'hD1,
@@ -1477,7 +1483,8 @@ module tb_gs_broker #(
         'hC3, 'hC8, 'hCF, 'hFF, 'hC4, 'hC8, 'hFF, 'hC5, 'h1C, 'h1C,
         'h1C, 'h08, 'hA1, 'hA7, 'h28, 'h01, 'hA7, 'hA5, 'h5A, 'h5A,
         'h00, 'h22, 'h11, 'hE1, -1,   'hE1, 'hE2, 'h01, 'h36, 'h13, -1, 'h00, -1, -1, -1, -1,
-        'h71, 'h72, 'h12, 'h33, 'h66, 'h55, 'h66, 'h44, 'h88, 'hA4 };
+        'h71, 'h72, 'h12, 'h33, 'h66, 'h55, 'h66, 'h44, 'h88, 'hA4,
+        'h00, 'h16, 'h00, 'h00, 'h1C, 'h00, 'h1A, 'h00, 'hD1, 'hD4, 'hD1, 'h1E };
 
     initial begin
         string  rom_path, wpath;
@@ -1682,7 +1689,7 @@ module tb_gs_broker #(
         if (!final_done) err("no quiet moment at the end of the run (socket cycles still outstanding)");
 
         if (do_expect) begin
-            for (i = 0; i <= 95; i++) begin
+            for (i = 0; i <= 107; i++) begin
                 int want, got;
                 want = expect_tab[i];
                 if (i == 44) want = (cfg_mbexp >= 1) ? 'h21 : 'hFF;
@@ -1739,6 +1746,9 @@ module tb_gs_broker #(
             if (cfg_slow == 2 && n_slow_tog < 4) err("+slow=2: the request was hardly switched");
             // (the copy is behind the near memory like any other memory of the card's: in
             // fast mode most reads of it find their line there)
+            if (NEAR) $display("---- fast mode, writes in $2000-$9FFF of banks 00/01: %0d, of them %0d two-clk steps", n_w29, n_w29_two);
+            if (NEAR && do_expect && !cfg_native && !cfg_bypass && !cfg_toggle && !do_reset && n_w29_two < 5)
+                err($sformatf("the test program's writes in $2000-$9FFF with nothing shadowed there: %0d two-clk steps, want 5 or more", n_w29_two));
             if (NEAR) $display("---- copy of Mega II RAM, fast mode: %0d of the %0d reads from it were far reads (the rest found their line in the near memory)", n_slow_far, n_slow_rd);
             if (NEAR && cfg_slow == 1 && !cfg_native && !cfg_toggle && n_slow_rd > 100 && 2 * n_slow_far > n_slow_rd)
                 err($sformatf("+slow=1: %0d of %0d reads of the copy of Mega II RAM were far reads", n_slow_far, n_slow_rd));

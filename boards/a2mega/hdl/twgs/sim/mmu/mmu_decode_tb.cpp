@@ -30,6 +30,7 @@ using namespace iigs;
 static Vgs_mmu_decode* dut;
 static long n_tests = 0, n_fail = 0;
 static long n_fast_r = 0, n_fast_w = 0, n_fast_i = 0, n_fast_s = 0, n_fast_x = 0;      // vectors in the cheap view's classes
+static long n_fast_w29 = 0, n_slow_w29 = 0;                                // ... its writes in $2000-$9FFF of banks 00/01
 static long n_slow_r = 0, n_slow_w = 0, n_slow_o = 0, n_slow_v = 0;                    // the copy of Mega II RAM: local reads, stored writes, slow_only, vectors
 
 struct Dut { Out o; Ext e; };
@@ -193,6 +194,15 @@ static void run_vec(const In& s)
     }
     // the cheap view (near memory): a subset of "the card's alone", and for that
     // subset the same ROM / bank / A12 answers as the full decode (golden model)
+    // a write in $2000-$9FFF of banks 00/01 is the cheap view's exactly when the shadow
+    // register inhibits hi-res 1, hi-res 2 and super hi-res (and then nothing is shadowed
+    // there: the checks below).  What it leaves to the full decode though nothing is
+    // shadowed - a main-bank page with super hi-res shadowing on, say - is counted.
+    if (s.we && s.vpb_n && s.bank <= 1 && s.addr >= 0x2000 && s.addr <= 0x9FFF) {
+        CHECK((unsigned)dut->fast_rw, (unsigned)((s.shadow & 0x0E) == 0x0E), "fast_rw: write in $2000-$9FFF", "%u")
+        if (dut->fast_rw) n_fast_w29++;
+        else if (x.local && x.local_we && !x.forward_write) n_slow_w29++;
+    }
     if (dut->fast_exp) {
         // expansion RAM of the card: read or write, the byte at its own address
         n_fast_x++;
@@ -396,6 +406,9 @@ int main(int argc, char** argv)
 
     printf("mmu_decode_tb: cheap view: %ld read, %ld write, %ld expansion, %ld internal-cycle and %ld socket-only vectors checked\n",
            n_fast_r, n_fast_w, n_fast_x, n_fast_i, n_fast_s);
+    printf("mmu_decode_tb: cheap view, writes in $2000-$9FFF of banks 00/01: %ld taken; %ld left to the full decode with nothing shadowed\n",
+           n_fast_w29, n_slow_w29);
+    if (!quick && (n_fast_w29 == 0 || n_slow_w29 == 0)) { printf("mmu_decode_tb: FAIL: no such vectors\n"); n_fail++; }
     printf("mmu_decode_tb: copy of Mega II RAM: %ld vectors with it; %ld reads of it the card's, %ld writes to E0/E1 stored, %ld slow_only\n",
            n_slow_v, n_slow_r, n_slow_w, n_slow_o);
     printf("mmu_decode_tb: TOTAL %ld tests, %ld failures -> %s\n",

@@ -20,6 +20,11 @@ One clean placement (x0) is on the card since 2026-11-14 15:39 as an
 experiment, by Ed's decision: the floating point tests go from 37.81 and
 35.76 to 48.14 and 44.51 over ten runs, the average from 44.24 to 47.48;
 the switch works while the machine runs.
+Built since and not on the card (section 3j): the first-clk write rule
+reads the shadow register, so the benchmark's stack and direct page
+writes (section 3i) are two clks. Simulated in full; **one placement of
+three at 105 MHz has no violation (the others miss by 0.033 and 0.045
+ns): not closed, not flashed.**
 Parents: [`gs_socket_s7_accelerator_scoping.md`](gs_socket_s7_accelerator_scoping.md)
 (what the accelerator is) and
 [`gs_socket_s7_fast_core_exploration.md`](gs_socket_s7_fast_core_exploration.md)
@@ -1318,6 +1323,56 @@ every vector, so the rule cannot be wrong unnoticed. The bound is the
 program's own "expected time" column for 52.5 MHz: 19.9, 55.7, 24.5,
 78.3, 97.0, 75.2 ticks. Not built: it is logic in the step's first clk,
 where this design has no margin (section 3h).
+
+## 3j. The write rule with the shadow register in it (2026-11-14 evening; simulated in full; one placement of three clean; not flashed)
+
+Section 3i's rule, in its smallest form, is in the source:
+
+```
+wire f_hgrq = shadow[1] & shadow[2] & shadow[3];
+```
+
+and the cheap view's write rule leaves `$2000-$9FFF` of banks 00/01 to
+the full decode only when `f_hgrq` is 0. With hi-res 1, hi-res 2 and
+super hi-res all three inhibited nothing in that range of either bank
+can be shadowed (the auxiliary hi-res pages need bit 1 or 2 clear as
+well as bit 4), so the write is the card's alone and the step is two
+clks. That is the benchmark's case: its shadow register is `1E`. It is
+not the fuller rule of section 3i: a program with super hi-res
+shadowing on (the desktop: `shadow[3]` clear) still pays four clks for
+a write to main `$6000-$9FFF`, which that rule would take. The text
+pages are as before: never cheap. The same commit takes `rtag_q` of
+round y out again (section 3h: it did not help), so the source is
+round x's with this rule; x0 on the card does not have it.
+
+**Simulation.**
+
+| check | result |
+|---|---|
+| decode sweep, 1,875,164,248 vectors, with the rule checked for equality (a write in the range is cheap exactly when the register's bits 1 to 3 are all set) | 0 failures; 991,042 such writes taken in the first clk, none of them shadowed by the full decode; 2,644,827 more are shadowed nowhere and stay at four clks (the fuller rule's share) |
+| new test T26 in the bench's program: writes at 00/3BEC, 6100, 9FFF and 01/3BEC under `1E`, then one write right after each change of `$C035` to `16`, `0E`, `1C`, `1E`, `1A` (hi-res 1, hi-res 2 and super hi-res each enabled alone, main and auxiliary, RAMWRT on for one), and the twelve bytes the Mega II's banks and the card's must hold after | in every run of the regression |
+| the bench counts the range's writes in fast mode and fails a run in which fewer than 5 are two-clk steps | 8 of 28 in the plain fast runs (the others are T26's writes under the settings where the rule must not take them, and earlier tests') |
+| full regression: 210 bench runs, both replicas, socket and arm benches, 10 core benches | all pass |
+| planted faults: the 26 of section 3h and six in the new rule (ignores bit 3, bit 1, bit 2; always takes; never takes; polarity) | 32 of 32 detected, each of the six by the sweep and by the bench |
+
+**Timing at 105 MHz: not closed.** Three placements of this source
+(z0, z1, z2):
+
+| placement | worst slack | violations | the worst paths |
+|---|---|---|---|
+| z0 | -0.033 | 5 | the PHI2 period counter into its telemetry register; the tag hit into the core's X; the address register into the first-clk read decision |
+| z1 | +0.006 | 0 | |
+| z2 | -0.045 | 4 | the address register into the first-clk write decision (eight levels of logic, and 2.6 ns of wire to one of its four copies); the registered decode into the core's enable; a line's data into the line register |
+
+One of three. The misses are a tenth of rounds w to y's (-0.2 to
+-0.35), and no two placements fail on the same path, but that is what
+"no margin" looks like and the rule is three of three. z2's worst path
+is the decision this rule is in. z0's worst is not the accelerator's at
+all: the period counter is a diagnostic and can take a register stage.
+Size: 12,900 logic cells of 69,120, 11,918 flip-flops, 182 block RAMs.
+None of the three is on the card. z1's bitstream was not kept (the roll
+script keeps only the first; the build stamp is in the netlist, so it
+cannot be made again). A fourth build would be a new placement.
 
 ## 4. What is verified, and what is not
 

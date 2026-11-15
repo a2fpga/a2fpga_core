@@ -903,15 +903,8 @@ module gs_accel_broker #(
     localparam logic [NTW-1:0] NH_MASK = NEAR_SPLIT ? NTW'(((1 << NEAR_KW) - 1) & ~15) : '0;
     logic                 nh_lo /* synthesis syn_keep = 1 */;
     logic                 nh_hi /* synthesis syn_keep = 1 */;
-    // (NEAR_LINE: the tag read at the launch, registered - rtag_q, the tag from the
-    // step's second clk on.  The two compares that are not made in the step's first
-    // clk - this one, registered at the end of the second, and a write's, used no
-    // sooner than the third - take it from there: the tag block's outputs then carry
-    // the first clk's compares and this register, and nothing else.)
-    logic [NTW-1:0]       rtag_q;
-    wire  [NTW-1:0]       c_rtag = NEAR_LINE ? rtag_q : nm_rtag_i;
-    assign                nh_lo  = nl_good & ~r_nc & (((c_rtag ^ r_tag) & ~NH_MASK) == '0);
-    assign                nh_hi  = (((c_rtag ^ r_tag) & NH_MASK) == '0);
+    assign                nh_lo  = nl_good & ~r_nc & (((nm_rtag_i ^ r_tag) & ~NH_MASK) == '0);
+    assign                nh_hi  = (((nm_rtag_i ^ r_tag) & NH_MASK) == '0);
     wire                  nh_d   = nh_lo & nh_hi;
     logic                 nh_dq;            // ... registered for the sequencer (the full decode's tag)
     // the cheap view's tag for the step: ROM bank and A14-A15, or RAM bank bit 0,
@@ -1101,7 +1094,7 @@ module gs_accel_broker #(
     // A byte under another index - the $Cxxx case - has its line emptied; a byte the tag
     // cannot name has none)
     wire   w_named    = ~nm_sfar_only(w_phys);
-    wire   whit_d     = nl_tgood & ~w_calias & (((c_rtag == w_tag) & w_named) | (w_twin & (c_rtag == w_ttag)));
+    wire   whit_d     = nl_tgood & ~w_calias & (((nm_rtag_i == w_tag) & w_named) | (w_twin & (nm_rtag_i == w_ttag)));
     wire   winv_d     = (~nl_tgood | w_calias) & w_named;
 
     // next values of the registers `sel` is made of (the same as in the block below;
@@ -1164,7 +1157,7 @@ module gs_accel_broker #(
             pl_r_local <= 1'b0; pl_r_rom <= 1'b0; pl_side <= 1'b0;
             pl_w_local <= 1'b0; pl_w_we <= 1'b0; pl_w_fwd <= 1'b0; pl_w_phys <= '0;
             aq_local <= 1'b0; aq_fwd <= 1'b0; aq_local_we <= 1'b0; aq_local_rom <= 1'b0; aq_side <= 1'b0;
-            aq_phys <= '0; aq_rom_addr <= '0; aq_hit <= 1'b0; aq_sonly <= 1'b0; wf_r <= 1'b0; rtag_q <= '0;
+            aq_phys <= '0; aq_rom_addr <= '0; aq_hit <= 1'b0; aq_sonly <= 1'b0; wf_r <= 1'b0;
             alt_q <= '0;
             fill_idx <= '0; fill_tag <= '0; fill_ok <= 1'b0;
             wa_r <= '0; wd_r <= '0; widx_r <= '0; wtag_r <= '0; nl_idx <= '0; lw_r <= 1'b0; lwa_r <= '0;
@@ -1203,7 +1196,6 @@ module gs_accel_broker #(
             // registered decode is good: the step's address and status have two clks and
             // more to these registers, like the decode's own.  In simulation what they
             // load before that reads WRONG - wr_bad - so that a write made with it shows.)
-            rtag_q <= nm_rtag_i;
             if (NEAR) begin
                 wd_r <= cpu_d_out_i;
                 if (wen_fast) begin wa_r <= f_phys; widx_r <= ea_r[NEAR_AW-1:0];     wtag_r <= f_tag; end

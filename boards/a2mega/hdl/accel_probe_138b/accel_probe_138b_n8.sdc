@@ -78,7 +78,7 @@ set_multicycle_path 1 -hold  -end -from [get_regs {u_brk/u_replica/*}] -to [get_
 // after the write is decided - the cheap view's in the step's second clk, any other
 // no sooner than the full decode is good, in its third.  From the step registers
 // they are two-clk paths (from the full decode's registered copy, and from the tag
-// read at the launch - through rtag_q in the board build - one)
+// read at the launch, one)
 set_multicycle_path 2 -setup -end -from [get_regs {u_brk/ea_r* u_brk/ea_k* u_brk/pl_int* u_brk/pl_we* u_brk/pl_vp_n* u_brk/pl_io_int*}] -to [get_regs {u_brk/wa_r* u_brk/widx_r* u_brk/wtag_r*}]
 set_multicycle_path 1 -hold  -end -from [get_regs {u_brk/ea_r* u_brk/ea_k* u_brk/pl_int* u_brk/pl_we* u_brk/pl_vp_n* u_brk/pl_io_int*}] -to [get_regs {u_brk/wa_r* u_brk/widx_r* u_brk/wtag_r*}]
 
