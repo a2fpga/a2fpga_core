@@ -985,9 +985,7 @@ void disk_poll(void)
                  * glitch card decode. 0xFF = hardware default. */
                 if (!g_slots_applied_early) {
                     for (int i = 0; i < 8; i++) {
-                        uint8_t c = settings()->slot_cards[i];
-                        if (c == 0xFF)
-                            c = settings_slot_hw_defaults[i];
+                        uint8_t c = settings_slot_effective(i);
                         fpga_spi_reg_write((uint8_t)(0x60 + i), c);
                     }
                     fpga_spi_reg_write(0x6B, 1);   /* slotmaker reconfig strobe */

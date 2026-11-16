@@ -12,6 +12,16 @@
 /* MUST MATCH hdl/slots/slots.hex (slot 0..7). */
 const uint8_t settings_slot_hw_defaults[8] = { 0, 0, 3, 5, 2, 4, 6, 1 };
 
+uint8_t settings_slot_effective(int i)
+{
+    uint8_t c = settings()->slot_cards[i];
+    if (c == 0xFF)
+        c = settings_slot_hw_defaults[i];
+    if (c == CARD_VIDEX && i != CARD_VIDEX_SLOT)
+        c = 0;
+    return c;
+}
+
 static a2_settings_t s_cfg;
 static bool          s_from_flash;
 static uint32_t      s_flash_addr;   /* 0 until settings_init() */
