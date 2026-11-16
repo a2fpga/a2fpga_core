@@ -30,4 +30,11 @@ create_clock -name clk_hr     -period 18.519 -waveform {0 9.259} [get_pins {i_hr
 create_clock -name clk_mem    -period 9.259 -waveform {0 4.630} [get_pins {i_hr_pll/PLLA_inst/CLKOUT1}]
 create_clock -name clk_mem_90 -period 9.259 -waveform {2.315 6.944} [get_pins {i_hr_pll/PLLA_inst/CLKOUT2}]
 set_false_path -from [get_regs {i_hr_ctrl/dly_code*}]
+// Reset release into the controller's clk_mem re-registration (rst_n_m):
+// hr_rst_sync_r[2] toggles exactly once per power/reset event and is stable
+// for thousands of cycles either side, and the controller sits in reset
+// until it propagates — the single-cycle 54->108 requirement on this cone
+// is not real (it failed -0.148 ns on a placement roll, 8.9 ns of route).
+// Scoped to this crossing only; clk_hr-domain release paths stay timed.
+set_false_path -from [get_regs {hr_rst_sync_r_2*}] -to [get_regs {i_hr_ctrl/rst_n_m*}]
 set_clock_groups -asynchronous -group [get_clocks {clk50}] -group [get_clocks {clk100}] -group [get_clocks {clk54}] -group [get_clocks {clk_sym}] -group [get_clocks {clk_tx}] -group [get_clocks {clk_pix}] -group [get_clocks {clk_hr clk_mem clk_mem_90}]
