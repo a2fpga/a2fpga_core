@@ -62,7 +62,12 @@ keys: c=console m=menu p=pd d=census x=regs z=viddbg e=eq +/-=eqstep l=lanes
 ### Line mode (`:`)
 
 Typing `:` opens a prompt; **only in this mode is input line-oriented.** An
-empty line returns to key mode. Commands:
+empty line **or ESC** returns to key mode. **Terminate each command with a
+single `\r` (or a single `\n`), never `\r\n`:** the parser executes the line
+on the `\r` and then sees the `\n` as an *empty line*, which leaves line mode,
+so everything after it is dispatched as hotkeys (2026-11-16, second incident:
+a `spireg …\r\n` loop became `p i r e g` = PD dump, I2C scan, retrain, EQ
+step, **FPGA reload**, repeated). Commands:
 
 ```
 spireg <reg 0..126> [val]    read or write an FPGA OSPI register (hex ok: 0x75)
@@ -84,11 +89,18 @@ one command per line, or to use the serial CLI instead.
 ```
 
 ```bash
-# line mode: one register read, back to keys, disconnect
-(printf ':'; sleep 1; printf 'spireg 0x75\r\n'; sleep 1; printf '\r\n'; sleep 1; printf 'q') | nc -w 8 192.168.x.y 23
+# line mode: one register read, ESC back to keys, disconnect. Single \r per command.
+(printf ':'; sleep 1; printf 'spireg 0x75\r'; sleep 1; printf '\033'; sleep 1; printf 'q') | nc -w 8 192.168.x.y 23
 ```
 
-Never pipe a file or a multi-line heredoc into port 23 without the leading `:`.
+```bash
+# several commands: stay in line mode the whole time, leave with ESC
+(printf ':'; sleep 1; for i in 0 1 2; do printf 'spireg 0x7E %d\r' $i; sleep 0.5; printf 'spireg 0x7E\r'; sleep 0.5; done; printf '\033'; sleep 1; printf 'q') | nc -w 20 192.168.x.y 23
+```
+
+Never pipe a file or a multi-line heredoc into port 23 without the leading `:`,
+and never use `\r\n` line endings (`printf`, not `echo`; no heredocs, whose
+lines end in `\n` after a `\r` would).
 
 ## Serial CLI (USB1, `+++`)
 
