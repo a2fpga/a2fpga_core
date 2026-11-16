@@ -1414,21 +1414,28 @@ GLU queue re-slice and the slot-table registers apply there too).
 
 ### 8.6 Candidates for the next pass (not in §4)
 
-- **Pixel CDC FIFO as 1024 × 33 instead of 512 × 65** (ed, review of
+- **Pixel CDC FIFO as 1024 × 33 instead of 512 × 65** (ed, from a separate
+  thread on staying clear of the `Convert_SDP32_36_to_SDP16_18` doubling,
   2026-11-16). After B4 the FIFO (`hdl/displayport/video/pixel_cdc_fifo.v`,
   instanced in `dp_transmitter` with `LANE_COUNT=4`, `PIXEL_BITS=16`) holds
-  one 4-pixel group per word: 4 × 16 + 1 sof = 65 bits × 512 words = four
-  x18 primitives. The same bits fit **two** x18 blocks as 1024 × 33 (two
-  16-bit pixels + sof per word) if each group is pushed as two half-words and
-  popped as two. Same storage, same bandwidth, **−2 BSRAM**. It is *not* a
-  width-only change like B4: the push and pop cadence doubles on both sides
-  of the gray-pointer CDC (two writes per pixel-group tick, two reads per
-  stream-packer fetch), so the write side needs a 2× write strobe or an
-  internal half-word sequencer, the show-ahead read contract and `rlevel`
+  one 4-pixel group per word: 4 × 16 + 1 sof = 65 bits × 512 words. At that
+  depth GowinSynthesis infers **two SDPX9B x36** primitives (512 × 36 each),
+  which the option of §7.7 then splits into four x18 blocks — the conversion
+  still costs two blocks here. The same bits as **1024 × 33** (two 16-bit
+  pixels + sof per word) infer as two **1024 × 18** primitives, an x18
+  geometry the conversion never touches: same storage, same bandwidth,
+  **−2 BSRAM**, with the option left on as §7.10 requires. It is the §7.10
+  rule ("x18-or-narrower primitives from the start") applied by *depth* rather
+  than width: an SDP memory wider than 18 bits at 512 words lands in x32/x36
+  and is doubled, the same bits at 1024 words are not.
+- It is *not* a width-only change like B4: the push and pop cadence doubles on
+  both sides of the gray-pointer CDC (two writes per pixel-group tick, two
+  reads per stream-packer fetch), so the write side needs a 2× write strobe or
+  an internal half-word sequencer, the show-ahead read contract and `rlevel`
   (which drives prefill and the underrun counter) change units, and the
-  pointer compare cones that the timing campaign already had to re-pipeline
-  (the gray compare used to sit on the BSRAM read enable; see the comment in
-  `pixel_cdc_fifo.v`) get a pointer that moves twice as often. To be weighed by whoever owns `dp_transmitter` on the
-  branch that next touches it, with the pixel-domain simulation and an
-  underrun-count check on hardware; not for the BSRAM pass that this section
-  records.
+  pointer compare cones the timing campaign already had to re-pipeline (the
+  gray compare used to sit on the BSRAM read enable; see the comment in
+  `pixel_cdc_fifo.v`) get a pointer that moves twice as often. To be weighed
+  by whoever owns `dp_transmitter` on the branch that next touches it, with
+  the pixel-domain simulation and an underrun-count check on hardware; not
+  for the BSRAM pass that this section records.
