@@ -79,7 +79,7 @@ the card, so the Apple still sees the block as written; the log is the evidence.
 |---|---|---|---|
 | a2p25 displayport1 | `hdd.sv` fix (full core `a2p25.gprj`) | ESP32 225, logging only | built and flashed 2026-11-13; IIgs power-cycle after writes OK (see below) |
 | a2mega 1.0a3 | same `hdd.sv` | ESP32 103, logging only | not built here; a2mega timing is knife-edge, build when a bench slot opens |
-| a2n20v2-Enhanced | same `hdd.sv` | BL616 `firmware_host/disk.c` still forces HDD units read-only | containment left in place; lift it after a write test on that board |
+| a2n20v2-Enhanced | same `hdd.sv` + drain write-completion wait (see below) | BL616 `firmware_host/disk.c` containment lifted | `_fb` write-tested on hardware 2026-11-15 (ProDOS 2.4.3 on a ][+): clean |
 
 ### a2p25 build and hardware result (2026-11-13)
 
@@ -89,6 +89,26 @@ constraint, no `top/hdd` path among the worst 25. The card costs +12 LUT / +7 RE
 bitstream was flashed to an a2p25 on 2026-11-13; the IIgs was power-cycled after writing to the
 HDD volume and came back and booted, which is the case that used to fail. The block diff of the
 written image against its original is still to be run.
+
+### a2n20v2-Enhanced: second write bug, every other word dropped (2026-11-15)
+
+The first write test on the Enhanced `_fb` (this fix in, containment lifted for a test image only)
+still corrupted the volume, in a different pattern: in every written block the even words were
+right and every odd word held the previously written block's word (a new directory entry's name
+came out as `TE`, the bitmap held directory-header words). `mem_port_arb` keeps one pending
+request per client and a newer request overwrites one not yet granted. The drain issued a word
+write every 5 cycles without waiting for `ready`; on the Enhanced storage port (shared by MCU XFER,
+Disk II and HDD) a write takes longer than that, so word k+2 overwrote pending word k+1. Reads were
+never affected because `ST_FILL_WAIT` waits for each word. The `sim/disk` bench memory completes a
+write in one cycle, so it cannot show this.
+
+Fix: `ST_DRAIN_WAIT` holds each word until its write completes (`fsm_addr_r` steps on the exit
+cycle so the buffer read stays aligned), which also guarantees word 127 has landed before `vol_wr`
+asks the MCU to flush the block. Retest on hardware: `CREATE`/`SAVE` in the root and a
+subdirectory, `PREFIX`/`CAT`, power cycles, `LOAD`/`RUN` all clean; the image changed only in the
+expected blocks (directory, bitmap, new directory key block, two file blocks) with a consistent
+bitmap and no stale words. The fix is in the shared `hdd.sv`, so a2p25 and a2mega pick it up too
+(not rebuilt here).
 
 ## What to flash and test (Ed)
 

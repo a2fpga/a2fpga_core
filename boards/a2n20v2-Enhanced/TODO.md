@@ -12,10 +12,12 @@
 - [ ] Create the on-screen display (OSD) software
 - [ ] Determine how to enter the OSD on a IIgs since /INH to replace the ROM is not viable
 
-- [ ] Lift the HDD read-only containment in `firmware_host/disk.c` (`mount_hdd`, `rw = false`):
-      the shifted/interleaved-word corruption it guarded against was the shared `hdl/disk/hdd.sv`
-      write drain, fixed 2026-11-13 ([a2p25 write-up](../a2p25/docs/HDD_BLOCK_WRITE_SHIFT.md));
-      needs a write test on this board first
+- [x] Lift the HDD read-only containment in `firmware_host/disk.c` (`mount_hdd`, `rw = false`):
+      done 2026-11-15 after a write test on this board. Two `hdl/disk/hdd.sv` write-drain bugs were
+      behind the corruption: every word one word late (fixed 2026-11-13,
+      [a2p25 write-up](../a2p25/docs/HDD_BLOCK_WRITE_SHIFT.md)) and, on this board's shared storage
+      port, every other word dropped because the drain never waited for write completion (fixed
+      2026-11-15, ST_DRAIN_WAIT)
 
 ## Low Priority / Future
 
