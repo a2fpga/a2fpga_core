@@ -1411,3 +1411,24 @@ GLU queue re-slice and the slot-table registers apply there too).
   §7.2 Uthernet II socket buffer in PSRAM (−8) before it can be considered,
   plus a logic pass (B9 −456 FF, B10 −256 FF, B11, the §7.6 packed DOC bank
   file −2). Not started.
+
+### 8.6 Candidates for the next pass (not in §4)
+
+- **Pixel CDC FIFO as 1024 × 33 instead of 512 × 65** (ed, review of
+  2026-11-16). After B4 the FIFO (`hdl/displayport/video/pixel_cdc_fifo.v`,
+  instanced in `dp_transmitter` with `LANE_COUNT=4`, `PIXEL_BITS=16`) holds
+  one 4-pixel group per word: 4 × 16 + 1 sof = 65 bits × 512 words = four
+  x18 primitives. The same bits fit **two** x18 blocks as 1024 × 33 (two
+  16-bit pixels + sof per word) if each group is pushed as two half-words and
+  popped as two. Same storage, same bandwidth, **−2 BSRAM**. It is *not* a
+  width-only change like B4: the push and pop cadence doubles on both sides
+  of the gray-pointer CDC (two writes per pixel-group tick, two reads per
+  stream-packer fetch), so the write side needs a 2× write strobe or an
+  internal half-word sequencer, the show-ahead read contract and `rlevel`
+  (which drives prefill and the underrun counter) change units, and the
+  pointer compare cones that the timing campaign already had to re-pipeline
+  (the gray compare used to sit on the BSRAM read enable; see the comment in
+  `pixel_cdc_fifo.v`) get a pointer that moves twice as often. To be weighed by whoever owns `dp_transmitter` on the
+  branch that next touches it, with the pixel-domain simulation and an
+  underrun-count check on hardware; not for the BSRAM pass that this section
+  records.
