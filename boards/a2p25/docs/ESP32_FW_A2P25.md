@@ -7,7 +7,8 @@ on 2026-10-25 (git history has it).
 
 What the a2mega firmware brings over unchanged: the USB-C PD stack
 (FUSB302B), DP alt-mode entry and mux control, HPD-to-FPGA reconstruction
-from PD VDMs (level plus 0.75 ms IRQ pulses), WiFi, the telnet console,
+from PD VDMs (level plus 0.75 ms IRQ pulses), WiFi, the telnet console
+(key-driven; see [ESP32_CONSOLE.md](../../a2mega/docs/ESP32_CONSOLE.md) before using it),
 FTP, network bitstream streaming, the JTAG updater and the USB JTAG bridge.
 
 ## Build and flash

@@ -42,7 +42,9 @@ JTAG bridge (`openFPGALoader -c esp32s3`); the GW5A rules (SecurityBit off in ev
 `docs/gotchas.md` and applied by `tools/flash.sh`. Every a2mega build is held to the timing
 policy in [docs/timing_round2.md](docs/timing_round2.md): no re-rolls, +0.5 ns on every clock,
 three clean rolls of the final source. Over the network, the ESP32 can stream a bitstream to
-the FPGA (`tools/fpga_stream.py`, port 2323) and reload it from the telnet console.
+the FPGA (`tools/fpga_stream.py`, port 2323) and reload it from the telnet console. The
+consoles themselves (serial CLI, the **key-driven** telnet console, FTP, port 2323) are in
+[docs/ESP32_CONSOLE.md](docs/ESP32_CONSOLE.md); read it before typing at port 23.
 
 ## ESP32-S3 coprocessor
 
