@@ -256,7 +256,7 @@ module HDD #(
     // -------------------------------------------------------------------
     // Block service FSM (clk_logic)
     // -------------------------------------------------------------------
-    typedef enum logic [2:0] {
+    typedef enum logic [3:0] {
         ST_IDLE,
         ST_RD_ACK,      // volume rd raised, wait for BL616 ack
         ST_FILL_ISSUE,  // issue SDRAM word read
@@ -264,6 +264,7 @@ module HDD #(
         ST_DRAIN_PRIME, // 1 cycle: buffer BRAM read latency
         ST_DRAIN_READ,  // gather 4 buffer bytes into a word
         ST_DRAIN_ISSUE, // issue SDRAM word write
+        ST_DRAIN_WAIT,  // wait for the word's write-completion ready
         ST_WR_ACK       // volume wr raised, wait for BL616 ack
     } state_t;
 
@@ -445,17 +446,31 @@ module HDD #(
                 ST_DRAIN_ISSUE: begin
                     ram_wr_r   <= 1'b1;
                     wr_word_r  <= word_cnt_r;   // address for the strobe next cycle
-                    // step past the next word's byte 0 (being read this cycle)
-                    // so q stays one byte ahead of the capture in DRAIN_READ
-                    fsm_addr_r <= 9'(fsm_addr_r + 1'b1);
                     byte_cnt_r <= 2'd0;
-                    if (word_cnt_r == 7'd127) begin
-                        vol_wr_r  <= 1'b1;
-                        timeout_r <= 27'd0;
-                        state_r   <= ST_WR_ACK;
-                    end else begin
-                        word_cnt_r <= 7'(word_cnt_r + 1'b1);
-                        state_r    <= ST_DRAIN_READ;
+                    state_r    <= ST_DRAIN_WAIT;
+                end
+
+                // Wait for this word's write to complete before issuing the
+                // next one. The storage arbiter (mem_port_arb) holds ONE
+                // pending request per client and a newer request overwrites
+                // it, so on a shared, slower port (Enhanced _fb: MCU XFER +
+                // Disk II + HDD) back-to-back writes every 5 cycles lost every
+                // other word: odd words kept the window's previous block
+                // (hardware, 2026-11-15). Reads already wait (ST_FILL_WAIT).
+                // fsm_addr_r is held at the next word's byte 0 while waiting
+                // and steps on the exit cycle, so DRAIN_READ's first capture
+                // still sees byte 0.
+                ST_DRAIN_WAIT: begin
+                    if (ram_hdd_if.ready) begin
+                        fsm_addr_r <= 9'(fsm_addr_r + 1'b1);
+                        if (word_cnt_r == 7'd127) begin
+                            vol_wr_r  <= 1'b1;
+                            timeout_r <= 27'd0;
+                            state_r   <= ST_WR_ACK;
+                        end else begin
+                            word_cnt_r <= 7'(word_cnt_r + 1'b1);
+                            state_r    <= ST_DRAIN_READ;
+                        end
                     end
                 end
 
