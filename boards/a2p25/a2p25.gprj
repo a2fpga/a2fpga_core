@@ -30,6 +30,7 @@
         <File path="../../hdl/hyperram/hyperram_ports_if.sv" type="file.verilog" enable="1"/>
         <File path="../../hdl/f18a/f18a_gpu_if.sv" type="file.verilog" enable="1"/>
         <File path="../../hdl/displayport/audio/audio_sample_buffer.v" type="file.verilog" enable="1"/>
+        <File path="../../hdl/displayport/audio/audio_sample_cdc.sv" type="file.verilog" enable="1"/>
         <File path="../../hdl/displayport/audio/maud_measure.v" type="file.verilog" enable="1"/>
         <File path="../../hdl/displayport/audio/sdp_engine.v" type="file.verilog" enable="1"/>
         <File path="../../hdl/displayport/auxch/aux_channel.v" type="file.verilog" enable="1"/>

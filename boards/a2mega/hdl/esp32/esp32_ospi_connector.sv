@@ -122,6 +122,7 @@ module esp32_ospi_connector #(
     input  wire [15:0] dbg_doc_tof_i,       // DOC late fetches per frame
     input  wire [7:0]  dbg_glu_drops_i,     // GLU sound-RAM write-queue drops (sticky)
     input  wire [7:0]  dbg_doc_fdrop_i,     // DOC fetch requests dropped, FIFO full (sticky)
+    input  wire [63:0] dbg_aud_i,           // audio_sample_cdc dbg word (window 48-55)
     output reg         ddr3_reinit_tgl_o,   // toggles on REG_DDR3_REINIT write (CDC as toggle)
 
     // DDR3 debug read window (ddr3_debug_reader on idle port 4)
@@ -363,7 +364,7 @@ module esp32_ospi_connector #(
 
     // System
     reg [7:0] scratch_r;
-    reg [5:0] gs_sel_r;    // 0-31: IIgs socket window; 32-39: event log; 40-47: DOC/GLU telemetry
+    reg [5:0] gs_sel_r;    // 0-31: IIgs socket window; 32-39: event log; 40-47: DOC/GLU telemetry; 48-55: audio CDC
     reg [7:0] gs_ctrl_r;
     reg       a2_rst_arm_early_r;  // 0x2E write bit 4 (read bit 6): hardware-arm the socket while we still hold
     reg [6:0] evt_idx_r;           // bring-up event log read index (window reg 33)
@@ -442,6 +443,15 @@ module esp32_ospi_connector #(
             6'd45: gs_rdata = dbg_doc_tof_i[15:8];
             6'd46: gs_rdata = dbg_glu_drops_i;         // GLU write-queue drops (was overlay hex 3)
             6'd47: gs_rdata = dbg_doc_fdrop_i;         // DOC fetch drops (was overlay hex 6)
+            // Audio sample CDC (hdl/displayport/audio/audio_sample_cdc.sv), 2026-11-16
+            6'd48: gs_rdata = dbg_aud_i[7:0];          // mixed captures on the raw path, lo
+            6'd49: gs_rdata = dbg_aud_i[15:8];         //   hi
+            6'd50: gs_rdata = dbg_aud_i[23:16];        // mixed captures consumed at a strobe, lo
+            6'd51: gs_rdata = dbg_aud_i[31:24];        //   hi
+            6'd52: gs_rdata = dbg_aud_i[39:32];        // consumed |delta| > threshold, lo (selected path)
+            6'd53: gs_rdata = dbg_aud_i[47:40];        //   hi
+            6'd54: gs_rdata = dbg_aud_i[55:48];        // max consumed |delta|, high byte
+            6'd55: gs_rdata = dbg_aud_i[63:56];        // {6'b0, clear, sel_safe}
             default: gs_rdata = 8'h00;
         endcase
     end

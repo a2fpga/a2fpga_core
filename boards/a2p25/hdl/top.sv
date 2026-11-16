@@ -1267,14 +1267,28 @@ module top #(
         end
     end
 
-    // Audio CDC: clk_logic (54 MHz) -> clk_pixel (27 MHz) via double-flop
-    reg [15:0] audio_sample_word [1:0], audio_sample_word0 [1:0];
-    always @(posedge clk_pixel_w) begin
-        audio_sample_word0[0] <= core_audio_l_w;
-        audio_sample_word[0]  <= audio_sample_word0[0];
-        audio_sample_word0[1] <= core_audio_r_w;
-        audio_sample_word[1]  <= audio_sample_word0[1];
-    end
+    // Audio CDC: clk_logic (54 MHz) -> clk_pixel (148.5 MHz). The two clocks
+    // come from different PLLs and the SDC declares them asynchronous, so the
+    // old double flop per bit captured mixed words when the sample changed
+    // near a pixel-clock edge (Arkanoid pops, 2026-11-16). audio_sample_cdc
+    // keeps that raw path, adds a request/acknowledge mailbox, and counts
+    // mixed captures; ESP32 scratch4 (reg 0x0F) bit 0 selects the mailbox
+    // word, bit 1 clears the counters (debug window 48-55).
+    wire [39:0] esp_scratch_w;          // driven by esp32_ospi_connector below
+    wire [63:0] aud_cdc_dbg_w;
+    reg  [15:0] audio_sample_word [1:0];
+    audio_sample_cdc #(.W(16), .JUMP_THRESH(2048)) i_audio_cdc (
+        .clk_src    (clk_logic_w),
+        .l_src      (core_audio_l_w),
+        .r_src      (core_audio_r_w),
+        .clk_dst    (clk_pixel_w),
+        .strobe_dst (clk_audio),
+        .sel_safe   (esp_scratch_w[32]),
+        .clear      (esp_scratch_w[33]),
+        .l_dst      (audio_sample_word[0]),
+        .r_dst      (audio_sample_word[1]),
+        .dbg        (aud_cdc_dbg_w)
+    );
 
     // -----------------------------------------------------------------
     // DisplayPort TX — 1920x1080p 59.94 Hz over 2-lane HBR (Phase 3b)
@@ -1929,6 +1943,7 @@ module top #(
         .dbg_doc_tof_i(doc_dbg_to_frame_r),
         .dbg_glu_drops_i(glu_wq_drops_w),
         .dbg_doc_fdrop_i(doc_dbg_fetch_drop_w),
+        .dbg_aud_i(aud_cdc_dbg_w),
         // a2mega-only debug sources, tied off (2026-10-22 merge): DP SERDES /
         // link readback and the IIgs CPU-socket window. The a2p25 could
         // feed dbg_dp_caps_i from dp_transmitter's debug_sink_caps (census
@@ -1959,7 +1974,7 @@ module top #(
         .w5100_cmd_pending(u2_cmd_pending_w),
         .w5100_cmd_clr(u2_cmd_clr_w),
 
-        .scratch_o(),
+        .scratch_o(esp_scratch_w),
         .mcu_ready_o(),
 
         .osd_clk_i(clk_pixel_w),

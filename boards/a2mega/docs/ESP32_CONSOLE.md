@@ -153,6 +153,11 @@ the DOC telemetry; `z` reads it for you, or by hand in `:` mode:
 | 44, 45 | DOC fetches past the slot deadline last frame, lo/hi |
 | 46 | **GLU sound-RAM write-queue drops**, sticky. Nonzero = wavetable bytes lost on the way into memory: the DOC then plays wrong-but-plausible samples (distortion, pops) with every DOC-side counter clean |
 | 47 | DOC fetch requests dropped, FIFO full, sticky. Design invariant: 0 |
+| 48, 49 | **Audio CDC: mixed captures** on the raw sample path, any pixel-clock cycle, lo/hi, saturating. A clean sample lasts 18.5 ns and is captured ≥ 2 times by the 148.5 MHz pixel clock; a captured word that lasts one cycle is a mix of old and new bits |
+| 50, 51 | Audio CDC: mixed captures that landed on the 48 kHz strobe = **pops the raw path produced** (or would have, with the mailbox path selected), lo/hi |
+| 52, 53 | Audio CDC: consumed samples whose step vs the previous sample exceeded 2048 on L or R, on the path actually feeding the DP (symptom counter), lo/hi |
+| 54 | Audio CDC: largest consumed step, high byte |
+| 55 | Audio CDC status: bit 0 = mailbox path selected, bit 1 = counters held clear |
 
 ```
 : spireg 0x5F 46
@@ -160,7 +165,19 @@ the DOC telemetry; `z` reads it for you, or by hand in `:` mode:
 ```
 
 Indices 46 and 47 exist from the 2026-11-16 build onward (cores before it
-return 0 there). Until then they only fed the on-screen `DebugOverlay`, which
+return 0 there); 48–55 from the audio-CDC instrument build of the same day.
+
+**Audio CDC control (a2p25, scratch4 = reg 0x0F):** bit 0 = 1 feeds the DP
+with the request/acknowledge mailbox word instead of the raw double-flop
+word; bit 1 = 1 holds counters 48–54 at zero (pulse it to clear). Both take
+effect live, no reload:
+
+```
+: spireg 0x0F 1      mailbox path on, counters running
+: spireg 0x0F 3      ... and clear the counters
+: spireg 0x0F 1      release the clear
+: spireg 0x0F 0      raw path (the pre-2026-11-16 behaviour)
+``` Until then they only fed the on-screen `DebugOverlay`, which
 `A2_INSTR_DEBUG_OVERLAY` compiles out on the a2p25.
 
 ## Related

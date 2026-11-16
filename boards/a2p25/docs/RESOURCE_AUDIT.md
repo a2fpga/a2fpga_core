@@ -1396,6 +1396,54 @@ GLU queue re-slice and the slot-table registers apply there too).
    stream-writes 0/77). Clean there = one of the cards; `mb` then `u2` decide
    which. Deploy over WiFi with `tools/fpga_stream.py` (no USB needed) and read
    indices 44–47 with telnet `z` at a popping spot.
+   **`none` on the card (11-16, streamed over port 2323, stamp
+   20261116084205 read back from reg 0x7E): still pops (ed, "slightly less, I
+   think"), so the cards are exonerated and the BSRAM pass or something common
+   to every build on this branch is at fault. Counters after the session:
+   `DOC TIMEOUTS 5` (cumulative since power-up: the same five boot transients
+   the clean October build showed, §7.21), `LATMAX 45 clk`, `LATE 0`,
+   `MEMRD 0`, GLU write-queue drops (46) 0, DOC fetch drops (47) 0, `VGC
+   STALE 0`, `SHADOW DROPS 0`. No DOC fetch missed its deadline during play:
+   the HyperRAM path, and with it LINE_BANKS=4, is cleared as the mechanism.**
+
+   **Measurement, not ears (ed).** The remaining common factor is the sample
+   hand-off itself, unchanged on this branch but untimed and placement-
+   dependent: `core_audio_{l,r}_w` (clk_logic, 54 MHz, `i_sys_pll`) went into
+   `dp_transmitter`'s `audio_sample_word` through a plain double flop per bit in
+   clk_pix (148.5 MHz, `i_dp/i_pixel_pll`); `a2p25.sdc` puts clk54 and clk_pix
+   in different `set_clock_groups -asynchronous` groups, so no path between
+   them is timed. A 16-bit value that changes within the per-bit skew window
+   of a pixel-clock edge is captured as a mix of old and new bits; taken at
+   the 48 kHz strobe that is a sample the DOC never produced, and loud when
+   high bits are involved. The rate is set by placement skew and PLL phase,
+   not logic, which is why it differs build to build ("slightly less" on a
+   different placement) and card to card (ed's A/B used a second card). The
+   GLU output register is reassigned every clk_logic cycle, so the bus
+   transitions whenever the mix changes. The a2mega top has the identical
+   crossing.
+
+   Instrument + fix candidate, one build (`hdl/displayport/audio/audio_sample_cdc.sv`,
+   wired in `top.sv`, read through debug-window indices 48–55, controlled by
+   ESP32 scratch4 = reg 0x0F: bit 0 selects the mailbox path, bit 1 clears):
+   the raw path is kept and *detected*: a clean source value lasts 18.5 ns and
+   is captured by at least two consecutive 6.7 ns pixel-clock edges, so a
+   captured word that differs from both its neighbours lasted one cycle and
+   is a mixed capture (no parity or reference copy, no false positives while
+   T_src ≥ 2 T_dst). Counters: mixed captures (any cycle), mixed captures
+   consumed at a strobe (= pops the raw path produced, counted whichever path
+   feeds the DP), consumed steps > 2048 on the selected path (the symptom), and
+   the largest step. The safe path is a request/acknowledge mailbox: the
+   strobe toggles a request, synchronised into clk_logic it latches `{r,l}`
+   and toggles an acknowledge, synchronised back it copies the latch; round
+   trip ≈ 100 ns against the 20.8 µs sample period, one sample of latency.
+   `sim/audio_cdc/run.sh` (iverilog, 54 MHz source with 0–2.5 ns per-bit
+   skew into a 148.5 MHz capture, random phase): no skew → 0 mixed, 0 bad
+   (control); skew, raw → DUT consumed-mixed count = testbench truth
+   (seed 1: 432 = 432); skew, safe → 0 non-source words delivered over 9,000
+   strobes while the raw path would have delivered 810. Expected on hardware:
+   index 50/51 > 0 and growing at the popping spots with the raw path, 52/53
+   lower with the mailbox path selected, and no pops with it; a2mega gets the
+   same module once this is confirmed.
 3. OSD text and scanline-dim colours (565 quantisation, B4); the Apple picture
    itself is bit-exact.
 4. Slot assignments at power-up unchanged (slots.hex as register INITs, B7b).
