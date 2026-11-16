@@ -108,21 +108,41 @@ module audio_sample_cdc #(
     assign r_dst = sel_word_w[WW-1:W];
 
     // ---------------- instrumentation ----------------
+    // clk_dst is 148.5 MHz (6.7 ns). The mixed test is two 32-bit compares;
+    // register it before counting. The step detector (mux, two subtracts,
+    // abs, compare) is 16 ns of logic, so it runs as a pipeline after each
+    // strobe: the next strobe is 3,094 cycles away.
     logic [15:0] mixed_cnt = '0, mixed_consumed_cnt = '0, jump_cnt = '0;
     logic [W-1:0] max_delta = '0;
-    logic [WW-1:0] prev_consumed = '0;
 
-    function automatic logic [W-1:0] absdiff(input logic [W-1:0] a, input logic [W-1:0] b);
-        logic signed [W:0] d;
-        d = $signed({a[W-1], a}) - $signed({b[W-1], b});
-        if (d < 0) d = -d;
-        // |d| <= 2^W - 1 fits W bits after the sign is dropped
-        absdiff = d[W-1:0];
-    endfunction
+    logic mixed_r = 1'b0, strobe_r = 1'b0;
+    always_ff @(posedge clk_dst) begin
+        mixed_r  <= mixed_w;
+        strobe_r <= strobe_dst;
+    end
 
-    wire [W-1:0] dl_w = absdiff(sel_word_w[W-1:0],  prev_consumed[W-1:0]);
-    wire [W-1:0] dr_w = absdiff(sel_word_w[WW-1:W], prev_consumed[WW-1:W]);
-    wire [W-1:0] dmax_w = (dl_w > dr_w) ? dl_w : dr_w;
+    // step pipeline
+    logic [WW-1:0] cur_r = '0, prev_r = '0;
+    logic signed [W:0] dl_r = '0, dr_r = '0;
+    logic [W-1:0] al_r = '0, ar_r = '0, dmax_r = '0;
+    logic [4:1] st = '0;                 // one-hot-ish stage pulses
+    always_ff @(posedge clk_dst) begin
+        st <= {st[3:1], strobe_dst};
+        if (strobe_dst) begin
+            cur_r  <= sel_word_w;
+            prev_r <= cur_r;
+        end
+        if (st[1]) begin
+            dl_r <= $signed({cur_r[W-1], cur_r[W-1:0]})   - $signed({prev_r[W-1], prev_r[W-1:0]});
+            dr_r <= $signed({cur_r[WW-1], cur_r[WW-1:W]}) - $signed({prev_r[WW-1], prev_r[WW-1:W]});
+        end
+        if (st[2]) begin
+            al_r <= dl_r[W] ? W'(-dl_r) : W'(dl_r);
+            ar_r <= dr_r[W] ? W'(-dr_r) : W'(dr_r);
+        end
+        if (st[3])
+            dmax_r <= (al_r > ar_r) ? al_r : ar_r;
+    end
 
     always_ff @(posedge clk_dst) begin
         if (clr_s) begin
@@ -131,18 +151,17 @@ module audio_sample_cdc #(
             jump_cnt           <= '0;
             max_delta          <= '0;
         end else begin
-            if (mixed_w && mixed_cnt != 16'hFFFF)
+            if (mixed_r && mixed_cnt != 16'hFFFF)
                 mixed_cnt <= mixed_cnt + 16'd1;
-            if (mixed_w && strobe_dst && mixed_consumed_cnt != 16'hFFFF)
+            if (mixed_r && strobe_r && mixed_consumed_cnt != 16'hFFFF)
                 mixed_consumed_cnt <= mixed_consumed_cnt + 16'd1;
-            if (strobe_dst) begin
-                if (dmax_w > W'(JUMP_THRESH) && jump_cnt != 16'hFFFF)
+            if (st[4]) begin
+                if (dmax_r > W'(JUMP_THRESH) && jump_cnt != 16'hFFFF)
                     jump_cnt <= jump_cnt + 16'd1;
-                if (dmax_w > max_delta)
-                    max_delta <= dmax_w;
+                if (dmax_r > max_delta)
+                    max_delta <= dmax_r;
             end
         end
-        if (strobe_dst) prev_consumed <= sel_word_w;
     end
 
     assign dbg = {6'b0, clr_s, sel_s,            // [63:56]
