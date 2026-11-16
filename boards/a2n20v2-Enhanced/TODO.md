@@ -22,10 +22,6 @@
 
 - [ ] **Dual-rate / `_fb` CDC request path is not timing-verified** (word-granularity corruption
       hazard): [upstream #52](https://github.com/a2fpga/a2fpga_core/issues/52)
-- [ ] Lift the HDD read-only containment in `firmware_host/disk.c` (`mount_hdd`, `rw = false`):
-      the shifted/interleaved-word corruption it guarded against was the shared `hdl/disk/hdd.sv`
-      write drain, fixed 2026-11-13 ([a2p25 write-up](../a2p25/docs/HDD_BLOCK_WRITE_SHIFT.md));
-      needs a write test on this board first
 - [ ] Startup gate when the card is powered before the Apple (supplemental power): the reset
       contract is jumped and the Apple does not boot. Reported in agent notes with a proposed
       fix (an `a2_alive` level gate that re-arms the hold); nothing for it is in the tree
@@ -35,6 +31,14 @@
 - [ ] Classic build has no BSRAM headroom (46/46): any new feature must reclaim blocks first;
       build with `RESOURCE_FAIL=bsram`
 - [ ] IIgs bus-timing items shared with a2n20v2 ([a2n20v2/TODO.md](../a2n20v2/TODO.md))
+- [x] Lift the HDD read-only containment in `firmware_host/disk.c` (`mount_hdd`, `rw = false`):
+      done 2026-11-15 after a write test on this board. Two `hdl/disk/hdd.sv` write-drain bugs were
+      behind the corruption: every word one word late (fixed 2026-11-13,
+      [a2p25 write-up](../a2p25/docs/HDD_BLOCK_WRITE_SHIFT.md)) and, on this board's shared storage
+      port, every other word dropped because the drain never waited for write completion (fixed
+      2026-11-15, ST_DRAIN_WAIT)
+
+## Low Priority / Future
 
 ## Known issues
 

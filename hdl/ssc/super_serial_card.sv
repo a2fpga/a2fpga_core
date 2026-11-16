@@ -116,25 +116,34 @@ module SuperSerial #(
 
     assign APPLE_C0 = a2bus_if.addr[15:8] == 8'b11000000;
 
+    // C8-space ownership. Set by an access to THIS card's own $Cn00-$CnFF
+    // (card_io_sel: slotmaker decodes the slot the card is configured into,
+    // already gated by INTCXROM and phi0) -- previously hard-coded to $C2xx,
+    // so an SSC assigned to any other slot never mapped its expansion ROM.
+    // Cleared by $CFFF, phi0-qualified so address-bus transients outside the
+    // valid phase cannot spuriously drop ownership mid-execution.
+    reg [2:0] my_slot_r;
     always @(posedge a2bus_if.clk_logic) begin
         if (!a2bus_if.system_reset_n) begin
+            C8S2      <= 1'b0;
+            my_slot_r <= 3'd0;
+        end else if (card_io_sel) begin
+            C8S2      <= 1'b1;
+            my_slot_r <= a2bus_if.addr[10:8];
+        end else if (a2bus_if.phi0 && !a2mem_if.INTCXROM &&
+                     a2bus_if.addr == 16'hCFFF) begin
             C8S2 <= 1'b0;
-        end else begin
-            case (a2bus_if.addr[15:8])
-                8'hC2: begin
-                    if (!a2mem_if.INTCXROM)  // SSC ROM
-                        C8S2 <= 1'b1;
-                end
-                8'hCF: begin
-                    if (!a2mem_if.INTCXROM) begin
-                        if (a2bus_if.addr[7:0] == 8'hFF) C8S2 <= 1'b0;
-                    end
-                end
-            endcase
         end
     end
 
-    assign ENA_C8S  = {(C8S2 & !a2mem_if.INTCXROM), a2bus_if.addr[15:11]} == 6'b111001;
+    // Respond in $C800-$CFFF only while this card's slot is the most recently
+    // selected $Cnxx slot (SLOTROM). All emulated cards share one bus mux, so
+    // a C8S2 left set across another slot's selection (no intervening $CFFF)
+    // would otherwise answer that slot's expansion-ROM reads.
+    // Fixes 3 + 5 from Brent Rector's fork (docs/UPSTREAM_FIXES.md),
+    // generalized from a hard-coded slot 2 to the configured slot.
+    assign ENA_C8S  = ({(C8S2 & !a2mem_if.INTCXROM), a2bus_if.addr[15:11]} == 6'b111001) &&
+                      (a2mem_if.SLOTROM == my_slot_r);
     assign rom_en_o = ENA_C8S;
     //assign data_o2 = ENA_C8S ? DOA_C8S : SSC;
 
