@@ -396,8 +396,12 @@ module top #(
     localparam GLU_MEM_PORT      = 3;
     localparam FB_WRITE_PORT   = 4;
     localparam FB_READ_PORT    = 5;
+    // The ESP32 memory-peek reader gets a 7th port only when the profile
+    // asks for it (A2_INSTR_MEM_PEEK): each port is a 2-slot x 155-bit
+    // request queue in flops plus its share of the 7:1 muxes.
+    localparam MEM_PEEK          = `A2_INSTR_MEM_PEEK;
     localparam DBG_MEM_PORT      = 6;
-    localparam NUM_DDR3_PORTS    = 7;   // (name kept from the a2mega: the port roles are identical)
+    localparam NUM_DDR3_PORTS    = 6 + MEM_PEEK;   // (name kept from the a2mega: the port roles are identical)
 
     // DDR3 memory map — word address offsets (32-bit word addressing)
     // Applied per-port inside ddr3_ports via PORT_BASE_ADDR parameter.
@@ -734,26 +738,35 @@ module top #(
     wire        dbg_mem_rd_w;
     wire [20:0] dbg_mem_port_addr_w;
 
-    assign hr_mem_ports[DBG_MEM_PORT].rd      = dbg_mem_rd_w;
-    assign hr_mem_ports[DBG_MEM_PORT].wr      = 1'b0;
-    assign hr_mem_ports[DBG_MEM_PORT].addr    = dbg_mem_port_addr_w;
-    assign hr_mem_ports[DBG_MEM_PORT].data    = 32'd0;
-    assign hr_mem_ports[DBG_MEM_PORT].byte_en = 4'b1111;
-    assign hr_mem_ports[DBG_MEM_PORT].burst   = 1'b0;
+    generate if (MEM_PEEK) begin : g_mem_peek
+        assign hr_mem_ports[DBG_MEM_PORT].rd      = dbg_mem_rd_w;
+        assign hr_mem_ports[DBG_MEM_PORT].wr      = 1'b0;
+        assign hr_mem_ports[DBG_MEM_PORT].addr    = dbg_mem_port_addr_w;
+        assign hr_mem_ports[DBG_MEM_PORT].data    = 32'd0;
+        assign hr_mem_ports[DBG_MEM_PORT].byte_en = 4'b1111;
+        assign hr_mem_ports[DBG_MEM_PORT].burst   = 1'b0;
 
-    ddr3_debug_reader u_ddr3_dbg_reader (
-        .clk    (clk_logic_w),
-        .rst_n  (device_reset_n_w),
-        .mem_rd_o        (dbg_mem_rd_w),
-        .mem_addr_o      (dbg_mem_port_addr_w),
-        .mem_available_i (hr_mem_ports[DBG_MEM_PORT].available),
-        .mem_ready_i     (hr_mem_ports[DBG_MEM_PORT].ready),
-        .mem_q_i         (hr_mem_ports[DBG_MEM_PORT].q),
-        .addr_i (dbg_mem_addr_w),
-        .req_i  (dbg_mem_go_w),
-        .busy_o (dbg_mem_busy_w),
-        .data_o (dbg_mem_data_w)
-    );
+        ddr3_debug_reader u_ddr3_dbg_reader (
+            .clk    (clk_logic_w),
+            .rst_n  (device_reset_n_w),
+            .mem_rd_o        (dbg_mem_rd_w),
+            .mem_addr_o      (dbg_mem_port_addr_w),
+            .mem_available_i (hr_mem_ports[DBG_MEM_PORT].available),
+            .mem_ready_i     (hr_mem_ports[DBG_MEM_PORT].ready),
+            .mem_q_i         (hr_mem_ports[DBG_MEM_PORT].q),
+            .addr_i (dbg_mem_addr_w),
+            .req_i  (dbg_mem_go_w),
+            .busy_o (dbg_mem_busy_w),
+            .data_o (dbg_mem_data_w)
+        );
+    end else begin : g_no_mem_peek
+        // Window regs 0x34-0x3B still exist in the connector; GO never
+        // reports busy and the data reads back as a marker.
+        assign dbg_mem_rd_w        = 1'b0;
+        assign dbg_mem_port_addr_w = 21'd0;
+        assign dbg_mem_busy_w      = 1'b0;
+        assign dbg_mem_data_w      = 32'hDEAD_BEEF;
+    end endgenerate
 
     // SuperSprite
 
@@ -1108,17 +1121,22 @@ module top #(
         .hr_ck (hr_ck), .hr_cs_n (hr_cs_n), .hr_rwds (hr_rwds), .hr_dq (hr_dq)
     );
 
-    hyperram_ports_if #(
-        .NUM_PORTS        (NUM_DDR3_PORTS),
-        // packed tables, port 0 in the LOW field (see hyperram_ports.sv)
-        .PORT_BASE_ADDR   ({21'd0,               // [6] debug reader (absolute)
+    // packed tables, port 0 in the LOW field (see hyperram_ports.sv); the
+    // 7-port tables are sliced to the ports actually built
+    localparam [7*21-1:0] HR_PORT_BASES_7 =
+                           {21'd0,               // [6] debug reader (absolute, MEM_PEEK only)
                             FB_WORD_BASE,        // [5] FB read
                             FB_WORD_BASE,        // [4] FB write
                             ENSONIQ_WORD_BASE,   // [3] GLU sound-RAM write
                             SHADOW_WORD_BASE,    // [2] shadow write
                             SHADOW_WORD_BASE,    // [1] shadow read
-                            ENSONIQ_WORD_BASE}), // [0] DOC wavetable read
-        .PORT_BURST_WORDS ({5'd4, 5'd8, 5'd4, 5'd4, 5'd4, 5'd4, 5'd4}),
+                            ENSONIQ_WORD_BASE};  // [0] DOC wavetable read
+    localparam [7*5-1:0]  HR_PORT_BURSTS_7 = {5'd4, 5'd8, 5'd4, 5'd4, 5'd4, 5'd4, 5'd4};
+
+    hyperram_ports_if #(
+        .NUM_PORTS        (NUM_DDR3_PORTS),
+        .PORT_BASE_ADDR   (HR_PORT_BASES_7[NUM_DDR3_PORTS*21-1:0]),
+        .PORT_BURST_WORDS (HR_PORT_BURSTS_7[NUM_DDR3_PORTS*5-1:0]),
         .WIDE_WR_PORT     (FB_WRITE_PORT)
     ) u_hr_ports (
         .clk (clk_logic_w), .rst_n (hr_rst_n_w),
@@ -1170,6 +1188,7 @@ module top #(
     framebuffer_1080p #(
         .COLOR_BITS(18),
         .FB_READ_BURST_WORDS(8),
+        .LINE_BANKS(4),            // 4 BSRAM blocks, not 8 (RESOURCE_AUDIT B3)
         .TEST_PATTERN(0)
     ) u_framebuffer (
         .clk              (clk_logic_w),
@@ -1323,7 +1342,8 @@ module top #(
         .LANE_COUNT       (4),
         .LINK_RATE_MBPS   (1620),
         .RGB_LATENCY      (2),
-        .FIFO_LINES       (1),       // 512 x 97 = 3 BSRAM (was 11); level swings +-60 at prefill
+        .FIFO_LINES       (1),       // 512 words (was 11 lines); level swings +-60 at prefill
+        .PIXEL_BITS       (16),      // RGB565 through the CDC FIFO: 512 x 65 = 4 blocks, not 6 (B4)
         .PREFILL_WORDS    (256),     // half a line
         .BLIND_SINK       (0),
         .HPD_DISCONNECT_RESETS(1),
@@ -1601,7 +1621,7 @@ module top #(
         dbg_hex_sync0[0] <= ddr3_dbg_arb_state_w;
                                                 dbg_hex_sync1[0] <= dbg_hex_sync0[0];
         // Hex 1: req_pending bitmask for all 6 ports
-        dbg_hex_sync0[1] <= {2'b0, ddr3_dbg_req_pending_w};
+        dbg_hex_sync0[1] <= 8'(ddr3_dbg_req_pending_w);
                                                 dbg_hex_sync1[1] <= dbg_hex_sync0[1];
         // Hex 2: DOC REQUESTS PER FRAME, high byte (count >> 8). Ground
         // truth of DOC memory demand, comparable across configs. Expected:
@@ -1838,7 +1858,7 @@ module top #(
     // sticky, so multi-bit skew is harmless)
     reg [7:0] dbg_resp_ovfl_sync0, dbg_resp_ovfl_sync1;
     always @(posedge clk_logic_w) begin
-        dbg_resp_ovfl_sync0 <= {2'b00, ddr3_dbg_resp_ovfl_w};
+        dbg_resp_ovfl_sync0 <= 8'(ddr3_dbg_resp_ovfl_w);
         dbg_resp_ovfl_sync1 <= dbg_resp_ovfl_sync0;
     end
 
@@ -1849,7 +1869,8 @@ module top #(
         .USE_CRC(0),
         .IDLE_TO_CYC(5_400_000),  // ~100ms at 54MHz
         .CLOCK_SPEED_HZ(CLOCK_SPEED_HZ),
-        .EVT_LOG(`A2_INSTR_EVENT_LOG)   // a2p25_profile.vh
+        .EVT_LOG(`A2_INSTR_EVENT_LOG),  // a2p25_profile.vh
+        .TEST_MEM(`A2_INSTR_TEST_MEM)   // a2p25_profile.vh
     ) esp32_ospi (
         .clk(clk_logic_w),
         .rst_n(device_reset_n_w),

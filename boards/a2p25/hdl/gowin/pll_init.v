@@ -124,7 +124,7 @@ localparam  ROM_FILE = "";
 reg  [  27:0]   rRomDReg    = 'b0;
 
 
-reg    [27:0]  rRom    [63:0];
+reg    [27:0]  rRom    [63:0];   // ROM_FILE branch only; see ram_init below
 
 
 always @ (posedge PLL_INIT_BYPASS or posedge I_MD_CLK or posedge I_RST) begin
@@ -142,114 +142,88 @@ if (ROM_FILE != "") begin: ram_init_file
         rRomDReg    <=`DL rRom[rRomAddr[5:0]];
     end
 end else begin : ram_init
+    // RESOURCE_AUDIT B7 (2026-11-15): the 64 x 28 init table used to be a
+    // register array loaded with constants under ~rEnable[1]; GowinSynthesis
+    // inferred a pROM from it and spent one 18 Kb BSRAM block per PLL_INIT
+    // instance (two on the a2p25), and syn_romstyle did not move it. As a
+    // case lookup it is plain LUT logic. Same contents, same registered
+    // read timing (rRomDReg valid the cycle after rRomAddr), zero while
+    // ~rEnable[1] as before.
+    function automatic [27:0] rom_val (input [5:0] a);
+        case (a)
+        6'd00: rom_val = (MULTI_FAC > 34)  ? 28'h10B_3F03 :    (MULTI_FAC > 16)  ? 28'h10B_3F01 :                        28'h10B_3F00;
+        6'd01: rom_val = 28'h10C_E080;
+        6'd02: rom_val = 28'h111_0701;
+        6'd03: rom_val = 28'h112_0C08;
+        6'd04: rom_val = (MULTI_FAC > 34)  ? 28'h10B_3F03 :    (MULTI_FAC > 16)  ? 28'h10B_3F01 :                        28'h10B_3F00;
+        6'd05: rom_val = 28'h10C_E080;
+        6'd06: rom_val = 28'h111_0703;
+        6'd07: rom_val = 28'h112_0C08;
+        6'd08: rom_val = (MULTI_FAC > 34)  ? 28'h10B_3F03 :    (MULTI_FAC > 16)  ? 28'h10B_3F01 :                        28'h10B_3F00;
+        6'd09: rom_val = 28'h10C_E0A0;
+        6'd10: rom_val = 28'h111_0703;
+        6'd11: rom_val = 28'h112_0C08;
+        6'd12: rom_val = (MULTI_FAC > 34)  ? 28'h10B_3F03 :    (MULTI_FAC > 16)  ? 28'h10B_3F01 :                        28'h10B_3F00;
+        6'd13: rom_val = 28'h10C_E0A0;
+        6'd14: rom_val = 28'h111_0707;
+        6'd15: rom_val = 28'h112_0C08;
+        6'd16: rom_val = (MULTI_FAC > 34)  ? 28'h10B_3F07 :    (MULTI_FAC > 16)  ? 28'h10B_3F03 :                        28'h10B_3F01;
+        6'd17: rom_val = 28'h10C_E0A0;
+        6'd18: rom_val = 28'h111_0707;
+        6'd19: rom_val = 28'h112_0C08;
+        6'd20: rom_val = (MULTI_FAC > 34)  ? 28'h10B_3F05 :    (MULTI_FAC > 16)  ? 28'h10B_3F02 :                        28'h10B_3F01;
+        6'd21: rom_val = 28'h10C_E0C0;
+        6'd22: rom_val = 28'h111_0707;
+        6'd23: rom_val = 28'h112_0C08;
+        6'd24: rom_val = 28'h000_0000;
+        6'd25: rom_val = 28'h000_0000;
+        6'd26: rom_val = 28'h000_0000;
+        6'd27: rom_val = 28'h000_0000;
+        6'd28: rom_val = (MULTI_FAC > 34)  ? 28'h10B3F03 :    (MULTI_FAC > 16)  ? 28'h10B3F01 :                        28'h10B3F00;
+        6'd29: rom_val = 28'h10CE080;
+        6'd30: rom_val = 28'h1110702;
+        6'd31: rom_val = 28'h1120C08;
+        6'd32: rom_val = (MULTI_FAC > 34)  ? 28'h10B3F05 :    (MULTI_FAC > 16)  ? 28'h10B3F02 :                        28'h10B3F00;
+        6'd33: rom_val = 28'h10CE080;
+        6'd34: rom_val = 28'h1110703;
+        6'd35: rom_val = 28'h1120C08;
+        6'd36: rom_val = (MULTI_FAC > 34)  ? 28'h10B3F03 :    (MULTI_FAC > 16)  ? 28'h10B3F01 :                        28'h10B3F00;
+        6'd37: rom_val = 28'h10CE0A0;
+        6'd38: rom_val = 28'h1110704;
+        6'd39: rom_val = 28'h112_0C08;
+        6'd40: rom_val = (MULTI_FAC > 34)  ? 28'h10B3F04 :    (MULTI_FAC > 16)  ? 28'h10B3F02 :                        28'h10B3F00;
+        6'd41: rom_val = 28'h10CE0A0;
+        6'd42: rom_val = 28'h1110707;
+        6'd43: rom_val = 28'h1120C08;
+        6'd44: rom_val = (MULTI_FAC > 34)  ? 28'h10B3F03 :    (MULTI_FAC > 16)  ? 28'h10B3F01 :                        28'h10B3F00;
+        6'd45: rom_val = 28'h10CE0C0;
+        6'd46: rom_val = 28'h1110707;
+        6'd47: rom_val = 28'h1120C08;
+        6'd48: rom_val = 28'h000_0000;
+        6'd49: rom_val = 28'h000_0000;
+        6'd50: rom_val = 28'h000_0000;
+        6'd51: rom_val = 28'h000_0000;
+        6'd52: rom_val = 28'h000_0000;
+        6'd53: rom_val = 28'h000_0000;
+        6'd54: rom_val = 28'h000_0000;
+        6'd55: rom_val = 28'h000_0000;
+        6'd56: rom_val = 28'h000_0000;
+        6'd57: rom_val = 28'h000_0000;
+        6'd58: rom_val = 28'h000_0000;
+        6'd59: rom_val = 28'h000_0000;
+        6'd60: rom_val = 28'h000_0000;
+        6'd61: rom_val = 28'h000_0000;
+        6'd62: rom_val = 28'h000_0000;
+        6'd63: rom_val = 28'h000_0000;
+        default: rom_val = 28'h000_0000;
+        endcase
+    endfunction
+
     always @ (posedge I_MD_CLK) begin
-        if (~rEnable[1]) begin
+        if (~rEnable[1])
             rRomDReg    <=`DL 28'h000_0000;
-//1
-            rRom[00]    <=`DL (MULTI_FAC > 34)  ? 28'h10B_3F03
-                         :    (MULTI_FAC > 16)  ? 28'h10B_3F01
-                         :                        28'h10B_3F00;
-            rRom[01]    <=`DL 28'h10C_E080;
-            rRom[02]    <=`DL 28'h111_0701;
-            rRom[03]    <=`DL 28'h112_0C08;
-//2
-            rRom[04]    <=`DL (MULTI_FAC > 34)  ? 28'h10B_3F03
-                         :    (MULTI_FAC > 16)  ? 28'h10B_3F01
-                         :                        28'h10B_3F00;
-            rRom[05]    <=`DL 28'h10C_E080;
-            rRom[06]    <=`DL 28'h111_0703;
-            rRom[07]    <=`DL 28'h112_0C08;
-//3
-            rRom[08]    <=`DL (MULTI_FAC > 34)  ? 28'h10B_3F03
-                         :    (MULTI_FAC > 16)  ? 28'h10B_3F01
-                         :                        28'h10B_3F00;
-            rRom[09]    <=`DL 28'h10C_E0A0;
-            rRom[10]    <=`DL 28'h111_0703;
-            rRom[11]    <=`DL 28'h112_0C08;
-//4
-            rRom[12]    <=`DL (MULTI_FAC > 34)  ? 28'h10B_3F03
-                         :    (MULTI_FAC > 16)  ? 28'h10B_3F01
-                         :                        28'h10B_3F00;
-            rRom[13]    <=`DL 28'h10C_E0A0;
-            rRom[14]    <=`DL 28'h111_0707;
-            rRom[15]    <=`DL 28'h112_0C08;
-//5
-            rRom[16]    <=`DL (MULTI_FAC > 34)  ? 28'h10B_3F07
-                         :    (MULTI_FAC > 16)  ? 28'h10B_3F03
-                         :                        28'h10B_3F01;
-            rRom[17]    <=`DL 28'h10C_E0A0;
-            rRom[18]    <=`DL 28'h111_0707;
-            rRom[19]    <=`DL 28'h112_0C08;
-//6
-            rRom[20]    <=`DL (MULTI_FAC > 34)  ? 28'h10B_3F05
-                         :    (MULTI_FAC > 16)  ? 28'h10B_3F02
-                         :                        28'h10B_3F01;
-            rRom[21]    <=`DL 28'h10C_E0C0;
-            rRom[22]    <=`DL 28'h111_0707;
-            rRom[23]    <=`DL 28'h112_0C08;
-//over
-            rRom[24]    <=`DL 28'h000_0000;
-            rRom[25]    <=`DL 28'h000_0000;
-            rRom[26]    <=`DL 28'h000_0000;
-            rRom[27]    <=`DL 28'h000_0000;
-//1.5
-            rRom[28]    <=`DL (MULTI_FAC > 34)  ? 28'h10B3F03
-                         :    (MULTI_FAC > 16)  ? 28'h10B3F01
-                         :                        28'h10B3F00;
-            rRom[29]    <=`DL 28'h10CE080;
-            rRom[30]    <=`DL 28'h1110702;
-            rRom[31]    <=`DL 28'h1120C08;
-//2.5
-            rRom[32]    <=`DL (MULTI_FAC > 34)  ? 28'h10B3F05
-                         :    (MULTI_FAC > 16)  ? 28'h10B3F02
-                         :                        28'h10B3F00;
-            rRom[33]    <=`DL 28'h10CE080;
-            rRom[34]    <=`DL 28'h1110703;
-            rRom[35]    <=`DL 28'h1120C08;
-//3.5
-            rRom[36]    <=`DL (MULTI_FAC > 34)  ? 28'h10B3F03
-                         :    (MULTI_FAC > 16)  ? 28'h10B3F01
-                         :                        28'h10B3F00;
-            rRom[37]    <=`DL 28'h10CE0A0;
-            rRom[38]    <=`DL 28'h1110704;
-            rRom[39]    <=`DL 28'h112_0C08;
-
-//4.5
-            rRom[40]    <=`DL (MULTI_FAC > 34)  ? 28'h10B3F04
-                         :    (MULTI_FAC > 16)  ? 28'h10B3F02
-                         :                        28'h10B3F00;
-            rRom[41]    <=`DL 28'h10CE0A0;
-            rRom[42]    <=`DL 28'h1110707;
-            rRom[43]    <=`DL 28'h1120C08;
-
-//5.5
-            rRom[44]    <=`DL (MULTI_FAC > 34)  ? 28'h10B3F03
-                         :    (MULTI_FAC > 16)  ? 28'h10B3F01
-                         :                        28'h10B3F00;
-            rRom[45]    <=`DL 28'h10CE0C0;
-            rRom[46]    <=`DL 28'h1110707;
-            rRom[47]    <=`DL 28'h1120C08;
-
-            rRom[48]    <=`DL 28'h000_0000;
-            rRom[49]    <=`DL 28'h000_0000;
-            rRom[50]    <=`DL 28'h000_0000;
-            rRom[51]    <=`DL 28'h000_0000;
-            rRom[52]    <=`DL 28'h000_0000;
-            rRom[53]    <=`DL 28'h000_0000;
-            rRom[54]    <=`DL 28'h000_0000;
-            rRom[55]    <=`DL 28'h000_0000;
-            rRom[56]    <=`DL 28'h000_0000;
-            rRom[57]    <=`DL 28'h000_0000;
-            rRom[58]    <=`DL 28'h000_0000;
-            rRom[59]    <=`DL 28'h000_0000;
-            rRom[60]    <=`DL 28'h000_0000;
-            rRom[61]    <=`DL 28'h000_0000;
-            rRom[62]    <=`DL 28'h000_0000;
-            rRom[63]    <=`DL 28'h000_0000;
-
-
-        end else
-            rRomDReg    <=`DL rRom[rRomAddr[5:0]];
+        else
+            rRomDReg    <=`DL rom_val(rRomAddr[5:0]);
     end
 end
 endgenerate

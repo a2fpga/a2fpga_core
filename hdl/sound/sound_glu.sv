@@ -179,9 +179,21 @@ module sound_glu #(
             // fetches wrong-but-plausible bytes forever (harmonic
             // distortion) with every DOC-side counter reading clean.
             localparam GQ_DEPTH = 32;
-            reg [20:0] gq_addr_r [GQ_DEPTH-1:0];
-            reg [31:0] gq_data_r [GQ_DEPTH-1:0];
-            reg [3:0]  gq_be_r   [GQ_DEPTH-1:0];
+            // Entry layout (RESOURCE_AUDIT B5a): the sound RAM is 64 KB, so
+            // glu_mem_addr_r carries 14 significant word-address bits
+            // ({7'b0, ptr_hi, ptr_lo[7:2]}), and the data word is one byte
+            // replicated into four lanes. Storing {be, addr[13:0]} (18 bits)
+            // and the byte (8 bits) as two arrays keeps every inferred
+            // primitive at x18 or narrower: 2 BSRAM blocks instead of the 4
+            // that 21 + 32 bits cost on GW5A, where an x32 SDP primitive is
+            // split into two blocks (Convert_SDP32_36_to_SDP16_18). Same
+            // depth, same behaviour; the port sees the same 21-bit address,
+            // 32-bit data and byte enables as before. The block_ram style is
+            // required: left to the heuristic, GowinSynthesis extracted these
+            // small arrays as RAM and then built them from ~830 flip-flops.
+            localparam GQ_ADDR_BITS = 14;
+            reg [GQ_ADDR_BITS+3:0] gq_ctl_r  [GQ_DEPTH-1:0] /* synthesis syn_ramstyle="block_ram" */;   // {be[3:0], addr[13:0]}
+            reg [7:0]              gq_data_r [GQ_DEPTH-1:0] /* synthesis syn_ramstyle="block_ram" */;   // the sample byte
             reg [$clog2(GQ_DEPTH)-1:0] gq_wp_r, gq_rp_r;
             reg [$clog2(GQ_DEPTH):0]   gq_cnt_r;
             reg gq_wr_r;
@@ -195,7 +207,7 @@ module sound_glu #(
                                              : glu_mem_if.ready;
             wire gq_pop_w = gq_wr_r && gq_ack_w;
             assign glu_wq_pop_w = gq_pop_w;
-            assign glu_wq_pop_waddr_w = gq_addr_r[gq_rp_r][13:0];
+            assign glu_wq_pop_waddr_w = gq_ctl_r[gq_rp_r][GQ_ADDR_BITS-1:0];
 
             always_ff @(posedge a2bus_if.clk_logic) begin
                 if (!a2bus_if.system_reset_n) begin
@@ -206,10 +218,8 @@ module sound_glu #(
                     gq_drop_cnt_r <= 8'd0;
                 end else begin
                     if (gq_push_w) begin
-                        gq_addr_r[gq_wp_r] <= glu_mem_addr_r;
-                        gq_data_r[gq_wp_r] <= {a2bus_if.data, a2bus_if.data,
-                                               a2bus_if.data, a2bus_if.data};
-                        gq_be_r[gq_wp_r]   <= glu_mem_byte_en_r;
+                        gq_ctl_r[gq_wp_r]  <= {glu_mem_byte_en_r, glu_mem_addr_r[GQ_ADDR_BITS-1:0]};
+                        gq_data_r[gq_wp_r] <= a2bus_if.data;
                         gq_wp_r            <= gq_wp_r + 1'b1;
                     end
                     if (glu_mem_wr_r && !gq_room_w)
@@ -232,9 +242,9 @@ module sound_glu #(
 
             assign glu_mem_if.rd = '0;
             assign glu_mem_if.wr = gq_wr_r;
-            assign glu_mem_if.addr = gq_addr_r[gq_rp_r];
-            assign glu_mem_if.data = gq_data_r[gq_rp_r];
-            assign glu_mem_if.byte_en = gq_be_r[gq_rp_r];
+            assign glu_mem_if.addr = {{(21-GQ_ADDR_BITS){1'b0}}, gq_ctl_r[gq_rp_r][GQ_ADDR_BITS-1:0]};
+            assign glu_mem_if.data = {4{gq_data_r[gq_rp_r]}};
+            assign glu_mem_if.byte_en = gq_ctl_r[gq_rp_r][GQ_ADDR_BITS+3:GQ_ADDR_BITS];
             assign glu_mem_if.burst = 1'b0;
         end
     endgenerate

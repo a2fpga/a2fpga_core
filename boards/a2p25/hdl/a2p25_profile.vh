@@ -20,13 +20,15 @@
 `define A2_FEATURE_MOCKINGBOARD   0   // off for the first fit: with it 97% CLS and placement failed
 `define A2_FEATURE_SUPERSERIAL    0   // no UART pins on this revision
 `define A2_FEATURE_DISK_II        1
-`define A2_FEATURE_UTHERNET2      0   // W5100 buffer = ~10 of 56 BSRAM
+`define A2_FEATURE_UTHERNET2      1   // W5100 buffers = 9 BSRAM; back in after the 2026-11-15 BSRAM pass (RESOURCE_AUDIT §8)
 `define A2_FEATURE_HDD            1
 `define A2_FEATURE_ENSONIQ        1
 
 // ---- instrumentation ----
 `define A2_INSTR_DEBUG_OVERLAY    0   // off since the first clean full-core fit (10-11)
 `define A2_INSTR_EVENT_LOG        0   // no CPU socket; GW5A-25 failed to place with it
+`define A2_INSTR_MEM_PEEK         0   // ESP32 HyperRAM read window (regs 0x34-0x3B) on its own arbiter port; ~150 FF + a 7th port (RESOURCE_AUDIT B6b). Firmware does not use it.
+`define A2_INSTR_TEST_MEM         0   // ESP32 SPACE 0 64-byte test memory, ~512 FF (RESOURCE_AUDIT 7.3). Firmware does not use it.
 
 `ifdef A2_PROFILE_RELEASE
 // Release overrides go here (undef + redefine). Empty: release == dev today.

@@ -35,7 +35,12 @@ module esp32_ospi_connector #(
     // instrument for the 138B socket bring-up (PR #34), not something the
     // 60K core or the GW5A-25 a2p25 can carry (the a2p25 failed to place
     // with it, 2026-10-22). 0 = no log; the window reads back zeros.
-    parameter EVT_LOG = 0
+    parameter EVT_LOG = 0,
+    // SPACE 0 "test memory": 64 bytes of flip-flops (~512 FF plus muxes)
+    // that only a link bring-up loop ever touched; the ESP32 firmware does
+    // not use it (RESOURCE_AUDIT 7.3). 0 = not built; reads return 0xFF
+    // like the other unimplemented space.
+    parameter TEST_MEM = 1
 )(
     input  wire        clk,
     input  wire        rst_n,
@@ -681,7 +686,7 @@ module esp32_ospi_connector #(
     // =========================================================================
 
     // Space 0: Test memory (64B, FF-based — kept tiny so it does not spend a
-    // BSRAM; the device is close to its BSRAM limit)
+    // BSRAM; the device is close to its BSRAM limit). TEST_MEM=0 drops it.
     reg [7:0] mem0 [0:63];
 
     // Space 1: OSD text page (2KB, 40x24 Apple II screen codes at y*40+x).
@@ -1272,10 +1277,12 @@ module esp32_ospi_connector #(
     wire mem0_wr_en = mem_wr_en && (mem_space == SPACE_TEST);
     wire osd_wr_en  = mem_wr_en && (mem_space == SPACE_OSD);
 
-    always @(posedge clk) begin
-        if (mem0_wr_en)
-            mem0[mem_wr_addr[5:0]] <= mem_wr_data;
-    end
+    generate if (TEST_MEM) begin : g_mem0_wr
+        always @(posedge clk) begin
+            if (mem0_wr_en)
+                mem0[mem_wr_addr[5:0]] <= mem_wr_data;
+        end
+    end endgenerate
 
     // OSD text page port A: ESP32 writes only (reads come back 0xFF; port B
     // belongs to the clk_pixel OSD renderer)
@@ -1297,7 +1304,7 @@ module esp32_ospi_connector #(
     reg [1:0] mem_rd_lane_r;
 
     always @(posedge clk) begin
-        mem0_rd_data <= mem0[mem_rd_addr[5:0]];
+        mem0_rd_data <= TEST_MEM ? mem0[mem_rd_addr[5:0]] : 8'hFF;
     end
 
     // Pipeline the request, space and byte lane to match BRAM latency
