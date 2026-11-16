@@ -23,7 +23,9 @@
  * button state into menu_input() every poll tick (~20 ms), and the menu does
  * its own edge detection, hold-repeat, and screen painting (all SPI access is
  * mutex-protected by fpga_spi). Settings changes are applied to the live
- * a2_settings_t and persisted to flash immediately.
+ * a2_settings_t and persisted to flash immediately, except on the SLOT
+ * ASSIGNMENTS screen, which edits a draft and validates/saves only on SAVE
+ * (IIgs control-panel style).
  *
  * Future growth is anticipated in the framework, not bolted on: screens are
  * builder functions that regenerate their item lists on entry (so dynamic

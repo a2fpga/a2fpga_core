@@ -70,6 +70,7 @@ typedef struct menu_item {
 typedef struct menu_screen {
     const char *title;
     void (*build)(void);               /* regenerate items on entry/refresh */
+    bool (*on_back)(void);             /* optional: B pressed; true = stay */
 } menu_screen_t;
 
 static menu_item_t s_items[MENU_MAX_ITEMS];
@@ -241,6 +242,13 @@ static void save_settings_status(void)
 }
 
 /* ======================= SCREEN: SLOTS ==================================== */
+/* IIgs-control-panel model: this screen edits a DRAFT copy of the slot
+ * map. LEFT/RIGHT only step the draft; nothing is checked, saved or applied
+ * until SAVE, so moving a card from one slot to another never clobbers the
+ * other slots while you step through the choices. SAVE refuses a map that
+ * resolves one card to two slots (the slotmaker decode answers in one slot
+ * only) and names the pair; B (back) with unsaved edits warns once, then
+ * drops the draft, like Esc in the IIgs control panel. */
 static const char *card_name(uint8_t id)
 {
     switch (id) {
@@ -269,15 +277,58 @@ static bool slot_choice_allowed(int slot, uint8_t card)
     return card != CARD_VIDEX || slot == CARD_VIDEX_SLOT;
 }
 
-/* Effective card for a slot (DEFAULT resolves to the hardware map). */
-static uint8_t slot_effective(int i)
+static uint8_t s_slot_draft[8];        /* edited map; 0xFF = hw default */
+static bool    s_slot_back_warned;     /* B pressed once with unsaved edits */
+
+/* Effective card for slot i given a map entry: DEFAULT resolves to the
+ * hardware map, and a Videx outside slot 3 resolves to EMPTY (the same
+ * rule as settings_slot_effective, applied to the draft). */
+static uint8_t slot_resolve(uint8_t c, int i)
 {
-    return settings_slot_effective(i);
+    if (c == 0xFF)
+        c = settings_slot_hw_defaults[i];
+    if (c == CARD_VIDEX && i != CARD_VIDEX_SLOT)
+        c = 0;
+    return c;
+}
+
+static bool slots_dirty(void)
+{
+    return memcmp(s_slot_draft, settings()->slot_cards,
+                  sizeof(s_slot_draft)) != 0;
+}
+
+/* Conflict scan of a map: returns a bitmask of the slots whose effective
+ * card also sits in another slot. When a pair exists, *card, *a and *b
+ * describe the first one (lowest slots) for the status line. */
+static uint8_t slots_conflicts(const uint8_t *map, uint8_t *card,
+                               int *a, int *b)
+{
+    uint8_t mask = 0;
+    *card = 0; *a = -1; *b = -1;
+    for (int i = 0; i < 8; i++) {
+        uint8_t eff = slot_resolve(map[i], i);
+        if (eff == 0)
+            continue;
+        for (int j = i + 1; j < 8; j++) {
+            if (slot_resolve(map[j], j) != eff)
+                continue;
+            mask |= (uint8_t)((1u << i) | (1u << j));
+            if (*a < 0) { *card = eff; *a = i; *b = j; }
+        }
+    }
+    return mask;
+}
+
+/* Live card in a slot (what the slotmaker is running right now). */
+static uint8_t slot_live_card(int i)
+{
+    return fpga_spi_reg_read((uint8_t)(REG_SLOT_BASE + i));
 }
 
 static void slots_change(int id, int dir)
 {
-    uint8_t *sc = &settings()->slot_cards[id];
+    uint8_t *sc = &s_slot_draft[id];
     int idx = 0;
     for (int i = 0; i < N_SLOT_CHOICES; i++)
         if (k_slot_choices[i] == *sc)
@@ -286,71 +337,138 @@ static void slots_change(int id, int dir)
         idx = (idx + dir + N_SLOT_CHOICES) % N_SLOT_CHOICES;
     } while (!slot_choice_allowed(id, k_slot_choices[idx]));
     *sc = k_slot_choices[idx];
+    s_slot_back_warned = false;
 
-    /* A card id may only answer in ONE slot (the slotmaker decode cannot
-     * duplicate it). If this slot now holds a real card that another slot
-     * also resolves to, empty the other slot explicitly. */
-    uint8_t eff = slot_effective(id);
-    int moved_from = -1;
+    /* Advisory only: say when this card now also sits in another slot.
+     * Nothing else changes; SAVE is where it is enforced. */
+    char msg[41] = "";
+    uint8_t eff = slot_resolve(*sc, id);
     if (eff != 0) {
         for (int i = 0; i < 8; i++) {
-            if (i != id && slot_effective(i) == eff) {
-                settings()->slot_cards[i] = 0;   /* explicit EMPTY */
-                moved_from = i;
+            if (i != id && slot_resolve(s_slot_draft[i], i) == eff) {
+                snprintf(msg, sizeof(msg), " %s ALSO IN SLOT %d",
+                         card_name(eff), i);
+                break;
             }
         }
     }
-
-    save_settings_status();
-    if (moved_from >= 0) {
-        char msg[41];
-        snprintf(msg, sizeof(msg), " %s MOVED - SLOT %d NOW EMPTY",
-                 card_name(eff), moved_from);
-        set_status(msg);
-    } else if (eff == CARD_VIDEX) {
-        set_status(" VIDEX: ][+ ONLY - PR#3 FOR 80 COL");
-    }
+    if (!msg[0] && eff == CARD_VIDEX)
+        snprintf(msg, sizeof(msg), " VIDEX: ][+ ONLY - PR#3 FOR 80 COL");
+    if (!msg[0] && slots_dirty())
+        snprintf(msg, sizeof(msg), " UNSAVED - SAVE TO KEEP");
+    set_status(msg);
     screen_refresh();
+}
+
+/* Validate the draft and persist it. Returns -1 on a card-in-two-slots
+ * conflict (nothing written), 0 when copied but the flash save failed,
+ * 1 when saved. Sets the status line in every case. */
+static int slots_commit(void)
+{
+    uint8_t dup; int a, b;
+    if (slots_conflicts(s_slot_draft, &dup, &a, &b)) {
+        char msg[41];
+        snprintf(msg, sizeof(msg), " NOT SAVED: %s IN %d AND %d",
+                 card_name(dup), a, b);
+        set_status(msg);
+        return -1;
+    }
+    memcpy(settings()->slot_cards, s_slot_draft, sizeof(s_slot_draft));
+    s_slot_back_warned = false;
+    if (!settings_save()) {
+        set_status(" SAVE FAILED (RAM ONLY)");
+        return 0;
+    }
+    set_status(" SAVED - APPLIES AT NEXT BOOT");
+    return 1;
+}
+
+static void slots_save(int id)
+{
+    (void)id;
+    slots_commit();
+    screen_refresh();
+}
+
+/* Program the saved map into the slotmaker and strobe a reconfig. */
+static void slots_program_hw(void)
+{
+    for (int i = 0; i < 8; i++)
+        fpga_spi_reg_write((uint8_t)(REG_SLOT_BASE + i),
+                           slot_resolve(settings()->slot_cards[i], i));
+    fpga_spi_reg_write(REG_SLOT_RECONFIG, 1);
 }
 
 static void slots_apply_now(int id)
 {
     (void)id;
-    for (int i = 0; i < 8; i++)
-        fpga_spi_reg_write((uint8_t)(REG_SLOT_BASE + i), settings_slot_effective(i));
-    fpga_spi_reg_write(REG_SLOT_RECONFIG, 1);
-    set_status(" APPLIED - REBOOT APPLE II");
+    int rc = slots_commit();
+    if (rc >= 0) {
+        slots_program_hw();
+        set_status(rc ? " SAVED + APPLIED - REBOOT APPLE II"
+                      : " APPLIED, SAVE FAILED (RAM ONLY)");
+    }
     screen_refresh();
 }
 
-static void slots_restore_defaults(int id)
+static void slots_load_defaults(int id)
 {
     (void)id;
-    memset(settings()->slot_cards, 0xFF, sizeof(settings()->slot_cards));
-    save_settings_status();
-    slots_apply_now(0);   /* re-seed the hardware map + reconfig */
+    memset(s_slot_draft, 0xFF, sizeof(s_slot_draft));
+    s_slot_back_warned = false;
+    set_status(slots_dirty() ? " DEFAULTS LOADED - SAVE TO KEEP"
+                             : " ALREADY AT HW DEFAULTS");
+    screen_refresh();
+}
+
+/* B with unsaved edits: warn once and stay; the second B leaves and the
+ * draft is dropped. */
+static bool slots_on_back(void)
+{
+    if (!slots_dirty() || s_slot_back_warned)
+        return false;
+    s_slot_back_warned = true;
+    set_status(" UNSAVED EDITS - B AGAIN TO DISCARD");
+    return true;
 }
 
 static void slots_build(void)
 {
+    uint8_t dup; int a, b;
+    uint8_t bad = slots_conflicts(s_slot_draft, &dup, &a, &b);
     for (int i = 0; i < 8; i++) {
         char label[MENU_LABEL_LEN + 1];
-        uint8_t live = fpga_spi_reg_read((uint8_t)(REG_SLOT_BASE + i));
-        uint8_t cfg  = settings()->slot_cards[i];
-        snprintf(label, sizeof(label), "SLOT %d  (NOW:%s)", i, card_name(live));
-        menu_item_t *m = mi_add(MI_CHOICE, label, card_name(cfg));
+        char mark = ' ';
+        if (bad & (1u << i))
+            mark = '!';
+        else if (s_slot_draft[i] != settings()->slot_cards[i])
+            mark = '*';
+        snprintf(label, sizeof(label), "%cSLOT %d (NOW:%s)", mark, i,
+                 card_name(slot_live_card(i)));
+        menu_item_t *m = mi_add(MI_CHOICE, label, card_name(s_slot_draft[i]));
         m->on_change = slots_change;
         m->id = i;
     }
     mi_add(MI_INFO, "", "");
-    menu_item_t *m = mi_add(MI_ACTION, "APPLY NOW (RECONFIG)", "");
+    menu_item_t *m = mi_add(MI_ACTION, "SAVE (APPLIES AT NEXT BOOT)", "");
+    m->action = slots_save;
+    m = mi_add(MI_ACTION, "SAVE + APPLY NOW (RECONFIG)", "");
     m->action = slots_apply_now;
-    m = mi_add(MI_ACTION, "RESTORE HW DEFAULTS", "");
-    m->action = slots_restore_defaults;
-    mi_add(MI_INFO, "SAVED MAP APPLIES AT BOOT", "");
+    m = mi_add(MI_ACTION, "LOAD HW DEFAULTS INTO DRAFT", "");
+    m->action = slots_load_defaults;
+    mi_add(MI_INFO, "* = UNSAVED EDIT   ! = CARD IN 2 SLOTS", "");
 }
 
-static const menu_screen_t SCR_SLOTS = { "SLOT ASSIGNMENTS", slots_build };
+static const menu_screen_t SCR_SLOTS = { "SLOT ASSIGNMENTS", slots_build,
+                                         slots_on_back };
+
+/* Entry from the root menu: seed the draft from the saved map. */
+static void slots_enter(void)
+{
+    memcpy(s_slot_draft, settings()->slot_cards, sizeof(s_slot_draft));
+    s_slot_back_warned = false;
+    screen_push(&SCR_SLOTS);
+}
 
 /* ======================= SCREEN: FILE PICKER ============================== */
 /* Generic list-of-files picker: fills a target settings name field. */
@@ -969,7 +1087,7 @@ static const menu_screen_t SCR_FPGAUPDATE = { "FPGA UPDATE", fpga_build };
 static void root_enter(int id)
 {
     switch (id) {
-    case 0: screen_push(&SCR_SLOTS);    break;
+    case 0: slots_enter();             break;
     case 1: screen_push(&SCR_DISKS);    break;
     case 2: screen_push(&SCR_STORAGE);  break;
     case 3: screen_push(&SCR_NETWORK);  break;
@@ -1115,6 +1233,8 @@ static void handle_button(uint16_t btn)
             m->action(m->id);
         break;
     case BTN_BACK:
+        if (s_stack[s_depth]->on_back && s_stack[s_depth]->on_back())
+            break;                     /* the screen kept itself open */
         if (s_stack[s_depth] == &SCR_PICKER && s_pick_path[0]) {
             picker_choose(-3);         /* in a subdirectory: go up first */
         } else if (s_depth > 0) {
