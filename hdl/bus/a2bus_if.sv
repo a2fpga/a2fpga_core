@@ -141,11 +141,10 @@ interface a2bus_if (
         input control_rdy_n,
         input control_dma_n,
         input control_nmi_n,
-        input control_reset_n,
-
-        import io_select_n,
-        import dev_select_n,
-        import io_strobe_n
+        input control_reset_n
+        // (removed: 'import io_select_n/dev_select_n/io_strobe_n' — these
+        // imported nonexistent interface items; tolerated by Gowin,
+        // rejected by Verilator, referenced by nothing)
     );
 
 endinterface: a2bus_if

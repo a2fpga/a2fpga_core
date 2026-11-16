@@ -15,6 +15,9 @@
 - [x] FPGA serialization verified: zero packet loss (fpgastats CLI command added, SPI regs 11-15)
 - [x] ES5503 write/generate race condition: mutex now protects g_es5503->write()
 - [ ] ES5503 key-on timing mismatch: always reset accumulator on halt=0 write (pending test)
+- [x] HDD image corruption seen around installs: the HDD card stored every written word one
+      word late (`hdd.sv` drain, fixed 2026-11-13, bench `sim/disk/run.sh`); a2p25 flashed and the
+      IIgs power-cycles clean after writes — [docs/HDD_BLOCK_WRITE_SHIFT.md](docs/HDD_BLOCK_WRITE_SHIFT.md)
 
 ## Medium Priority
 
