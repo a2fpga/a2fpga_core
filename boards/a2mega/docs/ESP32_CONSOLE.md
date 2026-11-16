@@ -117,10 +117,12 @@ leave it. Line commands, from `help`:
 - FTP: disk images and `wifi.txt` go to the ESP32's filesystem (a2mega) or
   the mounted USB stick (a2p25 with USB host). Any USER/PASS is accepted (LAN threat
   model).
-- Port 2323: `tools/fpga_stream.py <ip> <image.bin>` streams a Gowin `.bin` into
-  the FPGA's SRAM through the ESP32 JTAG bridge (volatile; `g` or a
-  power-cycle returns to the flash image). The Mac's USB JTAG must be
-  detached while streaming. Full notes:
+- Port 2323: `tools/fpga_stream.py <ip> <image.bin>` writes a Gowin `.bin`
+  into the FPGA's **config flash** through the ESP32's SPI-over-JTAG driver
+  (erase, write, page verify, then FPGA reload and ESP32 restart; ~100 s for
+  the a2p25's 0.9 MB image). The image **persists** across power cycles: a
+  power-cycle after a stream boots the streamed image, not the previous one.
+  The Mac's USB JTAG must be detached while streaming. Full notes:
   [bringup_1_0a3_log.md](bringup_1_0a3_log.md).
 
 ## What the registers can and cannot show (a2p25, 2026-11-16)
