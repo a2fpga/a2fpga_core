@@ -390,15 +390,14 @@ static void mount_hdd(int u)
         else
             continue;
 
-        /* CONTAINMENT: serve HDD volumes read-only for now. The Apple ->
-         * SDRAM window -> SPI XFER -> file write-back chain corrupts data
-         * at 32-bit-word granularity (observed on hardware: a game's
-         * high-score save destroyed the volume directory blocks with
-         * shifted/interleaved words). Until that path is fixed and
-         * verified, protect the images: reads are proven byte-faithful,
-         * writes are not. GS/OS boots and games run fine read-only; saves
-         * are rejected by the card's write-protect status. */
-        rw = false;
+        /* Writable when the image opens read/write (above); a file that
+         * only opens read-only is served write-protected. HDD writes were
+         * contained read-only until two write-path bugs were fixed in
+         * hdl/disk/hdd.sv: the drain stored every word one word late (#67)
+         * and, on this board's shared storage port, dropped every other
+         * word because it never waited for write completion. Write-tested
+         * on hardware 2026-11-15 (ProDOS 2.4.3: CREATE/SAVE in root and a
+         * subdirectory, power-cycled, images block-diffed clean). */
 
         uint32_t base  = 0;
         uint32_t bytes = (uint32_t)f_size(&g_hdd_img[u]);

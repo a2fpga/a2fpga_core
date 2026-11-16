@@ -58,6 +58,19 @@ RAMDISK path, which has been removed; the BL616 path currently stubs the disk si
 re-enabling Disk II on the BL616/ESP32 coprocessor path — see the
 [coprocessor interface](coprocessor-interface.md) (`drive_volume_if`) and the board TODOs.
 
+## ProDOS HDD — [`hdd.sv`](../hdl/disk/hdd.sv)
+
+An AppleWin-style ProDOS HDD interface card with its own driver ROM
+([`hdd_rom.a65`](../hdl/disk/hdd_rom.a65), assembled to `hdd_rom.hex`). Because the 6502 cannot be
+halted on a real bus, commands are asynchronous: reading EXECUTE (`$C0s0`) latches the command
+and sets the busy bit, the driver ROM polls STATUS until the coprocessor has served the 512-byte
+block over the unit's `drive_volume_if`, then streams it through the NEXTBYTE port. Two units
+(`.hdv`/`.po`/`.2mg` images, LBA 1:1 into the file), each with a 512-byte BSRAM sector buffer and
+a block window in the board's memory. Until 2026-11-13 the WRITE drain stored every word of a
+block one word late (word 0 stale), which corrupted ProDOS directory blocks on every board that
+let the card write; root cause, fix and bench (`sim/disk/run.sh`):
+[HDD_BLOCK_WRITE_SHIFT.md](../boards/a2p25/docs/HDD_BLOCK_WRITE_SHIFT.md).
+
 ## CardROM — [`cardrom.sv`](../hdl/cardrom/cardrom.sv) (not a slot card)
 
 CardROM is the A2FPGA's own **$F000–$FFFF ROM presence**, not a slotted peripheral. At power-up it

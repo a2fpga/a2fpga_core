@@ -21,7 +21,9 @@
  * polls the FPGA pad readback registers (fpga_pad_poll) and does its own
  * edge detection, hold-repeat, and screen painting (all link access is
  * mutex-protected by fpga_link). Settings changes are applied to the live
- * a2_settings_t and persisted immediately (settings_save()).
+ * a2_settings_t and persisted immediately (settings_save()), except on the
+ * SLOT ASSIGNMENTS screen, which edits a draft and validates/saves only on
+ * SAVE (IIgs control-panel style).
  *
  * Screens are builder functions that regenerate their item lists on entry,
  * and the item model (INFO/SUBMENU/ACTION/CHOICE/TOGGLE) covers list-driven

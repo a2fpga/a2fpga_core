@@ -5,34 +5,34 @@
 1. PnR Messages
 
   <Report Title>: PnR Report
-  <Design File>: /private/tmp/claude-501/-Users-jnorrid-data-wip-a2fpga-2026-a2fpga-core/7135aebd-079d-47a0-a4a6-063e81394daa/scratchpad/wt-videx/boards/a2n20v2-Enhanced/impl/gwsynthesis/a2n20v2_enhanced_fb.vg
-  <Physical Constraints File>: /private/tmp/claude-501/-Users-jnorrid-data-wip-a2fpga-2026-a2fpga-core/7135aebd-079d-47a0-a4a6-063e81394daa/scratchpad/wt-videx/boards/a2n20v2-Enhanced/hdl/a2n20v2_enhanced.cst
-  <Timing Constraints File>: /private/tmp/claude-501/-Users-jnorrid-data-wip-a2fpga-2026-a2fpga-core/7135aebd-079d-47a0-a4a6-063e81394daa/scratchpad/wt-videx/boards/a2n20v2-Enhanced/hdl/a2n20v2_enhanced_dualrate.sdc
+  <Design File>: /private/tmp/claude-501/-Users-jnorrid-data-wip-a2fpga-2026-a2fpga-core/7135aebd-079d-47a0-a4a6-063e81394daa/scratchpad/wt-6667/boards/a2n20v2-Enhanced/impl/gwsynthesis/a2n20v2_enhanced_fb.vg
+  <Physical Constraints File>: /private/tmp/claude-501/-Users-jnorrid-data-wip-a2fpga-2026-a2fpga-core/7135aebd-079d-47a0-a4a6-063e81394daa/scratchpad/wt-6667/boards/a2n20v2-Enhanced/hdl/a2n20v2_enhanced.cst
+  <Timing Constraints File>: /private/tmp/claude-501/-Users-jnorrid-data-wip-a2fpga-2026-a2fpga-core/7135aebd-079d-47a0-a4a6-063e81394daa/scratchpad/wt-6667/boards/a2n20v2-Enhanced/hdl/a2n20v2_enhanced_dualrate.sdc
   <Tool Version>: V1.9.11.03 Education
   <Part Number>: GW2AR-LV18QN88C8/I7
   <Device>: GW2AR-18
   <Device Version>: C
-  <Created Time>:Sun Nov 15 19:22:05 2026
+  <Created Time>:Sun Nov 15 22:04:21 2026
 
 
 2. PnR Details
 
   Running placement:
     Placement Phase 0: CPU time = 0h 0m 1s, Elapsed time = 0h 0m 1s
-    Placement Phase 1: CPU time = 0h 0m 0.344s, Elapsed time = 0h 0m 0.347s
+    Placement Phase 1: CPU time = 0h 0m 0.357s, Elapsed time = 0h 0m 0.362s
     Placement Phase 2: CPU time = 0h 0m 3s, Elapsed time = 0h 0m 3s
     Placement Phase 3: CPU time = 0h 0m 8s, Elapsed time = 0h 0m 8s
     Total Placement: CPU time = 0h 0m 12s, Elapsed time = 0h 0m 12s
  Running routing:
     Routing Phase 0: CPU time = 0h 0m 0.002s, Elapsed time = 0h 0m 0.002s
-    Routing Phase 1: CPU time = 0h 0m 0.173s, Elapsed time = 0h 0m 0.175s
-    Routing Phase 2: CPU time = 0h 0m 50s, Elapsed time = 0h 0m 50s
+    Routing Phase 1: CPU time = 0h 0m 0.183s, Elapsed time = 0h 0m 0.186s
+    Routing Phase 2: CPU time = 0h 0m 37s, Elapsed time = 0h 0m 37s
     Routing Phase 3: CPU time = 0h 0m 0s, Elapsed time = 0h 0m 0s
-    Total Routing: CPU time = 0h 0m 50s, Elapsed time = 0h 0m 50s
+    Total Routing: CPU time = 0h 0m 37s, Elapsed time = 0h 0m 37s
  Generate output files:
-    CPU time = 0h 0m 0.836s, Elapsed time = 0h 0m 0.84s
+    CPU time = 0h 0m 0.828s, Elapsed time = 0h 0m 0.833s
 
- Total Time and Memory Usage: CPU time = 0h 1m 3s, Elapsed time = 0h 1m 3s, Peak memory usage = 648MB
+ Total Time and Memory Usage: CPU time = 0h 0m 50s, Elapsed time = 0h 0m 50s, Peak memory usage = 645MB
 
 
 3. Resource Usage Summary
@@ -40,15 +40,15 @@
   --------------------------------------------------------------------------------
   Resources                   | Usage                               | Utilization
   --------------------------------------------------------------------------------
-  Logic                       | 15429/20736                         |  75%
-    --LUT,ALU,ROM16           | 13899(11955 LUT, 1920 ALU, 24 ROM16)| -
+  Logic                       | 15518/20736                         |  75%
+    --LUT,ALU,ROM16           | 13988(12045 LUT, 1919 ALU, 24 ROM16)| -
     --SSRAM(RAM16)            | 255                                 | -
-  Register                    | 8475/15915                          |  54%
+  Register                    | 8484/15915                          |  54%
     --Logic Register as Latch | 0/15552                             |  0%
-    --Logic Register as FF    | 8401/15552                          |  55%
+    --Logic Register as FF    | 8410/15552                          |  55%
     --I/O Register as Latch   | 0/363                               |  0%
     --I/O Register as FF      | 74/363                              |  21%
-  CLS                         | 9125/10368                          |  89%
+  CLS                         | 9050/10368                          |  88%
   I/O Port                    | 45/66                               |  69%
   I/O Buf                     | 41                                  | -
     --Input Buf               | 11                                  | -
@@ -105,11 +105,11 @@
   Signal         | Global Clock   | Location
   -------------------------------------------
   clk_d          | PRIMARY        |  BL
-  spi_sclk_d     | PRIMARY        |  TR TL BL
+  spi_sclk_d     | PRIMARY        |  TR
   a2bus_if.clk_logic| PRIMARY        |  TR TL BR BL
   clk_sdram_w    | PRIMARY        |  TR TL BR BL
   O_sdram_clk_d  | PRIMARY        |  TR
-  clk_pixel_pll_w| PRIMARY        |  TR TL BR BL
+  clk_pixel_pll_w| PRIMARY        |  TL BR BL
   n42_7          | LW             |  -
   slot_card_r[0]_ER_init| LW             |  -
   sdram_ports/sdram_inst/n3889_5| LW             |  -
