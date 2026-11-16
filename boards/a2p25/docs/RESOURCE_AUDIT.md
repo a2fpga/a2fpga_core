@@ -1375,6 +1375,27 @@ GLU queue re-slice and the slot-table registers apply there too).
    to the ESP32 debug window (select 0x5F, indices 46/47; telnet `z` prints
    both, firmware viddbg_log extended the same day). Reading recipe:
    [../../a2mega/docs/ESP32_CONSOLE.md](../../a2mega/docs/ESP32_CONSOLE.md).
+   **A/B result (ed, 11-16):** the pops are absent on the second a2p25 running
+   6767d681, so they are an artifact of this branch. The committed `.fs` did not
+   change at the BSRAM-pass commit (still 6767d681), so no intermediate build
+   existed; three bisect points were built from HEAD (counters in), toggling only
+   the two card macros, 0/0 violations each:
+
+   | Variant | fs | Mockingboard | Uthernet II | BSRAM | logic | worst slack |
+   |---|---|---|---|---|---|---|
+   | none | `27fce17d` | off | off | 41/56 | 65% | +0.34 (clk_mem) |
+   | u2 | `1cf76e79` | off | on | 50/56 | 65% | +0.59 (clk_tx) |
+   | mb | `497a719b` | on | off | 41/56 | 71% | +0.19 (clk_mem) |
+   | both | `fc17788f` | on | on | 50/56 | 72% | +0.10 (clk_tx) |
+
+   Order: `none` first. Pops there = the BSRAM pass itself (LINE_BANKS=4 is the
+   prime suspect: it changes the framebuffer's HyperRAM read pattern; the GLU
+   queue re-slice is cleared by the netlist check (SDPB bypass mode, read
+   address from the pointer's next state, a dead cycle in the pop sequencer) and
+   by `sim/doc5503/run.sh`, whose co-simulation of the real `sound_glu` passed
+   stream-writes 0/77). Clean there = one of the cards; `mb` then `u2` decide
+   which. Deploy over WiFi with `tools/fpga_stream.py` (no USB needed) and read
+   indices 44–47 with telnet `z` at a popping spot.
 3. OSD text and scanline-dim colours (565 quantisation, B4); the Apple picture
    itself is bit-exact.
 4. Slot assignments at power-up unchanged (slots.hex as register INITs, B7b).
