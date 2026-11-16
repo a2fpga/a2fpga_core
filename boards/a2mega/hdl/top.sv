@@ -2091,6 +2091,7 @@ module top #(
         .dbg_glu_drops_i(glu_wq_drops_w),
         .dbg_doc_fdrop_i(doc_dbg_fetch_drop_w),
         .dbg_aud_i(64'd0),
+        .aud_ctl_o(),
         .ddr3_reinit_tgl_o(ddr3_reinit_tgl_w),
 
         .gs_ctrl_o(gs_ctrl_w),

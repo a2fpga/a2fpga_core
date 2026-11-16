@@ -1423,8 +1423,8 @@ GLU queue re-slice and the slot-table registers apply there too).
    crossing.
 
    Instrument + fix candidate, one build (`hdl/displayport/audio/audio_sample_cdc.sv`,
-   wired in `top.sv`, read through debug-window indices 48–55, controlled by
-   ESP32 scratch4 = reg 0x0F: bit 0 selects the mailbox path, bit 1 clears):
+   wired in `top.sv`, read through debug-window indices 48–55, controlled by a
+   write to window index 55: bit 0 selects the mailbox path, bit 1 clears):
    the raw path is kept and *detected*: a clean source value lasts 18.5 ns and
    is captured by at least two consecutive 6.7 ns pixel-clock edges, so a
    captured word that differs from both its neighbours lasted one cycle and
@@ -1444,6 +1444,28 @@ GLU queue re-slice and the slot-table registers apply there too).
    index 50/51 > 0 and growing at the popping spots with the raw path, 52/53
    lower with the mailbox path selected, and no pops with it; a2mega gets the
    same module once this is confirmed.
+
+   **First measurement (11-16, build `8eca5290…`, stamp 20261116124334, 0/0
+   violations, worst +0.129 clk_tx, logic 72%, 50/56 BSRAM; the first build
+   `01cf58c1…` had 60 setup violations, all the detector's own 16.5 ns
+   mux-subtract-abs-compare chain at 148.5 MHz, pipelined over four cycles):**
+
+   | | raw path, boot minute | raw path, Arkanoid run |
+   |---|---|---|
+   | mixed captures (48/49) | 1 | 65,535 (saturated) |
+   | mixed captures consumed (50/51) | 0 | **95** |
+   | consumed steps > 2048 (52/53) | 94 (ProDOS boot beeps: the speaker bit is exactly a 4,096 step; largest step 4,096) | 5,650 (largest 7,168) |
+   | DOC TIMEOUTS / LATE / GLU drops / fetch drops | 5 / 0 / 0 / 0 | 5 / 0 / 0 / 0 |
+
+   Ninety-five samples the DOC never produced reached the sink in one run,
+   with every memory-path counter clean: the crossing is the mechanism. Ed
+   heard **no loud pops** on that run, which is the point of counting: a
+   mixed word is only loud when old and new differ in high bits, so the ear
+   samples the same defect at a rate set by the music and the placement.
+   The mailbox A/B did not happen on this build: its switch was ESP32 scratch4
+   (reg 0x0F), which `w5100.c` rewrites with bridge telemetry on every poll,
+   so the selection reverted within a second (status byte showed sel 0 while
+   the register read 1). Moved to a write on window index 55; rebuilt.
 3. OSD text and scanline-dim colours (565 quantisation, B4); the Apple picture
    itself is bit-exact.
 4. Slot assignments at power-up unchanged (slots.hex as register INITs, B7b).

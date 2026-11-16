@@ -123,6 +123,7 @@ module esp32_ospi_connector #(
     input  wire [7:0]  dbg_glu_drops_i,     // GLU sound-RAM write-queue drops (sticky)
     input  wire [7:0]  dbg_doc_fdrop_i,     // DOC fetch requests dropped, FIFO full (sticky)
     input  wire [63:0] dbg_aud_i,           // audio_sample_cdc dbg word (window 48-55)
+    output wire [7:0]  aud_ctl_o,           // written through window index 55: bit0 sel_safe, bit1 clear
     output reg         ddr3_reinit_tgl_o,   // toggles on REG_DDR3_REINIT write (CDC as toggle)
 
     // DDR3 debug read window (ddr3_debug_reader on idle port 4)
@@ -373,6 +374,11 @@ module esp32_ospi_connector #(
     wire        evt_full_w;
     wire evt_clear_w  = reg_wr_req && reg_idx == REG_GS_DATA && gs_sel_r == 6'd32 && reg_wdata[7];
     wire gs_ctrl_wr_w = reg_wr_req && reg_idx == REG_GS_DATA && gs_sel_r == 6'd0;
+    // Audio CDC control lives in the window (index 55) rather than a scratch
+    // register: the W5100 bridge firmware rewrites scratch1-4 on every poll.
+    reg [7:0] aud_ctl_r = 8'h00;
+    always @(posedge clk) if (reg_wr_req && reg_idx == REG_GS_DATA && gs_sel_r == 6'd55) aud_ctl_r <= reg_wdata;
+    assign aud_ctl_o = aud_ctl_r;
     wire rst_reg_wr_w = reg_wr_req && reg_idx == REG_A2_RST_RELEASE;
     // hardware arm: at the machine's own reset end (por_done), or - ARM_EARLY - already
     // while we hold after storage-ready, so the core sits in reset on a driven bus like
@@ -451,7 +457,7 @@ module esp32_ospi_connector #(
             6'd52: gs_rdata = dbg_aud_i[39:32];        // consumed |delta| > threshold, lo (selected path)
             6'd53: gs_rdata = dbg_aud_i[47:40];        //   hi
             6'd54: gs_rdata = dbg_aud_i[55:48];        // max consumed |delta|, high byte
-            6'd55: gs_rdata = dbg_aud_i[63:56];        // {6'b0, clear, sel_safe}
+            6'd55: gs_rdata = dbg_aud_i[63:56];        // {6'b0, clear, sel_safe} as the module sees it; WRITE = control byte
             default: gs_rdata = 8'h00;
         endcase
     end

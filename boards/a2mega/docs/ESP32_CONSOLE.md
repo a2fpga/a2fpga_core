@@ -157,7 +157,7 @@ the DOC telemetry; `z` reads it for you, or by hand in `:` mode:
 | 50, 51 | Audio CDC: mixed captures that landed on the 48 kHz strobe = **pops the raw path produced** (or would have, with the mailbox path selected), lo/hi |
 | 52, 53 | Audio CDC: consumed samples whose step vs the previous sample exceeded 2048 on L or R, on the path actually feeding the DP (symptom counter), lo/hi |
 | 54 | Audio CDC: largest consumed step, high byte |
-| 55 | Audio CDC status: bit 0 = mailbox path selected, bit 1 = counters held clear |
+| 55 | Audio CDC status: bit 0 = mailbox path selected, bit 1 = counters held clear. **Writing** this index sets the control byte (see below) |
 
 ```
 : spireg 0x5F 46
@@ -167,16 +167,20 @@ the DOC telemetry; `z` reads it for you, or by hand in `:` mode:
 Indices 46 and 47 exist from the 2026-11-16 build onward (cores before it
 return 0 there); 48–55 from the audio-CDC instrument build of the same day.
 
-**Audio CDC control (a2p25, scratch4 = reg 0x0F):** bit 0 = 1 feeds the DP
-with the request/acknowledge mailbox word instead of the raw double-flop
-word; bit 1 = 1 holds counters 48–54 at zero (pulse it to clear). Both take
-effect live, no reload:
+**Audio CDC control (a2p25): a WRITE to window index 55.** Bit 0 = 1 feeds
+the DP with the request/acknowledge mailbox word instead of the raw
+double-flop word; bit 1 = 1 holds counters 48–54 at zero (pulse it to clear).
+Live, no reload. Not a scratch register: `w5100.c` rewrites scratch1–4
+(regs 0x0C–0x0F) with bridge telemetry on every poll, which silently undid the
+first version of this switch (2026-11-16).
 
 ```
-: spireg 0x0F 1      mailbox path on, counters running
-: spireg 0x0F 3      ... and clear the counters
-: spireg 0x0F 1      release the clear
-: spireg 0x0F 0      raw path (the pre-2026-11-16 behaviour)
+: spireg 0x5F 55
+: spireg 0x4F 1      mailbox path on, counters running
+: spireg 0x4F 3      ... and clear the counters
+: spireg 0x4F 1      release the clear
+: spireg 0x4F 0      raw path (the pre-2026-11-16 behaviour)
+: spireg 0x4F        readback = {clear, sel_safe} as the module sees them
 ``` Until then they only fed the on-screen `DebugOverlay`, which
 `A2_INSTR_DEBUG_OVERLAY` compiles out on the a2p25.
 
