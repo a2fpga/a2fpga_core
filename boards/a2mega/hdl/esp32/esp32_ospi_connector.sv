@@ -120,6 +120,8 @@ module esp32_ospi_connector #(
     input  wire [15:0] dbg_doc_reqf_i,      // DOC requests per frame
     input  wire [15:0] dbg_doc_missf_i,     // DOC memory reads per frame
     input  wire [15:0] dbg_doc_tof_i,       // DOC late fetches per frame
+    input  wire [7:0]  dbg_glu_drops_i,     // GLU sound-RAM write-queue drops (sticky)
+    input  wire [7:0]  dbg_doc_fdrop_i,     // DOC fetch requests dropped, FIFO full (sticky)
     output reg         ddr3_reinit_tgl_o,   // toggles on REG_DDR3_REINIT write (CDC as toggle)
 
     // DDR3 debug read window (ddr3_debug_reader on idle port 4)
@@ -361,7 +363,7 @@ module esp32_ospi_connector #(
 
     // System
     reg [7:0] scratch_r;
-    reg [5:0] gs_sel_r;    // 0-31: IIgs socket window; 32-39: event log; 40-45: DOC telemetry
+    reg [5:0] gs_sel_r;    // 0-31: IIgs socket window; 32-39: event log; 40-47: DOC/GLU telemetry
     reg [7:0] gs_ctrl_r;
     reg       a2_rst_arm_early_r;  // 0x2E write bit 4 (read bit 6): hardware-arm the socket while we still hold
     reg [6:0] evt_idx_r;           // bring-up event log read index (window reg 33)
@@ -438,6 +440,8 @@ module esp32_ospi_connector #(
             6'd43: gs_rdata = dbg_doc_missf_i[15:8];
             6'd44: gs_rdata = dbg_doc_tof_i[7:0];      // fetches past the slot deadline
             6'd45: gs_rdata = dbg_doc_tof_i[15:8];
+            6'd46: gs_rdata = dbg_glu_drops_i;         // GLU write-queue drops (was overlay hex 3)
+            6'd47: gs_rdata = dbg_doc_fdrop_i;         // DOC fetch drops (was overlay hex 6)
             default: gs_rdata = 8'h00;
         endcase
     end

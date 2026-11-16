@@ -1927,6 +1927,8 @@ module top #(
         .dbg_doc_reqf_i(doc_dbg_req_frame_r),
         .dbg_doc_missf_i(doc_dbg_miss_frame_r),
         .dbg_doc_tof_i(doc_dbg_to_frame_r),
+        .dbg_glu_drops_i(glu_wq_drops_w),
+        .dbg_doc_fdrop_i(doc_dbg_fetch_drop_w),
         // a2mega-only debug sources, tied off (2026-10-22 merge): DP SERDES /
         // link readback and the IIgs CPU-socket window. The a2p25 could
         // feed dbg_dp_caps_i from dp_transmitter's debug_sink_caps (census

@@ -1364,6 +1364,17 @@ GLU queue re-slice and the slot-table registers apply there too).
    and line-lag counters 0, no smear or tearing (B3).
 2. DOC listening set (POLY.SYNTH, Arkanoid): `GLU SOUND-RAM WRITE DROPS` 0,
    `LATE` ≈ 0 (B5a re-slice).
+   **2026-11-16, first report (ed):** pops at specific places in Arkanoid on
+   build 8998afab. Not yet known to be new: the A/B is the other a2p25 card,
+   which runs fs 6767d681 (the 11-13 build, before this pass). The GLU drop
+   counter that decides B5a's guilt fed only the `DebugOverlay`, compiled out
+   on this board, so it was unobservable; the 11-16 build (fs `fc17788f…`,
+   0/0 violations, 50/56 BSRAM, logic 72%, CLS 98%, worst slack +0.10 ns on the
+   pre-existing clk_tx D-PHY bank-FIFO cone `wp_gray_r2 → rd_pair CE`, so a
+   diagnostic roll, not a durable one) adds it and the DOC fetch-drop counter
+   to the ESP32 debug window (select 0x5F, indices 46/47; telnet `z` prints
+   both, firmware viddbg_log extended the same day). Reading recipe:
+   [../../a2mega/docs/ESP32_CONSOLE.md](../../a2mega/docs/ESP32_CONSOLE.md).
 3. OSD text and scanline-dim colours (565 quantisation, B4); the Apple picture
    itself is bit-exact.
 4. Slot assignments at power-up unchanged (slots.hex as register INITs, B7b).

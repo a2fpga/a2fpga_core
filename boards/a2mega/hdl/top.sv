@@ -2088,6 +2088,8 @@ module top #(
         .dbg_doc_reqf_i(doc_dbg_req_frame_r),
         .dbg_doc_missf_i(16'd0),
         .dbg_doc_tof_i(16'd0),
+        .dbg_glu_drops_i(glu_wq_drops_w),
+        .dbg_doc_fdrop_i(doc_dbg_fetch_drop_w),
         .ddr3_reinit_tgl_o(ddr3_reinit_tgl_w),
 
         .gs_ctrl_o(gs_ctrl_w),

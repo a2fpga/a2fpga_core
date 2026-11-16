@@ -1192,7 +1192,7 @@ volatile bool viddbg_request = false;   // telnet 'z' -> serviced in loop()
 extern "C" void viddbg_log(void)
 {
     if (!a2spi_is_ready()) { osd_log("VIDDBG: SPI NOT READY"); return; }
-    uint8_t v[9], pf[6], st2 = 0;   // pf: DOC REQ lo/hi, MEMRD lo/hi, LATE lo/hi
+    uint8_t v[9], pf[8], st2 = 0;   // pf: DOC REQ lo/hi, MEMRD lo/hi, LATE lo/hi, GLU drops, DOC fetch drops
     // The OSPI link is shared with the disk/menu tasks: take the link mutex
     // around the burst of register reads (an unlocked burst during disk
     // streaming collided on the SPI driver and panicked the ESP32 — which
@@ -1207,11 +1207,12 @@ extern "C" void viddbg_log(void)
         }
     }
     /* DOC per-frame telemetry lives in the indexed debug window (select
-     * 0x5F, data 0x4F; indices 40-45 = REQ lo/hi, MEMRD lo/hi, LATE lo/hi;
+     * 0x5F, data 0x4F; indices 40-45 = REQ lo/hi, MEMRD lo/hi, LATE lo/hi,
+     * 46 = GLU write-queue drops, 47 = DOC fetch drops, both sticky;
      * 32-39 is the socket module's event log).
      * The plain registers it used until 2026-10-22 (0x3C-0x3F, 0x2F, 0x4F,
      * 0x5F) are the DP readback and the GS-socket window on the a2mega. */
-    for (int i = 0; i < 6; i++) {
+    for (int i = 0; i < 8; i++) {
         fpga_reg_write(0x5F, (uint8_t)(40 + i));
         a2spi_reg_read_status(0x4F, &pf[i], &st2);
     }
@@ -1221,6 +1222,7 @@ extern "C" void viddbg_log(void)
     osd_log("DOC TIMEOUTS %u  LATMAX %u CLK (0x%02X)", v[1], v[2], v[2]);
     osd_log("DOC/FRAME REQ %u MEMRD %u LATE %u", (unsigned)pf[0] | ((unsigned)pf[1] << 8),
             (unsigned)pf[2] | ((unsigned)pf[3] << 8), (unsigned)pf[4] | ((unsigned)pf[5] << 8));
+    osd_log("GLU WQ DROPS %u  DOC FETCH DROPS %u (STICKY)", pf[6], pf[7]);
 #else
     osd_log("C029 WRITES %u LAST %02X", v[1], v[2]);
 #endif

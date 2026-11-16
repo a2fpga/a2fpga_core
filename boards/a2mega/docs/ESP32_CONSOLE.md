@@ -129,13 +129,25 @@ Readable over `z` / `viddbg`: video mode, FB flags, shadow drops, VGC
 hsync misses and stale swaps, DOC fetch timeouts, DOC max fetch latency,
 and the per-frame DOC request / memory-read / late counts.
 
-**Not readable** on the current a2p25 core: the GLU sound-RAM write-queue
-drop counter and the DOC fetch-drop counter. Both only feed the on-screen
-`DebugOverlay`, and `A2_INSTR_DEBUG_OVERLAY` is 0 in
-[`a2p25_profile.vh`](../../a2p25/hdl/a2p25_profile.vh). Exposing them means
-adding two connector debug registers (0x7F is free; 0x76 is hard-wired zero
-on the a2p25) and a rebuild. See
-[../../a2p25/docs/RESOURCE_AUDIT.md](../../a2p25/docs/RESOURCE_AUDIT.md) §8.4.
+The indexed debug window (select register 0x5F, data register 0x4F) holds
+the DOC telemetry; `z` reads it for you, or by hand in `:` mode:
+
+| Index | Value |
+|---|---|
+| 40, 41 | DOC wavetable requests last frame, lo/hi |
+| 42, 43 | DOC memory reads (cache misses) last frame, lo/hi |
+| 44, 45 | DOC fetches past the slot deadline last frame, lo/hi |
+| 46 | **GLU sound-RAM write-queue drops**, sticky. Nonzero = wavetable bytes lost on the way into memory: the DOC then plays wrong-but-plausible samples (distortion, pops) with every DOC-side counter clean |
+| 47 | DOC fetch requests dropped, FIFO full, sticky. Design invariant: 0 |
+
+```
+: spireg 0x5F 46
+: spireg 0x4F
+```
+
+Indices 46 and 47 exist from the 2026-11-16 build onward (cores before it
+return 0 there). Until then they only fed the on-screen `DebugOverlay`, which
+`A2_INSTR_DEBUG_OVERLAY` compiles out on the a2p25.
 
 ## Related
 

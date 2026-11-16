@@ -101,7 +101,7 @@ Two cautions when turning instruments off. Some sit inside timed pipelines:
 the a2mega's DebugOverlay is a stage of the clk_pix chain and the framebuffer's
 `H_TRIGGER_LEAD` is counted through it, so it gets a stage-preserving bypass,
 not removal, or the picture moves a pixel. And the instrumentation the ESP32
-firmware reads over the window registers (DOC telemetry 40–45, event log
+firmware reads over the window registers (DOC telemetry 40–47, event log
 32–39, DP readback 0x3C–0x3F) is also what the bench procedures in
 `boards/a2p25/docs/RESOURCE_AUDIT.md` depend on.
 
