@@ -116,7 +116,7 @@ Features are where capacity is, and the binding resource differs per board:
 
 | board | bound by | the large consumers |
 |---|---|---|
-| a2p25 (GW5A-25) | logic, 97% CLS; 52/56 BSRAM | sdp_engine 4-lane 4.8%, HyperRAM ctrl 4.0%, ESP32 connector 3.9% + 11 BSRAM, framebuffer 3.6% + 13 BSRAM, DOC fetch cache 3.2% |
+| a2p25 (GW5A-25) | logic, 96% CLS; 50/56 BSRAM (Uthernet II + Mockingboard in, 2026-11-15) | sdp_engine 4-lane 4.8%, HyperRAM ctrl 4.0%, ESP32 connector 2.3% + 11 BSRAM, framebuffer 3.6% + 9 BSRAM, DOC fetch cache 3.2%, Mockingboard 3.1% |
 | Enhanced classic (Tang Nano 20K) | BSRAM 46/46 | Uthernet II 9 blocks, aux hires banks 16, F18A VDP RAM 8 + sprites 2, BL616 connector 3; Mockingboard pair + SSP ~1.7k LUT |
 | Enhanced dualrate / fb | 31 / 35 of 46 BSRAM | aux banks already in SDRAM; same logic set |
 | GS | 19/46 BSRAM, 77% CLS | SDRAM framebuffer 4 blocks |

@@ -1,7 +1,7 @@
 # a2p25 resource audit — where the GW5A-25 budget goes, and what is bloat
 
-Analysis only. No RTL was changed for this document; every proposal below
-needs ed's sign-off before implementation. Numbers marked **est.** are
+§§1–7.10 are analysis (no RTL was changed for them); §7.11 onward and §8
+record what was then implemented and measured. Numbers marked **est.** are
 estimates derived from the RTL and the block-mapping rule in §2; everything
 else is read from the build reports listed in §1.
 
@@ -1288,3 +1288,94 @@ Arkanoid run). `92f164d6…` (source + bitstream committed in a9984119) is the
 a2p25 build of record. Remaining from this thread: the HDD-image corruption
 around installs (§7.20, needs the damaged file), and a disk quiesce for the
 telnet `g` / fpgastream reload paths.
+
+## 8. Implementation: the BSRAM pass, Uthernet II and Mockingboard back in (2026-11-15)
+
+Executed from §5 with §7's corrections, on the build of record (`34a5abb9`,
+52/56 BSRAM, 15,317 logic, 13,487 FF, 98% CLS). One measurement build per
+group; every build 0 setup / 0 hold violations with every clock above its
+constraint (single rolls; the durability rolls are in §8.3).
+
+### 8.1 What was done and what each item measured
+
+| Item | Change | BSRAM | Logic / FF effect | Note |
+|---|---|---|---|---|
+| B4 | `dp_transmitter` `PIXEL_BITS=16`: RGB565 through the pixel CDC FIFO (512 × 65 instead of 512 × 97) | **−2** (6 → 4) | ~0 | Framebuffer pixels bit-exact: the expansion is the framebuffer's own `rgb565_to_666` → `torgb` chain, checked for all 65,536 codes. OSD text and scanline dim quantise to 565. a2mega default 24, netlist unchanged. |
+| B5a | GLU write queue as `{be, addr[13:0]}` (18 bits) + sample byte (8 bits), `syn_ramstyle="block_ram"` | **−2** (4 → 2) | 0 | First build without the attribute: GowinSynthesis "extracted RAM" and then built both arrays from flip-flops (+827 FF, 0 blocks). The attribute is required for small arrays on GW5A. Shared file; the a2mega gets the same saving. |
+| B7 | `PLL_INIT` 64 × 28 constant table as a `case` lookup | **−2** (one per instance: system PLL, D-PHY PLL) | +27 LUT / +6 FF per instance | `syn_romstyle="logic"` on the register array was ignored (still a pROM). a2p25-only file. |
+| B7b | `slotmaker` slot table `syn_ramstyle="registers"` | **−1** | +82 LUT / +80 FF | The `$readmemh("slots.hex")` initial values survive as register INITs (netlist: 9 DFFs with INIT=1 = the 9 set bits of slots.hex). All boards; on GW2A it was distributed RAM. |
+| B1a | Framebuffer write FIFO as nine 18-bit arrays | **0** | 0 | GowinSynthesis merged the same-addressed slices back into one 149-bit memory → the same 5 x32 primitives (10 blocks). Reverted; only B1b (beat-organised) can shrink this FIFO. |
+| B3 | Framebuffer line buffer 8 → 4 banks (`LINE_BANKS` parameter, a2mega default 8) | **−4** | −16 LUT / −31 FF | Prefetch stays ≤ 3 lines ahead (3 × 74 µs at 1080p vs a ~25 µs line fetch). **Hardware check owed** (§8.4). |
+| B6b | ESP32 memory-peek reader + its arbiter port behind `A2_INSTR_MEM_PEEK` (0) | 0 | −171 LUT / −114 FF (`hyperram_ports` 7 → 6 ports) + the reader | Window regs 0x34–0x3B still exist; GO never busies, data reads `DEADBEEF`. The firmware never used them. |
+| 7.3 | ESP32 connector SPACE 0 test memory behind `TEST_MEM` (a2p25 0, a2mega default 1) | 0 | −342 LUT / −518 FF | Reads of SPACE 0 return 0xFF. The firmware only defines the constant. |
+| — | Uthernet II `UTHERNET2_ENABLE=1` | **+9** | +111 LUT / +32 FF | `reg_mem` 1 + `buf_mem` 8 DPB blocks, as on the Enhanced. |
+| — | Mockingboard `MOCKINGBOARD_ENABLE=1` | 0 | +1,627 logic / +777 FF (2 × YM2149 ≈ 420 LUT / 220 FF, 2 × 6522 ≈ 310 / 167, + top mixing) | Audio summed into the DP in-band path; IRQ into the slot IRQ. |
+
+### 8.2 Device position after each build
+
+| Build | Content | Logic | FF | CLS | BSRAM | Worst setup slack |
+|---|---|---|---|---|---|---|
+| of record `34a5abb9` | — | 15,317 (67%) | 13,487 (58%) | 11,218 (98%) | 52 | — |
+| A | B4, B5a (flops), B7 (ignored), B7b, B1a (merged), B6b, 7.3 | 15,056 (65%) | 13,588 (59%) | 11,144 (97%) | **45** | +0.40 (clk_tx, D-PHY bank FIFO) |
+| B | + B5a fixed, B7 as case, B1a reverted, B3, **Uthernet II in** | 14,994 (65%) | 12,786 (54%) | 11,056 (95%) | **50** | +0.23 (clk_hr, ESP32 proto) |
+| C | + **Mockingboard in** | 16,621 (72%) | 13,563 (58%) | 11,159 (96%) | **50** | +0.33 (clk_pix, `aud_acc`) |
+
+BSRAM primitives after build C: SP 1, SDPB 17, SDPX9B 4, DPB 25, pROM 3.
+Against the build of record with both cards in: **+1.3 k logic, +76 FF,
+−2 BSRAM, CLS −59**. The audit's logic target (≤ 17,000 before the
+Mockingboard) was already met by the §7.11 DOC work; the BSRAM target
+(≤ 46 before Uthernet II) was met by B4 + B5a + B7 + B7b + B3 = −11.
+
+The `aud_acc` path (build C's worst, 9 logic levels) is the 48 kHz strobe's
+29-bit Bresenham accumulator on clk_pix. The a2mega top carries the same
+ratio reduced by the GCD (+4 / −12,375 in 15 bits); the a2p25 now does too
+— the sign-test sequence is identical (checked over 2 M cycles), with half
+the carry chain.
+
+### 8.3 Durability rolls of the final source
+
+Three placements of the final tree (build C + the 15-bit `aud_acc`), each
+a full `tools/build.sh a2p25` run (Gowin reseeds the placer per run). Bar:
+0 violations and ≥ +0.5 ns on every clock.
+
+| Roll | fs sha256 | Logic | CLS | Setup / hold viol. | Worst setup slack (path) | Fmax margin, thinnest clocks |
+|---|---|---|---|---|---|---|
+| D1 | `be8b7b8a…` | 16,763 (72%) | 97% | 0 / 0 | **+0.601** clk100 (AUX channel `next_state` → `expected` reset) | clk100 106.4 / 100, clk_sym 101.1 / 81, clk_tx 113.8 / 101.2 |
+| D2 | `f9e4cf48…` | 16,663 (72%) | 96% | 0 / 0 | **+0.535** clk_tx (D-PHY bank FIFO `wp_gray_r2` → `rd_pair` CE) | clk100 106.6, clk_tx 107.0, clk_hr 66.2 / 54 |
+| D3 (committed) | `8998afab…`, stamp `20261115214949` | 16,336 (70%) | 97% | 0 / 0 | **+0.395** clk_tx (D-PHY bank FIFO `rp_bin_0` → `rd_pair_79` CE) | clk_tx 105.5 / 101.2, clk_hr 59.5 / 54, clk100 116.4 |
+
+Verdict: **clean on all three rolls** (0 violations, every clock above its
+constraint); the +0.5 ns bar is met on two of three. The roll that misses
+it does so on the `transceiver_bank_dphy` read-pointer → `rd_pair` CE cone
+on clk_tx — the same path that was build A's worst (+0.399) before either
+card went in, and the pixel-serializer FIFO the audit lists under "not
+bloat" (16 × 80 in registers). It is not in the changed logic; closing it
+structurally (register the pointer decode, or move the bank FIFO to BSRAM
+at 5 blocks — not affordable now) is a DP-link task with the dp_test gate,
+not a debloat item. BSRAM is 50/56 on every roll.
+
+The a2mega 138B project synthesises cleanly with the shared-file changes
+(defaults unchanged: `PIXEL_BITS` 24, `LINE_BANKS` 8, `TEST_MEM` 1; the
+GLU queue re-slice and the slot-table registers apply there too).
+
+### 8.4 Hardware checks owed (ed, on the a2p25)
+
+1. SHR scroll / Marble Madness with 4 line banks: `VGC STALE 0`, line-not-ready
+   and line-lag counters 0, no smear or tearing (B3).
+2. DOC listening set (POLY.SYNTH, Arkanoid): `GLU SOUND-RAM WRITE DROPS` 0,
+   `LATE` ≈ 0 (B5a re-slice).
+3. OSD text and scanline-dim colours (565 quantisation, B4); the Apple picture
+   itself is bit-exact.
+4. Slot assignments at power-up unchanged (slots.hex as register INITs, B7b).
+5. Uthernet II: DHCP through the ESP32 W5100 bridge; Mockingboard: a title
+   with music (Ultima IV / Skyfox), both channels, IRQ-driven playback.
+
+### 8.5 What is still off, and what it would take
+
+- **Super Serial Card:** no UART pins on this board revision — a board
+  constraint, not a budget one.
+- **SuperSprite / F18A:** 16 BSRAM + ~5 k logic. BSRAM is 50/56 and logic
+  72%, so it needs both the beat-organised write FIFO (B1b, −6 to −8) and the
+  §7.2 Uthernet II socket buffer in PSRAM (−8) before it can be considered,
+  plus a logic pass (B9 −456 FF, B10 −256 FF, B11, the §7.6 packed DOC bank
+  file −2). Not started.

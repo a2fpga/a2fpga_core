@@ -1250,16 +1250,20 @@ module top #(
     localparam AUDIO_RATE = 48000;
     // 48 kHz strobe from the 148.5 MHz pixel clock via a sign-bit phase
     // accumulator (exact for any ratio; 148.5M/48k = 3093.75 is not an
-    // integer, so the old divider+frac scheme no longer applies)
+    // integer, so the old divider+frac scheme no longer applies). The
+    // constants are reduced by their GCD (12,000): +4 / -12,375 in 15 bits
+    // makes the identical sign-test sequence as +48,000 / -148,500,000 in
+    // 29 bits, and the 29-bit carry chain was this core's worst clk_pix
+    // path (+0.33 ns, 9 logic levels, 2026-11-15) — same form as the a2mega.
     logic clk_audio;
-    logic signed [28:0] aud_acc = -29'sd148_500_000;
+    logic signed [14:0] aud_acc = -15'sd12_375;
     always_ff @(posedge clk_pixel_w) begin
         clk_audio <= 1'b0;
-        if (!aud_acc[28]) begin
-            aud_acc   <= aud_acc + 29'sd48_000 - 29'sd148_500_000;
+        if (!aud_acc[14]) begin
+            aud_acc   <= aud_acc + 15'sd4 - 15'sd12_375;
             clk_audio <= 1'b1;
         end else begin
-            aud_acc <= aud_acc + 29'sd48_000;
+            aud_acc <= aud_acc + 15'sd4;
         end
     end
 

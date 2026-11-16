@@ -26,8 +26,11 @@ IIgs sound is the fabric DOC5503 on PSRAM.
 - [ ] Known risks, plan section 7: D-PHY amplitude margin at the SN75DP130 input (EQ override
       is the knob), the D-PHY PLL cascade soak, `TX_CLK_O` gating check via telemetry,
       HyperRAM CK# floating on non-Infineon parts (never write CR1), IODELAY semantics vs UG289
-- [ ] Resource ceiling: 97% CLS, 52/56 BSRAM; SuperSprite, Mockingboard and Uthernet II are off.
-      Any addition needs a reclaim first; `tools/resource_report.py a2p25`
+- [ ] Resource ceiling: 96% CLS, 50/56 BSRAM with Mockingboard and Uthernet II in (2026-11-15);
+      SuperSprite is off. Any addition needs a reclaim first (RESOURCE_AUDIT §8.5);
+      `tools/resource_report.py a2p25`
+- [ ] Hardware checks for the 2026-11-15 pass: RESOURCE_AUDIT §8.4 (4 line banks, GLU queue,
+      OSD colours, slot defaults, DHCP, Mockingboard)
 - [ ] Fold the TOP_INTEGRATION_PLAN section 6 decisions into MODERNIZATION_PLAN and archive it
 - [ ] USB-C-to-HDMI adapters: only RBR-capable, lane-count-honest adapters work (plan section
       6h recipe); document the qualified list for users

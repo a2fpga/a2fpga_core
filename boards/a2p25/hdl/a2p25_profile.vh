@@ -14,10 +14,11 @@
 `ifndef A2P25_PROFILE_VH
 `define A2P25_PROFILE_VH
 
-// ---- features (GW5A-25: logic-bound at ~97% CLS, 52/56 BSRAM — see
-// boards/a2p25/docs/RESOURCE_AUDIT.md before turning anything on) ----
+// ---- features (GW5A-25: 96% CLS, 72% logic, 50/56 BSRAM with the two cards
+// below in, 2026-11-15 — see boards/a2p25/docs/RESOURCE_AUDIT.md §8 before
+// turning anything else on) ----
 `define A2_FEATURE_SUPERSPRITE    0   // deferred on the GW5A-25 (resource budget); slot ID stays reserved
-`define A2_FEATURE_MOCKINGBOARD   0   // off for the first fit: with it 97% CLS and placement failed
+`define A2_FEATURE_MOCKINGBOARD   1   // back in after the 2026-11-15 BSRAM/logic pass (RESOURCE_AUDIT §8); was off for the first fit (97% CLS, placement failed)
 `define A2_FEATURE_SUPERSERIAL    0   // no UART pins on this revision
 `define A2_FEATURE_DISK_II        1
 `define A2_FEATURE_UTHERNET2      1   // W5100 buffers = 9 BSRAM; back in after the 2026-11-15 BSRAM pass (RESOURCE_AUDIT §8)
