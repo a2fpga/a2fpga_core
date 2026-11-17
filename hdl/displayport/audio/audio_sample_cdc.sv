@@ -13,7 +13,9 @@
 //
 // This module keeps the RAW path (so the behaviour can be measured) and adds
 // a SAFE path (request/acknowledge mailbox), selectable at run time, plus the
-// instrumentation that tells them apart:
+// instrumentation that tells them apart. The board top drives sel_safe from
+// a register that powers up 1 (mailbox) since the A/B of 2026-11-16: 219 mixed
+// words consumed on the raw path in one Arkanoid run, none with the mailbox.
 //
 //   raw  : raw0 <= src; raw1 <= raw0 (the original double flop)
 //   safe : the strobe toggles a request; synchronised into clk_src it latches

@@ -1481,7 +1481,7 @@ GLU queue re-slice and the slot-table registers apply there too).
    | consumed steps > 2048 (52/53), selected path | 11,782 | 5,526 |
    | largest consumed step (54) | **≈ 20,736** (0x51xx, a third of full scale) | ≈ 7,168 (0x1Cxx) |
    | DOC req/frame / MEMRD / LATE / GLU drops / fetch drops | 439 / 0 / 0 / 0 / 0 | 439 / 0 / 0 / 0 / 0 |
-   | heard (ed) | two pops | (see below) |
+   | heard (ed) | two pops | **none** |
 
    Reading: the raw path delivered 219 words the core never produced and the
    largest step in the delivered stream was ≈ 20,736; with the mailbox the
@@ -1492,7 +1492,12 @@ GLU queue re-slice and the slot-table registers apply there too).
    have had on the raw path. The step count is dominated by the game's own
    audio (5,526 on a clean run), so it separates the paths only through the
    maximum, not the count; the consumed-mixed counter is the metric. DOC
-   path clean on both halves.
+   path clean on both halves. Ed heard no pops on the mailbox run.
+
+   **Decision (ed, 11-16): the mailbox is the power-up default** (connector
+   control byte resets to 0x01; the raw path and the detector stay in for
+   measurement, a write of 0 to index 55 brings the pops back on demand).
+   Default-on build: see below.
 3. OSD text and scanline-dim colours (565 quantisation, B4); the Apple picture
    itself is bit-exact.
 4. Slot assignments at power-up unchanged (slots.hex as register INITs, B7b).

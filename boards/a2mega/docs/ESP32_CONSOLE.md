@@ -170,6 +170,9 @@ return 0 there); 48–55 from the audio-CDC instrument build of the same day.
 **Audio CDC control (a2p25): a WRITE to window index 55.** Bit 0 = 1 feeds
 the DP with the request/acknowledge mailbox word instead of the raw
 double-flop word; bit 1 = 1 holds counters 48–54 at zero (pulse it to clear).
+**Power-up value is 0x01 (mailbox) from the 2026-11-16 default-on build;** the
+instrument build of the same morning powered up on the raw path (0x00). Write 0
+only to reproduce the pops for measurement.
 Live, no reload. Not a scratch register: `w5100.c` rewrites scratch1–4
 (regs 0x0C–0x0F) with bridge telemetry on every poll, which silently undid the
 first version of this switch (2026-11-16).
@@ -179,7 +182,7 @@ first version of this switch (2026-11-16).
 : spireg 0x4F 1      mailbox path on, counters running
 : spireg 0x4F 3      ... and clear the counters
 : spireg 0x4F 1      release the clear
-: spireg 0x4F 0      raw path (the pre-2026-11-16 behaviour)
+: spireg 0x4F 0      raw path (the pre-2026-11-16 behaviour; pops)
 : spireg 0x4F        readback = {clear, sel_safe} as the module sees them
 ``` Until then they only fed the on-screen `DebugOverlay`, which
 `A2_INSTR_DEBUG_OVERLAY` compiles out on the a2p25.

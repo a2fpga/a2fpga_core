@@ -376,7 +376,8 @@ module esp32_ospi_connector #(
     wire gs_ctrl_wr_w = reg_wr_req && reg_idx == REG_GS_DATA && gs_sel_r == 6'd0;
     // Audio CDC control lives in the window (index 55) rather than a scratch
     // register: the W5100 bridge firmware rewrites scratch1-4 on every poll.
-    reg [7:0] aud_ctl_r = 8'h00;
+    // Power-up 0x01: mailbox path selected (the raw double flop popped: RESOURCE_AUDIT 8.4, 2026-11-16).
+    reg [7:0] aud_ctl_r = 8'h01;
     always @(posedge clk) if (reg_wr_req && reg_idx == REG_GS_DATA && gs_sel_r == 6'd55) aud_ctl_r <= reg_wdata;
     assign aud_ctl_o = aud_ctl_r;
     wire rst_reg_wr_w = reg_wr_req && reg_idx == REG_A2_RST_RELEASE;
