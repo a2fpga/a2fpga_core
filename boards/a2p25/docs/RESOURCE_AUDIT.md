@@ -1497,7 +1497,24 @@ GLU queue re-slice and the slot-table registers apply there too).
    **Decision (ed, 11-16): the mailbox is the power-up default** (connector
    control byte resets to 0x01; the raw path and the detector stay in for
    measurement, a write of 0 to index 55 brings the pops back on demand).
-   Default-on build: see below.
+   Default-on build (11-16, source 26c26393: control byte resets to 0x01, and
+   the detector's magnitude stage is one's-complement so no 16-bit carry
+   chain sits in the 148.5 MHz domain; a first roll of the two's-complement
+   form, `7c001674…`, was clean but placed that chain at +0.186 ns, third
+   worst in the design). Three rolls of the final source, all 0 setup / 0
+   hold, 50/56 BSRAM, logic 74%, CLS 98%; `i_audio_cdc` costs 127 LUT /
+   387 REG (raw path, mailbox, detector):
+
+   | roll | stamp | fs sha256 | worst setup slack |
+   |---|---|---|---|
+   | 1 | 20261116195344 | `f098aabb…` | +0.403 ns (clk_mem, `i_hr_ctrl` CE cone) |
+   | 2 | 20261116195545 | `bf43440d…` | +0.869 ns (clk_tx, D-PHY `rp_bin → rd_pair` CE) |
+   | 3 | 20261116200045 | `6f24025d…` | +0.338 ns (clk_pix, framebuffer `v_border_px → at_lead_nxt`) |
+
+   Roll 3 is the committed build of record (`boards/a2p25/impl/pnr/a2p25.fs`,
+   Fmax clk_pix 156.3 vs 148.5, clk_mem 125.5 vs 108, clk_tx 118.9 vs 101.2,
+   clk_hr 64.6 vs 54, clk100 114.6 vs 100). The a2mega top carries the same
+   module from commit adb557ac (source only until its next build).
 3. OSD text and scanline-dim colours (565 quantisation, B4); the Apple picture
    itself is bit-exact.
 4. Slot assignments at power-up unchanged (slots.hex as register INITs, B7b).
