@@ -1515,6 +1515,13 @@ GLU queue re-slice and the slot-table registers apply there too).
    Fmax clk_pix 156.3 vs 148.5, clk_mem 125.5 vs 108, clk_tx 118.9 vs 101.2,
    clk_hr 64.6 vs 54, clk100 114.6 vs 100). The a2mega top carries the same
    module from commit adb557ac (source only until its next build).
+
+   **On the card (11-17 00:xx, streamed over WiFi to config flash, verified):**
+   stamp 20261116200045 read back from reg 0x7E; window-55 status 0x01 at
+   power-up (mailbox selected with no write); boot minute: mixed captures 19,
+   mixed consumed 0, steps > 2048 = 94 (the ProDOS beeps, largest 4,096), DOC
+   counters clean. Listening pass on Arkanoid with the default-on build owed
+   (the mailbox run on 8370c1c9 had no pops).
 3. OSD text and scanline-dim colours (565 quantisation, B4); the Apple picture
    itself is bit-exact.
 4. Slot assignments at power-up unchanged (slots.hex as register INITs, B7b).
