@@ -1520,8 +1520,10 @@ GLU queue re-slice and the slot-table registers apply there too).
    stamp 20261116200045 read back from reg 0x7E; window-55 status 0x01 at
    power-up (mailbox selected with no write); boot minute: mixed captures 19,
    mixed consumed 0, steps > 2048 = 94 (the ProDOS beeps, largest 4,096), DOC
-   counters clean. Listening pass on Arkanoid with the default-on build owed
-   (the mailbox run on 8370c1c9 had no pops).
+   counters clean. **Listening pass (ed, 11-17): Arkanoid on `6f24025d…`, no
+   pops.** The 11-16 pop report is closed: cause measured, fix measured, fix
+   heard. (Counters of that run not read: the card was powered off first;
+   they are volatile.)
 3. OSD text and scanline-dim colours (565 quantisation, B4); the Apple picture
    itself is bit-exact.
 4. Slot assignments at power-up unchanged (slots.hex as register INITs, B7b).
