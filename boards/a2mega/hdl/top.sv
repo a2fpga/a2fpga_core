@@ -1458,14 +1458,29 @@ module top #(
         end
     end
 
-    // Audio CDC: clk_logic (54 MHz) -> clk_pixel (27 MHz) via double-flop
-    reg [15:0] audio_sample_word [1:0], audio_sample_word0 [1:0];
-    always @(posedge clk_pixel_w) begin
-        audio_sample_word0[0] <= core_audio_l_w;
-        audio_sample_word[0]  <= audio_sample_word0[0];
-        audio_sample_word0[1] <= core_audio_r_w;
-        audio_sample_word[1]  <= audio_sample_word0[1];
-    end
+    // Audio CDC: clk_logic (54 MHz) -> clk_pixel (148.5 MHz). The plain
+    // double flop per bit that used to sit here is untimed (the SDC puts the
+    // two clocks in asynchronous groups) and hands the sink a mixed word when
+    // the sample changes near a pixel-clock edge: measured on the a2p25
+    // 2026-11-16 as 219 never-produced words in one Arkanoid run (pops),
+    // none with the request/acknowledge mailbox (RESOURCE_AUDIT 8.4). Same
+    // module here, same control: a write to debug-window index 55 (bit 0 =
+    // mailbox, power-up 1; bit 1 = clear), counters at indices 48-55.
+    wire [7:0]  aud_ctl_w;              // driven by esp32_ospi_connector below
+    wire [63:0] aud_cdc_dbg_w;
+    reg  [15:0] audio_sample_word [1:0];
+    audio_sample_cdc #(.W(16), .JUMP_THRESH(2048)) i_audio_cdc (
+        .clk_src    (clk_logic_w),
+        .l_src      (core_audio_l_w),
+        .r_src      (core_audio_r_w),
+        .clk_dst    (clk_pixel_w),
+        .strobe_dst (clk_audio),
+        .sel_safe   (aud_ctl_w[0]),
+        .clear      (aud_ctl_w[1]),
+        .l_dst      (audio_sample_word[0]),
+        .r_dst      (audio_sample_word[1]),
+        .dbg        (aud_cdc_dbg_w)
+    );
 
     // -----------------------------------------------------------------
     // DisplayPort TX — 1920x1080p 59.94 Hz over 2-lane HBR (Phase 3b)
@@ -2090,8 +2105,8 @@ module top #(
         .dbg_doc_tof_i(16'd0),
         .dbg_glu_drops_i(glu_wq_drops_w),
         .dbg_doc_fdrop_i(doc_dbg_fetch_drop_w),
-        .dbg_aud_i(64'd0),
-        .aud_ctl_o(),
+        .dbg_aud_i(aud_cdc_dbg_w),
+        .aud_ctl_o(aud_ctl_w),
         .ddr3_reinit_tgl_o(ddr3_reinit_tgl_w),
 
         .gs_ctrl_o(gs_ctrl_w),

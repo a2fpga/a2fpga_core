@@ -167,7 +167,7 @@ the DOC telemetry; `z` reads it for you, or by hand in `:` mode:
 Indices 46 and 47 exist from the 2026-11-16 build onward (cores before it
 return 0 there); 48–55 from the audio-CDC instrument build of the same day.
 
-**Audio CDC control (a2p25): a WRITE to window index 55.** Bit 0 = 1 feeds
+**Audio CDC control (a2p25; a2mega once its top is rebuilt from 2026-11-16 source): a WRITE to window index 55.** Bit 0 = 1 feeds
 the DP with the request/acknowledge mailbox word instead of the raw
 double-flop word; bit 1 = 1 holds counters 48–54 at zero (pulse it to clear).
 **Power-up value is 0x01 (mailbox) from the 2026-11-16 default-on build;** the

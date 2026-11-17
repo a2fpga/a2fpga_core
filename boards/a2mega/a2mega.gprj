@@ -29,6 +29,7 @@
         <File path="hdl/sound/iir_filter.v" type="file.verilog" enable="1"/>
         <File path="hdl/top.sv" type="file.verilog" enable="1"/>
         <File path="../../hdl/displayport/audio/audio_sample_buffer.v" type="file.verilog" enable="1"/>
+        <File path="../../hdl/displayport/audio/audio_sample_cdc.sv" type="file.verilog" enable="1"/>
         <File path="../../hdl/displayport/audio/maud_measure.v" type="file.verilog" enable="1"/>
         <File path="../../hdl/displayport/audio/sdp_engine.v" type="file.verilog" enable="1"/>
         <File path="../../hdl/displayport/auxch/aux_channel.v" type="file.verilog" enable="1"/>
