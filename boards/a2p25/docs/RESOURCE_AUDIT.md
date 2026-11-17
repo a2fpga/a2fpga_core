@@ -1522,8 +1522,13 @@ GLU queue re-slice and the slot-table registers apply there too).
    mixed consumed 0, steps > 2048 = 94 (the ProDOS beeps, largest 4,096), DOC
    counters clean. **Listening pass (ed, 11-17): Arkanoid on `6f24025d…`, no
    pops.** The 11-16 pop report is closed: cause measured, fix measured, fix
-   heard. (Counters of that run not read: the card was powered off first;
-   they are volatile.)
+   heard. Second run on the same build, counters read after it (cold power-up,
+   no register written): status 0x01, mixed captures 65,535 (saturated), mixed
+   captures consumed **0**, steps > 2048 = 5,433, largest step ≈ 6,144, DOC
+   counters clean. The consumed-mixed count is what the raw path would have
+   delivered on this placement: 0 here against 95 / 219 / 129 on the earlier
+   placements is the placement lottery itself (per-bit skew differs build to
+   build), which is why the fix is the mailbox and not a lucky roll.
 3. OSD text and scanline-dim colours (565 quantisation, B4); the Apple picture
    itself is bit-exact.
 4. Slot assignments at power-up unchanged (slots.hex as register INITs, B7b).
