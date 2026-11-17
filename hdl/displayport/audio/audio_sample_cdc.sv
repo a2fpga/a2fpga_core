@@ -139,8 +139,12 @@ module audio_sample_cdc #(
             dr_r <= $signed({cur_r[WW-1], cur_r[WW-1:W]}) - $signed({prev_r[WW-1], prev_r[WW-1:W]});
         end
         if (st[2]) begin
-            al_r <= dl_r[W] ? W'(-dl_r) : W'(dl_r);
-            ar_r <= dr_r[W] ? W'(-dr_r) : W'(dr_r);
+            // one's-complement magnitude: |x| - 1 for negative x. Exact enough
+            // for a threshold count and a maximum, and it removes a 16-bit
+            // carry chain from the 148.5 MHz domain (roll 1 of the default-on
+            // build placed the two's-complement form at +0.186 ns).
+            al_r <= dl_r[W] ? ~dl_r[W-1:0] : dl_r[W-1:0];
+            ar_r <= dr_r[W] ? ~dr_r[W-1:0] : dr_r[W-1:0];
         end
         if (st[3])
             dmax_r <= (al_r > ar_r) ? al_r : ar_r;
