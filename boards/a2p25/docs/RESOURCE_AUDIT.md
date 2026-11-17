@@ -1466,6 +1466,33 @@ GLU queue re-slice and the slot-table registers apply there too).
    (reg 0x0F), which `w5100.c` rewrites with bridge telemetry on every poll,
    so the selection reverted within a second (status byte showed sel 0 while
    the register read 1). Moved to a write on window index 55; rebuilt.
+
+   **A/B on one bitstream (11-16, build `8370c1c9…`, stamp 20261116135950,
+   0/0 violations, worst +0.116 clk_mem_90, logic 73%, 50/56 BSRAM; streamed
+   to the card over WiFi, switch verified end to end before the runs: a write
+   of 1 to index 55 made the module's own status byte read sel_safe=1, a write
+   of 0 put it back). Same card, same placement, same Arkanoid passage, only
+   the one register changed between the halves; counters cleared before each:**
+
+   | | raw path | mailbox path |
+   |---|---|---|
+   | mixed captures (48/49) | 65,535 (saturated) | 65,535 (saturated; the raw flops still run) |
+   | mixed captures consumed (50/51) = pops the raw path produced / would have | **219** | 129 (not delivered: the mailbox fed the sink) |
+   | consumed steps > 2048 (52/53), selected path | 11,782 | 5,526 |
+   | largest consumed step (54) | **≈ 20,736** (0x51xx, a third of full scale) | ≈ 7,168 (0x1Cxx) |
+   | DOC req/frame / MEMRD / LATE / GLU drops / fetch drops | 439 / 0 / 0 / 0 / 0 | 439 / 0 / 0 / 0 / 0 |
+   | heard (ed) | two pops | (see below) |
+
+   Reading: the raw path delivered 219 words the core never produced and the
+   largest step in the delivered stream was ≈ 20,736; with the mailbox the
+   largest step fell to ≈ 7,168, the same ceiling the earlier raw run with
+   no audible pops showed (7,168), so ≈ 7,168 is the game's own largest step
+   (speaker and PSG edges) and the 20,736 excursion was a mixed word. The
+   consumed-mixed count on the mailbox run (129) is the pops that run would
+   have had on the raw path. The step count is dominated by the game's own
+   audio (5,526 on a clean run), so it separates the paths only through the
+   maximum, not the count; the consumed-mixed counter is the metric. DOC
+   path clean on both halves.
 3. OSD text and scanline-dim colours (565 quantisation, B4); the Apple picture
    itself is bit-exact.
 4. Slot assignments at power-up unchanged (slots.hex as register INITs, B7b).
