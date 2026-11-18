@@ -1746,6 +1746,8 @@ GLU queue re-slice and the slot-table registers apply there too).
    +6 ns in all three; what remains at +0.1 is the chronic DP AUX (clk100) /
    D-PHY FIFO (clk_tx) knife-edge that predates the filter (pre-filter rolls
    +0.029 .. +0.56). Logic 81-83 % with the CDC raw path off (b88a0c10 kept).
+   **Listening test PASSED 2026-11-18 (ed, build `edb57cec`): "sounds much better
+   than without the filter." The a2n20 parity audio item is closed.**
    Listening pick NOT done:** the session stopped when the USB stick's FAT32 directory turned
    out destroyed (picker empty). Forensics from a 37 MB image of the stick:
    the firmware's Disk II track write-back (`disk.c`) received a garbage
