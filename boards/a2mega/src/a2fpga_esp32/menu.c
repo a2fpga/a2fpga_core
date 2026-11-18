@@ -68,7 +68,9 @@ typedef enum {
     MI_TOGGLE,    /* LEFT/RIGHT/A flip: on_change(id, dir)                */
 } mi_type_t;
 
-#define MENU_MAX_ITEMS 64
+/* A full picker listing plus its fixed rows (DIR/UP or AUTO/EJECT) must fit,
+ * or mi_add() silently overwrites the last row. */
+#define MENU_MAX_ITEMS (DISK_LIST_MAX + 8)
 #define MENU_LABEL_LEN 38          /* full row when the value is empty */
 #define MENU_VALUE_COL 26          /* label clip when a value is shown */
 #define MENU_VALUE_LEN 12
@@ -638,6 +640,8 @@ static void picker_build(void)
     }
     if (!s_pick_count)
         mi_add(MI_INFO, "NO MATCHING IMAGES OR FOLDERS", "");
+    else if (s_pick_count >= DISK_LIST_MAX)
+        mi_add(MI_INFO, "(LIST FULL - MORE FILES NOT SHOWN)", "");
 }
 
 static const menu_screen_t SCR_PICKER = { "CHOOSE IMAGE", picker_build };
