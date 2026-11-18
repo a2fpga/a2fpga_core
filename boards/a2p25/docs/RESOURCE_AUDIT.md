@@ -1677,7 +1677,7 @@ GLU queue re-slice and the slot-table registers apply there too).
    reload and ESP32 restart. Junk-lba origin per that session: floating OSPI
    reads while the fabric is dark (reload window; IIgs power cycle with a
    Mac back-powering the ESP32 over USB1). Write-up
-   `STICK_CORRUPTION_2026-11-17.md` on that branch. **Decision 2026-11-18
+   `STICK_CORRUPTION_2026-11-17.md` (on main since the merge). **Decision 2026-11-18
    (Ed): merge the firmware branch AFTER a flash test on the card.**
    **FLASH TEST PASSED 2026-11-18 07:52, branch MERGED (f5ea6a34):**
    replacement stick in (76 root entries incl. the Mac's copies of the
