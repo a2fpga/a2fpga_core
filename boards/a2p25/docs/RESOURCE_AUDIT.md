@@ -1,7 +1,7 @@
 # a2p25 resource audit — where the GW5A-25 budget goes, and what is bloat
 
-Analysis only. No RTL was changed for this document; every proposal below
-needs ed's sign-off before implementation. Numbers marked **est.** are
+§§1–7.10 are analysis (no RTL was changed for them); §7.11 onward and §8
+record what was then implemented and measured. Numbers marked **est.** are
 estimates derived from the RTL and the block-mapping rule in §2; everything
 else is read from the build reports listed in §1.
 
@@ -1288,3 +1288,398 @@ Arkanoid run). `92f164d6…` (source + bitstream committed in a9984119) is the
 a2p25 build of record. Remaining from this thread: the HDD-image corruption
 around installs (§7.20, needs the damaged file), and a disk quiesce for the
 telnet `g` / fpgastream reload paths.
+
+## 8. Implementation: the BSRAM pass, Uthernet II and Mockingboard back in (2026-11-15)
+
+Executed from §5 with §7's corrections, on the build of record (`34a5abb9`,
+52/56 BSRAM, 15,317 logic, 13,487 FF, 98% CLS). One measurement build per
+group; every build 0 setup / 0 hold violations with every clock above its
+constraint (single rolls; the durability rolls are in §8.3).
+
+### 8.1 What was done and what each item measured
+
+| Item | Change | BSRAM | Logic / FF effect | Note |
+|---|---|---|---|---|
+| B4 | `dp_transmitter` `PIXEL_BITS=16`: RGB565 through the pixel CDC FIFO (512 × 65 instead of 512 × 97) | **−2** (6 → 4) | ~0 | Framebuffer pixels bit-exact: the expansion is the framebuffer's own `rgb565_to_666` → `torgb` chain, checked for all 65,536 codes. OSD text and scanline dim quantise to 565. a2mega default 24, netlist unchanged. |
+| B5a | GLU write queue as `{be, addr[13:0]}` (18 bits) + sample byte (8 bits), `syn_ramstyle="block_ram"` | **−2** (4 → 2) | 0 | First build without the attribute: GowinSynthesis "extracted RAM" and then built both arrays from flip-flops (+827 FF, 0 blocks). The attribute is required for small arrays on GW5A. Shared file; the a2mega gets the same saving. |
+| B7 | `PLL_INIT` 64 × 28 constant table as a `case` lookup | **−2** (one per instance: system PLL, D-PHY PLL) | +27 LUT / +6 FF per instance | `syn_romstyle="logic"` on the register array was ignored (still a pROM). a2p25-only file. |
+| B7b | `slotmaker` slot table `syn_ramstyle="registers"` | **−1** | +82 LUT / +80 FF | The `$readmemh("slots.hex")` initial values survive as register INITs (netlist: 9 DFFs with INIT=1 = the 9 set bits of slots.hex). All boards; on GW2A it was distributed RAM. |
+| B1a | Framebuffer write FIFO as nine 18-bit arrays | **0** | 0 | GowinSynthesis merged the same-addressed slices back into one 149-bit memory → the same 5 x32 primitives (10 blocks). Reverted; only B1b (beat-organised) can shrink this FIFO. |
+| B3 | Framebuffer line buffer 8 → 4 banks (`LINE_BANKS` parameter, a2mega default 8) | **−4** | −16 LUT / −31 FF | Prefetch stays ≤ 3 lines ahead (3 × 74 µs at 1080p vs a ~25 µs line fetch). **Hardware check owed** (§8.4). |
+| B6b | ESP32 memory-peek reader + its arbiter port behind `A2_INSTR_MEM_PEEK` (0) | 0 | −171 LUT / −114 FF (`hyperram_ports` 7 → 6 ports) + the reader | Window regs 0x34–0x3B still exist; GO never busies, data reads `DEADBEEF`. The firmware never used them. |
+| 7.3 | ESP32 connector SPACE 0 test memory behind `TEST_MEM` (a2p25 0, a2mega default 1) | 0 | −342 LUT / −518 FF | Reads of SPACE 0 return 0xFF. The firmware only defines the constant. |
+| — | Uthernet II `UTHERNET2_ENABLE=1` | **+9** | +111 LUT / +32 FF | `reg_mem` 1 + `buf_mem` 8 DPB blocks, as on the Enhanced. |
+| — | Mockingboard `MOCKINGBOARD_ENABLE=1` | 0 | +1,627 logic / +777 FF (2 × YM2149 ≈ 420 LUT / 220 FF, 2 × 6522 ≈ 310 / 167, + top mixing) | Audio summed into the DP in-band path; IRQ into the slot IRQ. |
+
+### 8.2 Device position after each build
+
+| Build | Content | Logic | FF | CLS | BSRAM | Worst setup slack |
+|---|---|---|---|---|---|---|
+| of record `34a5abb9` | — | 15,317 (67%) | 13,487 (58%) | 11,218 (98%) | 52 | — |
+| A | B4, B5a (flops), B7 (ignored), B7b, B1a (merged), B6b, 7.3 | 15,056 (65%) | 13,588 (59%) | 11,144 (97%) | **45** | +0.40 (clk_tx, D-PHY bank FIFO) |
+| B | + B5a fixed, B7 as case, B1a reverted, B3, **Uthernet II in** | 14,994 (65%) | 12,786 (54%) | 11,056 (95%) | **50** | +0.23 (clk_hr, ESP32 proto) |
+| C | + **Mockingboard in** | 16,621 (72%) | 13,563 (58%) | 11,159 (96%) | **50** | +0.33 (clk_pix, `aud_acc`) |
+
+BSRAM primitives after build C: SP 1, SDPB 17, SDPX9B 4, DPB 25, pROM 3.
+Against the build of record with both cards in: **+1.3 k logic, +76 FF,
+−2 BSRAM, CLS −59**. The audit's logic target (≤ 17,000 before the
+Mockingboard) was already met by the §7.11 DOC work; the BSRAM target
+(≤ 46 before Uthernet II) was met by B4 + B5a + B7 + B7b + B3 = −11.
+
+The `aud_acc` path (build C's worst, 9 logic levels) is the 48 kHz strobe's
+29-bit Bresenham accumulator on clk_pix. The a2mega top carries the same
+ratio reduced by the GCD (+4 / −12,375 in 15 bits); the a2p25 now does too
+— the sign-test sequence is identical (checked over 2 M cycles), with half
+the carry chain.
+
+### 8.3 Durability rolls of the final source
+
+Three placements of the final tree (build C + the 15-bit `aud_acc`), each
+a full `tools/build.sh a2p25` run (Gowin reseeds the placer per run). Bar:
+0 violations and ≥ +0.5 ns on every clock.
+
+| Roll | fs sha256 | Logic | CLS | Setup / hold viol. | Worst setup slack (path) | Fmax margin, thinnest clocks |
+|---|---|---|---|---|---|---|
+| D1 | `be8b7b8a…` | 16,763 (72%) | 97% | 0 / 0 | **+0.601** clk100 (AUX channel `next_state` → `expected` reset) | clk100 106.4 / 100, clk_sym 101.1 / 81, clk_tx 113.8 / 101.2 |
+| D2 | `f9e4cf48…` | 16,663 (72%) | 96% | 0 / 0 | **+0.535** clk_tx (D-PHY bank FIFO `wp_gray_r2` → `rd_pair` CE) | clk100 106.6, clk_tx 107.0, clk_hr 66.2 / 54 |
+| D3 (committed) | `8998afab…`, stamp `20261115214949` | 16,336 (70%) | 97% | 0 / 0 | **+0.395** clk_tx (D-PHY bank FIFO `rp_bin_0` → `rd_pair_79` CE) | clk_tx 105.5 / 101.2, clk_hr 59.5 / 54, clk100 116.4 |
+
+Verdict: **clean on all three rolls** (0 violations, every clock above its
+constraint); the +0.5 ns bar is met on two of three. The roll that misses
+it does so on the `transceiver_bank_dphy` read-pointer → `rd_pair` CE cone
+on clk_tx — the same path that was build A's worst (+0.399) before either
+card went in, and the pixel-serializer FIFO the audit lists under "not
+bloat" (16 × 80 in registers). It is not in the changed logic; closing it
+structurally (register the pointer decode, or move the bank FIFO to BSRAM
+at 5 blocks — not affordable now) is a DP-link task with the dp_test gate,
+not a debloat item. BSRAM is 50/56 on every roll.
+
+The a2mega 138B project synthesises cleanly with the shared-file changes
+(defaults unchanged: `PIXEL_BITS` 24, `LINE_BANKS` 8, `TEST_MEM` 1; the
+GLU queue re-slice and the slot-table registers apply there too).
+
+### 8.4 Hardware checks owed (ed, on the a2p25)
+
+1. SHR scroll / Marble Madness with 4 line banks: `VGC STALE 0`, line-not-ready
+   and line-lag counters 0, no smear or tearing (B3).
+   **DONE 2026-11-17 on 6f24025d (ed playing, counters over telnet).** Marble
+   Madness is the one title in this record that has moved these counters (§7.14:
+   `VGC STALE` 6–32/frame and write-FIFO overflow before the DOC word cache,
+   0/2/0 after, on 8 banks); Arkanoid's static playfield never has. Six `z`
+   reads plus a 40-sample burst of regs 0x75/0x78/0x73 during play:
+
+   | Counter | Reading | Meaning |
+   |---|---|---|
+   | FB flags bit 0 (line-not-ready this frame) | 0 in 46 of 46 samples | the 4-bank line buffer never displayed a bank holding the wrong line while sampled |
+   | FB flags bit 1 (write-FIFO overflow) | 0 in 46 of 46 | renderer write port keeps up |
+   | `VGC HSYNC` missed | 0 in all | |
+   | `VGC STALE` (vgc_gen stale-word swaps/frame) | 0–2 typical (13 of 40 nonzero, max 2), one `z` read of 5 | same order as the October 0/2/0 on 8 banks; renderer-side read starvation, not the line buffer |
+   | `SHADOW DROPS`, `OVFL` | 0 | |
+   | DOC `LATE`, GLU drops, fetch drops | 0 / 0 / 0 (`MEMRD` 219–369/frame, `REQ` 7028) | DOC traffic high and clean |
+   | audio CDC consumed-mixed / max step | 0 / 6144 | mailbox default, no pops (ed) |
+
+   Caveat: this board's line-not-ready is a per-frame flash (bit 0 of reg 0x75
+   holds from the first event to the next vsync); the sticky total (`LINE NOT
+   READY TOTAL`) lives only on the compiled-out DebugOverlay. 46 clean random
+   samples bound the event rate well below one frame in ten; a rarer event would
+   need the sticky total routed to the debug window. `VGC STALE` is the §7.14
+   bandwidth symptom and is independent of LINE_BANKS; its 0–2 (one 5) matches
+   the post-cache baseline. **B3 (4 banks) holds under the hardest title on
+   record.**
+2. DOC listening set (POLY.SYNTH, Arkanoid): `GLU SOUND-RAM WRITE DROPS` 0,
+   `LATE` ≈ 0 (B5a re-slice).
+   **2026-11-16, first report (ed):** pops at specific places in Arkanoid on
+   build 8998afab. Not yet known to be new: the A/B is the other a2p25 card,
+   which runs fs 6767d681 (the 11-13 build, before this pass). The GLU drop
+   counter that decides B5a's guilt fed only the `DebugOverlay`, compiled out
+   on this board, so it was unobservable; the 11-16 build (fs `fc17788f…`,
+   0/0 violations, 50/56 BSRAM, logic 72%, CLS 98%, worst slack +0.10 ns on the
+   pre-existing clk_tx D-PHY bank-FIFO cone `wp_gray_r2 → rd_pair CE`, so a
+   diagnostic roll, not a durable one) adds it and the DOC fetch-drop counter
+   to the ESP32 debug window (select 0x5F, indices 46/47; telnet `z` prints
+   both, firmware viddbg_log extended the same day). Reading recipe:
+   [../../a2mega/docs/ESP32_CONSOLE.md](../../a2mega/docs/ESP32_CONSOLE.md).
+   **A/B result (ed, 11-16):** the pops are absent on the second a2p25 running
+   6767d681, so they are an artifact of this branch. The committed `.fs` did not
+   change at the BSRAM-pass commit (still 6767d681), so no intermediate build
+   existed; three bisect points were built from HEAD (counters in), toggling only
+   the two card macros, 0/0 violations each:
+
+   | Variant | fs | Mockingboard | Uthernet II | BSRAM | logic | worst slack |
+   |---|---|---|---|---|---|---|
+   | none | `27fce17d` | off | off | 41/56 | 65% | +0.34 (clk_mem) |
+   | u2 | `1cf76e79` | off | on | 50/56 | 65% | +0.59 (clk_tx) |
+   | mb | `497a719b` | on | off | 41/56 | 71% | +0.19 (clk_mem) |
+   | both | `fc17788f` | on | on | 50/56 | 72% | +0.10 (clk_tx) |
+
+   Order: `none` first. Pops there = the BSRAM pass itself (LINE_BANKS=4 is the
+   prime suspect: it changes the framebuffer's HyperRAM read pattern; the GLU
+   queue re-slice is cleared by the netlist check (SDPB bypass mode, read
+   address from the pointer's next state, a dead cycle in the pop sequencer) and
+   by `sim/doc5503/run.sh`, whose co-simulation of the real `sound_glu` passed
+   stream-writes 0/77). Clean there = one of the cards; `mb` then `u2` decide
+   which. Deploy over WiFi with `tools/fpga_stream.py` (no USB needed) and read
+   indices 44–47 with telnet `z` at a popping spot.
+   **`none` on the card (11-16, streamed over port 2323, stamp
+   20261116084205 read back from reg 0x7E): still pops (ed, "slightly less, I
+   think"), so the cards are exonerated and the BSRAM pass or something common
+   to every build on this branch is at fault. Counters after the session:
+   `DOC TIMEOUTS 5` (cumulative since power-up: the same five boot transients
+   the clean October build showed, §7.21), `LATMAX 45 clk`, `LATE 0`,
+   `MEMRD 0`, GLU write-queue drops (46) 0, DOC fetch drops (47) 0, `VGC
+   STALE 0`, `SHADOW DROPS 0`. No DOC fetch missed its deadline during play:
+   the HyperRAM path, and with it LINE_BANKS=4, is cleared as the mechanism.**
+
+   **Measurement, not ears (ed).** The remaining common factor is the sample
+   hand-off itself, unchanged on this branch but untimed and placement-
+   dependent: `core_audio_{l,r}_w` (clk_logic, 54 MHz, `i_sys_pll`) went into
+   `dp_transmitter`'s `audio_sample_word` through a plain double flop per bit in
+   clk_pix (148.5 MHz, `i_dp/i_pixel_pll`); `a2p25.sdc` puts clk54 and clk_pix
+   in different `set_clock_groups -asynchronous` groups, so no path between
+   them is timed. A 16-bit value that changes within the per-bit skew window
+   of a pixel-clock edge is captured as a mix of old and new bits; taken at
+   the 48 kHz strobe that is a sample the DOC never produced, and loud when
+   high bits are involved. The rate is set by placement skew and PLL phase,
+   not logic, which is why it differs build to build ("slightly less" on a
+   different placement) and card to card (ed's A/B used a second card). The
+   GLU output register is reassigned every clk_logic cycle, so the bus
+   transitions whenever the mix changes. The a2mega top has the identical
+   crossing.
+
+   Instrument + fix candidate, one build (`hdl/displayport/audio/audio_sample_cdc.sv`,
+   wired in `top.sv`, read through debug-window indices 48–55, controlled by a
+   write to window index 55: bit 0 selects the mailbox path, bit 1 clears):
+   the raw path is kept and *detected*: a clean source value lasts 18.5 ns and
+   is captured by at least two consecutive 6.7 ns pixel-clock edges, so a
+   captured word that differs from both its neighbours lasted one cycle and
+   is a mixed capture (no parity or reference copy, no false positives while
+   T_src ≥ 2 T_dst). Counters: mixed captures (any cycle), mixed captures
+   consumed at a strobe (= pops the raw path produced, counted whichever path
+   feeds the DP), consumed steps > 2048 on the selected path (the symptom), and
+   the largest step. The safe path is a request/acknowledge mailbox: the
+   strobe toggles a request, synchronised into clk_logic it latches `{r,l}`
+   and toggles an acknowledge, synchronised back it copies the latch; round
+   trip ≈ 100 ns against the 20.8 µs sample period, one sample of latency.
+   `sim/audio_cdc/run.sh` (iverilog, 54 MHz source with 0–2.5 ns per-bit
+   skew into a 148.5 MHz capture, random phase): no skew → 0 mixed, 0 bad
+   (control); skew, raw → DUT consumed-mixed count = testbench truth
+   (seed 1: 432 = 432); skew, safe → 0 non-source words delivered over 9,000
+   strobes while the raw path would have delivered 810. Expected on hardware:
+   index 50/51 > 0 and growing at the popping spots with the raw path, 52/53
+   lower with the mailbox path selected, and no pops with it; a2mega gets the
+   same module once this is confirmed.
+
+   **First measurement (11-16, build `8eca5290…`, stamp 20261116124334, 0/0
+   violations, worst +0.129 clk_tx, logic 72%, 50/56 BSRAM; the first build
+   `01cf58c1…` had 60 setup violations, all the detector's own 16.5 ns
+   mux-subtract-abs-compare chain at 148.5 MHz, pipelined over four cycles):**
+
+   | | raw path, boot minute | raw path, Arkanoid run |
+   |---|---|---|
+   | mixed captures (48/49) | 1 | 65,535 (saturated) |
+   | mixed captures consumed (50/51) | 0 | **95** |
+   | consumed steps > 2048 (52/53) | 94 (ProDOS boot beeps: the speaker bit is exactly a 4,096 step; largest step 4,096) | 5,650 (largest 7,168) |
+   | DOC TIMEOUTS / LATE / GLU drops / fetch drops | 5 / 0 / 0 / 0 | 5 / 0 / 0 / 0 |
+
+   Ninety-five samples the DOC never produced reached the sink in one run,
+   with every memory-path counter clean: the crossing is the mechanism. Ed
+   heard **no loud pops** on that run, which is the point of counting: a
+   mixed word is only loud when old and new differ in high bits, so the ear
+   samples the same defect at a rate set by the music and the placement.
+   The mailbox A/B did not happen on this build: its switch was ESP32 scratch4
+   (reg 0x0F), which `w5100.c` rewrites with bridge telemetry on every poll,
+   so the selection reverted within a second (status byte showed sel 0 while
+   the register read 1). Moved to a write on window index 55; rebuilt.
+
+   **A/B on one bitstream (11-16, build `8370c1c9…`, stamp 20261116135950,
+   0/0 violations, worst +0.116 clk_mem_90, logic 73%, 50/56 BSRAM; streamed
+   to the card over WiFi, switch verified end to end before the runs: a write
+   of 1 to index 55 made the module's own status byte read sel_safe=1, a write
+   of 0 put it back). Same card, same placement, same Arkanoid passage, only
+   the one register changed between the halves; counters cleared before each:**
+
+   | | raw path | mailbox path |
+   |---|---|---|
+   | mixed captures (48/49) | 65,535 (saturated) | 65,535 (saturated; the raw flops still run) |
+   | mixed captures consumed (50/51) = pops the raw path produced / would have | **219** | 129 (not delivered: the mailbox fed the sink) |
+   | consumed steps > 2048 (52/53), selected path | 11,782 | 5,526 |
+   | largest consumed step (54) | **≈ 20,736** (0x51xx, a third of full scale) | ≈ 7,168 (0x1Cxx) |
+   | DOC req/frame / MEMRD / LATE / GLU drops / fetch drops | 439 / 0 / 0 / 0 / 0 | 439 / 0 / 0 / 0 / 0 |
+   | heard (ed) | two pops | **none** |
+
+   Reading: the raw path delivered 219 words the core never produced and the
+   largest step in the delivered stream was ≈ 20,736; with the mailbox the
+   largest step fell to ≈ 7,168, the same ceiling the earlier raw run with
+   no audible pops showed (7,168), so ≈ 7,168 is the game's own largest step
+   (speaker and PSG edges) and the 20,736 excursion was a mixed word. The
+   consumed-mixed count on the mailbox run (129) is the pops that run would
+   have had on the raw path. The step count is dominated by the game's own
+   audio (5,526 on a clean run), so it separates the paths only through the
+   maximum, not the count; the consumed-mixed counter is the metric. DOC
+   path clean on both halves. Ed heard no pops on the mailbox run.
+
+   **Decision (ed, 11-16): the mailbox is the power-up default** (connector
+   control byte resets to 0x01; the raw path and the detector stay in for
+   measurement, a write of 0 to index 55 brings the pops back on demand).
+   Default-on build (11-16, source 26c26393: control byte resets to 0x01, and
+   the detector's magnitude stage is one's-complement so no 16-bit carry
+   chain sits in the 148.5 MHz domain; a first roll of the two's-complement
+   form, `7c001674…`, was clean but placed that chain at +0.186 ns, third
+   worst in the design). Three rolls of the final source, all 0 setup / 0
+   hold, 50/56 BSRAM, logic 74%, CLS 98%; `i_audio_cdc` costs 127 LUT /
+   387 REG (raw path, mailbox, detector):
+
+   | roll | stamp | fs sha256 | worst setup slack |
+   |---|---|---|---|
+   | 1 | 20261116195344 | `f098aabb…` | +0.403 ns (clk_mem, `i_hr_ctrl` CE cone) |
+   | 2 | 20261116195545 | `bf43440d…` | +0.869 ns (clk_tx, D-PHY `rp_bin → rd_pair` CE) |
+   | 3 | 20261116200045 | `6f24025d…` | +0.338 ns (clk_pix, framebuffer `v_border_px → at_lead_nxt`) |
+
+   Roll 3 is the committed build of record (`boards/a2p25/impl/pnr/a2p25.fs`,
+   Fmax clk_pix 156.3 vs 148.5, clk_mem 125.5 vs 108, clk_tx 118.9 vs 101.2,
+   clk_hr 64.6 vs 54, clk100 114.6 vs 100). The a2mega top carries the same
+   module from commit adb557ac (source only until its next build).
+
+   **On the card (11-17 00:xx, streamed over WiFi to config flash, verified):**
+   stamp 20261116200045 read back from reg 0x7E; window-55 status 0x01 at
+   power-up (mailbox selected with no write); boot minute: mixed captures 19,
+   mixed consumed 0, steps > 2048 = 94 (the ProDOS beeps, largest 4,096), DOC
+   counters clean. **Listening pass (ed, 11-17): Arkanoid on `6f24025d…`, no
+   pops.** The 11-16 pop report is closed: cause measured, fix measured, fix
+   heard. Second run on the same build, counters read after it (cold power-up,
+   no register written): status 0x01, mixed captures 65,535 (saturated), mixed
+   captures consumed **0**, steps > 2048 = 5,433, largest step ≈ 6,144, DOC
+   counters clean. The consumed-mixed count is what the raw path would have
+   delivered on this placement: 0 here against 95 / 219 / 129 on the earlier
+   placements is the placement lottery itself (per-bit skew differs build to
+   build), which is why the fix is the mailbox and not a lucky roll.
+3. OSD text and scanline-dim colours (565 quantisation, B4); the Apple picture
+   itself is bit-exact.
+   **DONE 2026-11-17 (ed, on the fix build 360a7c36):** main menu over the
+   display: text crisp, inverse highlight bar and scanline dimming intact,
+   CORE stamp line reads the running build. On this board the menu draws on a
+   black field (pixel-domain overlay), so the 565 colour question is the
+   Apple picture itself, judged across Arkanoid, Marble Madness and Nox
+   Archaist today with nothing noticed.
+4. Slot assignments at power-up unchanged (slots.hex as register INITs, B7b).
+   **DONE 2026-11-17 on 6f24025d:** read back through the connector (write
+   reg 0x30 = slot, read 0x32 = card): slot 0/1 empty, 2 = SSC (3), 3 =
+   Uthernet II (5), 4 = Mockingboard (2), 5 = Disk II (4), 6 = HDD (6), 7 =
+   SuperSprite (1); reconfig 0. Identical to `hdl/slots/slots.hex`. The SSC
+   and SuperSprite IDs sit in slots whose cards are compiled out, so those
+   slots answer nothing, as before the pass.
+5. Uthernet II: DHCP through the ESP32 W5100 bridge; Mockingboard: a title
+   with music (Ultima IV / Skyfox), both channels, IRQ-driven playback.
+   **Mockingboard DONE 2026-11-17 on 6f24025d (ed):** slot 4 set to Your Card,
+   Nox Archaist (both AY chips, 6522 timer-interrupt music driver): music
+   through the title sequence and in the game, no hang. That is the IRQ path
+   (card → LSF0108 open-drain → slot /IRQ) and both chips in one title.
+   Counters during play (Apple II video mode, DOC idle): consumed-mixed 0,
+   raw-path would-have-popped 1 since boot (swallowed by the mailbox), steps
+   > 2048 = 40 per 20 s with a 4096 maximum, which is what AY square-wave edges
+   look like to the step detector, not a fault.
+   **Observation (ed): the Mockingboard is quiet next to the other sources.**
+   Not a debloat artifact: the mix is the same expression on all three tops
+   (`core_audio = sg_audio + {ssp,3'b0} + {mb,3'b0} + {speaker,12'b0}`, 16-bit
+   signed). Peak levels: DOC `sg_audio` = full 16-bit scale; speaker toggles
+   4,096 (12.5 % FS); Mockingboard = three 8-bit channels summed into 10 bits,
+   then << 3, so 3 × 255 × 8 = 6,120 at full volume on all three voices (19 %
+   FS, −14.6 dB), and the AY's log volume table puts typical music well below
+   that. On the a2n20v2 the DOC term is zero, so the Mockingboard only competes
+   with the speaker and sounds normal; on a IIgs board the DOC titles set the
+   listener's reference at full scale. Lever if wanted: `{mb, 4'b0}` (peak
+   12,240, 37 % FS, +6 dB) in the shared mix expression; a DOC title and a
+   Mockingboard title do not play at once, and the sum still fits 16 bits
+   unless the DOC is near full scale at the same instant. Shared-HDL change
+   across all tops, so a decision for its own pass, not this merge.
+   **Uthernet II, 2026-11-17, FAULT FOUND AND FIXED (retest on hardware
+   pending the build).** IP65 DATE65 on 6f24025d, slot 3 on Your Card:
+   `Initializing - No device found`. Bridge side healthy (ESP32 scratch 0x0C =
+   0x80/0x90: defaults seeded and read back, heartbeat, doorbell never rung).
+   Monitor probe, slot 3 and a second copy of the card put in slot 7 through
+   regs 0x30/0x31/0x33: `C0B4:03` / `C0B4` -> 03 and `C0F4:03` / `C0F4` -> 03,
+   so the bus, M2SEL and the register front end are fine. Then IP65's actual
+   check (set address 0017, read the data port twice, expect the seeded RTR
+   07 D0): `C0B5:00 17`, `C0B7` -> **D0**, `C0B7` -> **55**, the bytes at
+   0018 and 001A. The data port returns the byte AFTER the one addressed.
+   Cause: `uthernet2.sv` auto-incremented the indirect address at
+   `data_in_strobe`, which the a2mega/a2p25 bus module raises ~280 ns into
+   phi0 (`DATA_COUNT`), while the 65816 latches read data at the end of phi0
+   ~220 ns later; the block-RAM read output had already moved to the next
+   address. The Enhanced's CPLD bridge registers read data before its strobe
+   (`IO_WRITE_DATA` precedes `IO_READ_DATA` in `hdl/bus/apple_bus.sv`), which
+   is why the identical shared file passed its bench and josh's ROM 01 IIgs.
+   Fix (commit d9ad8c2a): increment once per bus cycle that touched the data
+   port, when DEVICE SELECT falls, as a real W5100 does. Bench
+   `sim/uthernet2/run.sh`: strobe at tick 15 of 27 and a two-strobe variant,
+   IP65's probe, write path through both ports, doorbell, no-AI mode, MR
+   reset: PASS; the pre-fix card fails it with the hardware's exact bytes
+   (D0, 08). Sibling check: HDD (registered prefetch `buf_cpu_q_r`), F18A
+   (TMS9918 prefetch register) and the 6522 (flag-clearing reads do not alter
+   the byte read) do not have the pattern. The a2mega full core shares the
+   bus module and the card, so its Uthernet II had the same defect; the next
+   a2mega build picks the fix up.
+   **Uthernet II DONE 2026-11-17 on the fix build (roll 1 fs `360a7c36`,
+   stamp 20261117201857, streamed, stamp read back).** DATE65 after a power
+   cycle: `Initializing - Ok`, `Obtaining IP address - Ok` (DHCP lease),
+   `Resolving pool.ntp.org - Ok` (DNS), `Getting time - Tue Nov 17 22:27:45
+   2026` (NTP), then `Setting time - Fail`. The last step is cc65's
+   `clock_settime` writing the ProDOS clock, no frames involved (checked in
+   `apps/date65.c`); the four network steps are the test and all passed
+   through the ESP32's WiFi MACRAW bridge with MAC NAT. Bridge status after
+   the run: 0x9F (MACRAW open, uplink mirrored, MAC valid, MAC filter on,
+   seeded), 11 frames Apple -> wire, 184 wire -> Apple (low byte), **142 RX
+   frames dropped for a full MACRAW ring** (low byte). That last number is the
+   August finding (a real W5100's tiny ring overflowing under LAN
+   broadcast/multicast) reproduced on WiFi; DHCP still succeeded here, so it
+   is recorded, not actioned. Durability rolls of the final source
+   (d9ad8c2a): roll 1 `360a7c36` 0/0 worst +0.17 ns clk_mem; roll 2
+   `0bec0499` 0/0 worst +0.195 ns clk_mem (clk100 +0.81, clk_pix +1.43,
+   clk_tx +1.74); roll 3 `dcccc602` 0/0 worst +0.361 ns clk_tx (clk100
+   +0.60, clk_pix +0.71, clk_mem +1.04). **Build of record = roll 1
+   `360a7c36` (stamp 20261117201857), the bitstream on the card for every
+   check above**, committed with its timing report and resource snapshot;
+   the placement/pin/power side files in `impl/pnr` are roll 3's (regenerated
+   per build, identical in content for pins and power). Position: logic 73 %,
+   BSRAM 50/56.
+
+   **Gate status 2026-11-17 evening: items 1-5 all done on hardware.** The
+   branch is ready to merge.
+
+### 8.5 What is still off, and what it would take
+
+- **Super Serial Card:** no UART pins on this board revision — a board
+  constraint, not a budget one.
+- **SuperSprite / F18A:** 16 BSRAM + ~5 k logic. BSRAM is 50/56 and logic
+  72%, so it needs both the beat-organised write FIFO (B1b, −6 to −8) and the
+  §7.2 Uthernet II socket buffer in PSRAM (−8) before it can be considered,
+  plus a logic pass (B9 −456 FF, B10 −256 FF, B11, the §7.6 packed DOC bank
+  file −2). Not started.
+
+### 8.6 Candidates for the next pass (not in §4)
+
+- **Pixel CDC FIFO as 1024 × 33 instead of 512 × 65** (ed, from a separate
+  thread on staying clear of the `Convert_SDP32_36_to_SDP16_18` doubling,
+  2026-11-16). After B4 the FIFO (`hdl/displayport/video/pixel_cdc_fifo.v`,
+  instanced in `dp_transmitter` with `LANE_COUNT=4`, `PIXEL_BITS=16`) holds
+  one 4-pixel group per word: 4 × 16 + 1 sof = 65 bits × 512 words. At that
+  depth GowinSynthesis infers **two SDPX9B x36** primitives (512 × 36 each),
+  which the option of §7.7 then splits into four x18 blocks — the conversion
+  still costs two blocks here. The same bits as **1024 × 33** (two 16-bit
+  pixels + sof per word) infer as two **1024 × 18** primitives, an x18
+  geometry the conversion never touches: same storage, same bandwidth,
+  **−2 BSRAM**, with the option left on as §7.10 requires. It is the §7.10
+  rule ("x18-or-narrower primitives from the start") applied by *depth* rather
+  than width: an SDP memory wider than 18 bits at 512 words lands in x32/x36
+  and is doubled, the same bits at 1024 words are not.
+- It is *not* a width-only change like B4: the push and pop cadence doubles on
+  both sides of the gray-pointer CDC (two writes per pixel-group tick, two
+  reads per stream-packer fetch), so the write side needs a 2× write strobe or
+  an internal half-word sequencer, the show-ahead read contract and `rlevel`
+  (which drives prefill and the underrun counter) change units, and the
+  pointer compare cones the timing campaign already had to re-pipeline (the
+  gray compare used to sit on the BSRAM read enable; see the comment in
+  `pixel_cdc_fifo.v`) get a pointer that moves twice as often. To be weighed
+  by whoever owns `dp_transmitter` on the branch that next touches it, with
+  the pixel-domain simulation and an underrun-count check on hardware; not
+  for the BSRAM pass that this section records.

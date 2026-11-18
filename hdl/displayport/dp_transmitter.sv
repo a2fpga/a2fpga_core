@@ -47,6 +47,15 @@ module dp_transmitter #(
     parameter int RGB_LATENCY = 1,
     parameter int FIFO_LINES    = 3,   // pixel CDC FIFO depth, in video lines (see FIFO_ADDR_BITS)
     parameter int PREFILL_WORDS = 0,   // 0 = one line (WORDS_PER_LINE)
+    // Bits per pixel stored in the pixel CDC FIFO: 24 (RGB888, the default)
+    // or 16 (RGB565). With 16 the FIFO word is 4x16+1 = 65 bits instead of
+    // 97 and takes 4 GW5A BSRAM blocks instead of 6 at 4 lanes
+    // (RESOURCE_AUDIT B4). The pixel is quantised to 565 going in and
+    // expanded going out with the same bit replication the framebuffer
+    // uses for its own RGB565 store, so framebuffer pixels are bit-exact;
+    // only pixels composed after the framebuffer (OSD text, scanline dim)
+    // lose their low bits.
+    parameter int PIXEL_BITS    = 24,
     parameter bit AUDIO_ENABLE = 1,  // 0: bypass SDP engine entirely (no
                                      // secondary packets on the wire) —
                                      // video-restart-bug discriminator
@@ -362,6 +371,7 @@ module dp_transmitter #(
     end
 
     logic [24*LANE_COUNT-1:0] fifo_wdata, fifo_rpix;
+    logic [PIXEL_BITS*LANE_COUNT-1:0] fifo_wdata_q, fifo_rpix_q;   // as stored
     logic fifo_wsof, fifo_wen, fifo_rsof, fifo_rvalid, fifo_rd;
     logic [FIFO_ADDR_BITS:0] fifo_rlevel;
 
@@ -386,18 +396,46 @@ module dp_transmitter #(
         .fifo_wen    (fifo_wen)
     );
 
+    // Pixel width conversion at the FIFO boundary (PIXEL_BITS): pure
+    // wiring on both sides — bit selects into the BSRAM data input on the
+    // pixel clock, bit replication out of the head register on the symbol
+    // clock — so neither timing cone gains logic.
+    generate
+        if (PIXEL_BITS == 24) begin : g_pix24
+            assign fifo_wdata_q = fifo_wdata;
+            assign fifo_rpix    = fifo_rpix_q;
+        end else if (PIXEL_BITS == 16) begin : g_pix16
+            for (genvar pl = 0; pl < LANE_COUNT; pl++) begin : g_lane
+                wire [23:0] w888 = fifo_wdata[pl*24 +: 24];
+                // RGB888 -> RGB565
+                assign fifo_wdata_q[pl*16 +: 16] = {w888[23:19], w888[15:10], w888[7:3]};
+                // RGB565 -> RGB888, the framebuffer's chain (rgb565_to_666
+                // then torgb): R6 = {r5, r5[4]}, R8 = {R6, R6[5:4]}
+                wire [15:0] r565 = fifo_rpix_q[pl*16 +: 16];
+                wire [4:0]  r5 = r565[15:11];
+                wire [5:0]  g6 = r565[10:5];
+                wire [4:0]  b5 = r565[4:0];
+                assign fifo_rpix[pl*24 +: 24] = {r5, r5[4], r5[4], r5[3],
+                                                 g6, g6[5:4],
+                                                 b5, b5[4], b5[4], b5[3]};
+            end
+        end else begin : g_pix_bad
+            initial $error("dp_transmitter: PIXEL_BITS must be 24 or 16");
+        end
+    endgenerate
+
     pixel_cdc_fifo #(
-        .WIDTH     (24*LANE_COUNT + 1),
+        .WIDTH     (PIXEL_BITS*LANE_COUNT + 1),
         .ADDR_BITS (FIFO_ADDR_BITS)
     ) i_pixel_cdc_fifo (
         .wclk   (clk_pixel),
         .wreset (reset),
-        .wdata  ({fifo_wsof, fifo_wdata}),
+        .wdata  ({fifo_wsof, fifo_wdata_q}),
         .wen    (fifo_wen),
         .wfull  (),
         .rclk   (tx_symbol_clk),
         .rreset (reset),
-        .rdata  ({fifo_rsof, fifo_rpix}),
+        .rdata  ({fifo_rsof, fifo_rpix_q}),
         .rvalid (fifo_rvalid),
         .rd_en  (fifo_rd),
         .rlevel (fifo_rlevel)

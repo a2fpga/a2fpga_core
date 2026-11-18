@@ -31,7 +31,10 @@ module slotmaker (
 
     //reg [7:0] slot_cards[0:7] = '{8'd0, 8'd3, 8'd0, 8'd0, 8'd2, 8'd0, 8'd0, 8'd5};
 
-    reg [7:0] slot_cards[0:7];
+    // Eight bytes. Left to inference this lands in distributed RAM on GW2A
+    // but in a whole 18 Kb BSRAM block on GW5A (no SSRAM there); as flops
+    // it is 64 FF plus two 8:1 muxes on every board (RESOURCE_AUDIT B7b).
+    reg [7:0] slot_cards[0:7] /* synthesis syn_ramstyle = "registers" */;
 	initial $readmemh("slots.hex", slot_cards);
 
     //assign cfg_if.card_o = 8'd0;

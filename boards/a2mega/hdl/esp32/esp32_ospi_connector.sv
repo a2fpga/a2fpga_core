@@ -35,7 +35,12 @@ module esp32_ospi_connector #(
     // instrument for the 138B socket bring-up (PR #34), not something the
     // 60K core or the GW5A-25 a2p25 can carry (the a2p25 failed to place
     // with it, 2026-10-22). 0 = no log; the window reads back zeros.
-    parameter EVT_LOG = 0
+    parameter EVT_LOG = 0,
+    // SPACE 0 "test memory": 64 bytes of flip-flops (~512 FF plus muxes)
+    // that only a link bring-up loop ever touched; the ESP32 firmware does
+    // not use it (RESOURCE_AUDIT 7.3). 0 = not built; reads return 0xFF
+    // like the other unimplemented space.
+    parameter TEST_MEM = 1
 )(
     input  wire        clk,
     input  wire        rst_n,
@@ -115,6 +120,10 @@ module esp32_ospi_connector #(
     input  wire [15:0] dbg_doc_reqf_i,      // DOC requests per frame
     input  wire [15:0] dbg_doc_missf_i,     // DOC memory reads per frame
     input  wire [15:0] dbg_doc_tof_i,       // DOC late fetches per frame
+    input  wire [7:0]  dbg_glu_drops_i,     // GLU sound-RAM write-queue drops (sticky)
+    input  wire [7:0]  dbg_doc_fdrop_i,     // DOC fetch requests dropped, FIFO full (sticky)
+    input  wire [63:0] dbg_aud_i,           // audio_sample_cdc dbg word (window 48-55)
+    output wire [7:0]  aud_ctl_o,           // written through window index 55: bit0 sel_safe, bit1 clear
     output reg         ddr3_reinit_tgl_o,   // toggles on REG_DDR3_REINIT write (CDC as toggle)
 
     // DDR3 debug read window (ddr3_debug_reader on idle port 4)
@@ -356,7 +365,7 @@ module esp32_ospi_connector #(
 
     // System
     reg [7:0] scratch_r;
-    reg [5:0] gs_sel_r;    // 0-31: IIgs socket window; 32-39: event log; 40-45: DOC telemetry
+    reg [5:0] gs_sel_r;    // 0-31: IIgs socket window; 32-39: event log; 40-47: DOC/GLU telemetry; 48-55: audio CDC
     reg [7:0] gs_ctrl_r;
     reg       a2_rst_arm_early_r;  // 0x2E write bit 4 (read bit 6): hardware-arm the socket while we still hold
     reg [6:0] evt_idx_r;           // bring-up event log read index (window reg 33)
@@ -365,6 +374,12 @@ module esp32_ospi_connector #(
     wire        evt_full_w;
     wire evt_clear_w  = reg_wr_req && reg_idx == REG_GS_DATA && gs_sel_r == 6'd32 && reg_wdata[7];
     wire gs_ctrl_wr_w = reg_wr_req && reg_idx == REG_GS_DATA && gs_sel_r == 6'd0;
+    // Audio CDC control lives in the window (index 55) rather than a scratch
+    // register: the W5100 bridge firmware rewrites scratch1-4 on every poll.
+    // Power-up 0x01: mailbox path selected (the raw double flop popped: RESOURCE_AUDIT 8.4, 2026-11-16).
+    reg [7:0] aud_ctl_r = 8'h01;
+    always @(posedge clk) if (reg_wr_req && reg_idx == REG_GS_DATA && gs_sel_r == 6'd55) aud_ctl_r <= reg_wdata;
+    assign aud_ctl_o = aud_ctl_r;
     wire rst_reg_wr_w = reg_wr_req && reg_idx == REG_A2_RST_RELEASE;
     // hardware arm: at the machine's own reset end (por_done), or - ARM_EARLY - already
     // while we hold after storage-ready, so the core sits in reset on a driven bus like
@@ -433,6 +448,17 @@ module esp32_ospi_connector #(
             6'd43: gs_rdata = dbg_doc_missf_i[15:8];
             6'd44: gs_rdata = dbg_doc_tof_i[7:0];      // fetches past the slot deadline
             6'd45: gs_rdata = dbg_doc_tof_i[15:8];
+            6'd46: gs_rdata = dbg_glu_drops_i;         // GLU write-queue drops (was overlay hex 3)
+            6'd47: gs_rdata = dbg_doc_fdrop_i;         // DOC fetch drops (was overlay hex 6)
+            // Audio sample CDC (hdl/displayport/audio/audio_sample_cdc.sv), 2026-11-16
+            6'd48: gs_rdata = dbg_aud_i[7:0];          // mixed captures on the raw path, lo
+            6'd49: gs_rdata = dbg_aud_i[15:8];         //   hi
+            6'd50: gs_rdata = dbg_aud_i[23:16];        // mixed captures consumed at a strobe, lo
+            6'd51: gs_rdata = dbg_aud_i[31:24];        //   hi
+            6'd52: gs_rdata = dbg_aud_i[39:32];        // consumed |delta| > threshold, lo (selected path)
+            6'd53: gs_rdata = dbg_aud_i[47:40];        //   hi
+            6'd54: gs_rdata = dbg_aud_i[55:48];        // max consumed |delta|, high byte
+            6'd55: gs_rdata = dbg_aud_i[63:56];        // {6'b0, clear, sel_safe} as the module sees it; WRITE = control byte
             default: gs_rdata = 8'h00;
         endcase
     end
@@ -681,7 +707,7 @@ module esp32_ospi_connector #(
     // =========================================================================
 
     // Space 0: Test memory (64B, FF-based — kept tiny so it does not spend a
-    // BSRAM; the device is close to its BSRAM limit)
+    // BSRAM; the device is close to its BSRAM limit). TEST_MEM=0 drops it.
     reg [7:0] mem0 [0:63];
 
     // Space 1: OSD text page (2KB, 40x24 Apple II screen codes at y*40+x).
@@ -1272,10 +1298,12 @@ module esp32_ospi_connector #(
     wire mem0_wr_en = mem_wr_en && (mem_space == SPACE_TEST);
     wire osd_wr_en  = mem_wr_en && (mem_space == SPACE_OSD);
 
-    always @(posedge clk) begin
-        if (mem0_wr_en)
-            mem0[mem_wr_addr[5:0]] <= mem_wr_data;
-    end
+    generate if (TEST_MEM) begin : g_mem0_wr
+        always @(posedge clk) begin
+            if (mem0_wr_en)
+                mem0[mem_wr_addr[5:0]] <= mem_wr_data;
+        end
+    end endgenerate
 
     // OSD text page port A: ESP32 writes only (reads come back 0xFF; port B
     // belongs to the clk_pixel OSD renderer)
@@ -1297,7 +1325,7 @@ module esp32_ospi_connector #(
     reg [1:0] mem_rd_lane_r;
 
     always @(posedge clk) begin
-        mem0_rd_data <= mem0[mem_rd_addr[5:0]];
+        mem0_rd_data <= TEST_MEM ? mem0[mem_rd_addr[5:0]] : 8'hFF;
     end
 
     // Pipeline the request, space and byte lane to match BRAM latency

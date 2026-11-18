@@ -67,7 +67,14 @@ module framebuffer_1080p #(
     // Words per burst read — must match the memory backend's burst length.
     // DDR3 (ddr3_ports): 4 beats per burst (128-bit / 32-bit)
     // SDRAM (sdram_ports): 2 beats per burst (64-bit / 32-bit)
-    parameter FB_READ_BURST_WORDS = 4
+    parameter FB_READ_BURST_WORDS = 4,
+    // Line-buffer banks (power of two, >= 2). Each bank holds one source
+    // line (1024 x RGB565 = one 18 Kb BSRAM block). The display shows each
+    // source line for V_SCALE raster lines while the fetcher stays up to
+    // LINE_BANKS-1 lines ahead, so 4 banks give ~3 x 74 us of slack at
+    // 1080p against a ~25 us line fetch (RESOURCE_AUDIT B3); 8 was the
+    // DDR3-era sizing and stays the default for the a2mega.
+    parameter LINE_BANKS = 8
 ) (
     // Clocks and reset
     input  logic        clk,             // 54 MHz logic clock
@@ -263,6 +270,11 @@ module framebuffer_1080p #(
     // the producer/consumer contract is unchanged except entries become
     // consumer-visible 2 cycles after the push (a don't-care for a
     // rate-smoothing FIFO into DDR3).
+    // On GW5A this is 5 inferred x32 SDP primitives = 10 blocks (each x32
+    // is split in two by Convert_SDP32_36_to_SDP16_18). Writing it as nine
+    // 18-bit arrays does not help: GowinSynthesis merges same-addressed
+    // arrays back into one wide memory (measured 2026-11-15, RESOURCE_AUDIT
+    // B1a); fewer blocks need the beat-organised restructure (B1b).
     reg [148:0] wr_fifo [0:FIFO_DEPTH-1] /* synthesis syn_ramstyle="block_ram" */;
     reg [FIFO_ADDR_BITS:0] fifo_wr_ptr_r, fifo_rd_ptr_r;
     // Consumer-side copy of the write pointer, one cycle behind: (a) the
@@ -705,7 +717,8 @@ module framebuffer_1080p #(
     reg [3:0]  in_flight_beats_r;    // Beats requested but not yet received
     reg [3:0]  issue_spacing_r;      // Min-spacing countdown between issues
     reg [20:0] fetch_line_base_r;   // Base addr of current/last fetched line
-    reg [2:0]  fetch_bank_r;
+    localparam BANK_BITS = $clog2(LINE_BANKS);
+    reg [BANK_BITS-1:0] fetch_bank_r;
 
     // Double-buffer: read buffer offset, latched at display frame start
     // so it stays stable for the entire display frame.
@@ -738,7 +751,7 @@ module framebuffer_1080p #(
     reg [7:0] dbg_vsync_raw_r;
     reg [7:0] dbg_frame_start_accept_r;
     reg [7:0] dbg_frame_start_reject_r;
-    reg [8:0] completed_line_r [0:7];
+    reg [8:0] completed_line_r [0:LINE_BANKS-1];
     reg [8:0] display_line_prev_r;
     reg       display_active_prev_r;
 
@@ -749,14 +762,14 @@ module framebuffer_1080p #(
     wire cy_approaching_active_w = disp_approach_sync_r && !disp_active_sync_r;
 
     // Decoupled fetch: next line = last fetched + 1 (never skips lines)
-    localparam NUM_LINE_BANKS = 8;
     wire [8:0] next_fetch_line_w = last_fetched_line_r + 9'd1;
     // Bank guard: don't write to bank the display is currently reading
     wire fetch_bank_safe_w = !display_in_active_w ||
-                             (next_fetch_line_w[2:0] != display_fb_line_w[2:0]);
-    // Prefetch limit: during vblank fill all 8 banks, during active stay <= 7 ahead
+                             (next_fetch_line_w[BANK_BITS-1:0] != display_fb_line_w[BANK_BITS-1:0]);
+    // Prefetch limit: during vblank fill all LINE_BANKS banks, during active
+    // stay <= LINE_BANKS-1 ahead
     wire [8:0] prefetch_limit_w = display_in_active_w ?
-        (display_fb_line_w + 9'(NUM_LINE_BANKS)) : 9'(NUM_LINE_BANKS);
+        (display_fb_line_w + 9'(LINE_BANKS)) : 9'(LINE_BANKS);
     wire prefetch_ok_w = (next_fetch_line_w < prefetch_limit_w);
 
     // Issue-side burst sizing and occupancy guard. The occupancy check
@@ -784,7 +797,7 @@ module framebuffer_1080p #(
                        {2'b0, issue_beats_w} <= 6'(RD_FIFO_DEPTH));
     // Drop occurs when the 4th pair (completing a 128-bit word) can't push to FIFO
     wire wr_drop_w = fb_we_r && wr_x_r[0] && (wr_accum_slot_r == 2'd3) && fifo_full_w;
-    wire [8:0] completed_line_for_display_w = completed_line_r[display_fb_line_w[2:0]];
+    wire [8:0] completed_line_for_display_w = completed_line_r[display_fb_line_w[BANK_BITS-1:0]];
     wire line_ready_w = (completed_line_for_display_w == display_fb_line_w);
     wire [8:0] line_lag_w = (completed_line_for_display_w == 9'h1FF ||
                              completed_line_for_display_w >= display_fb_line_w) ?
@@ -858,14 +871,8 @@ module framebuffer_1080p #(
             dbg_vsync_raw_r <= 8'd0;
             dbg_frame_start_accept_r <= 8'd0;
             dbg_frame_start_reject_r <= 8'd0;
-            completed_line_r[0] <= 9'h1FF;
-            completed_line_r[1] <= 9'h1FF;
-            completed_line_r[2] <= 9'h1FF;
-            completed_line_r[3] <= 9'h1FF;
-            completed_line_r[4] <= 9'h1FF;
-            completed_line_r[5] <= 9'h1FF;
-            completed_line_r[6] <= 9'h1FF;
-            completed_line_r[7] <= 9'h1FF;
+            for (int cb = 0; cb < LINE_BANKS; cb++)
+                completed_line_r[cb] <= 9'h1FF;
             display_line_prev_r <= 9'd0;
             display_active_prev_r <= 1'b0;
         end else if (frame_start_w) begin
@@ -940,7 +947,7 @@ module framebuffer_1080p #(
             late_line_prev_r <= late_line_w;
 
             if (fetch_done_pulse_w)
-                completed_line_r[last_fetched_line_r[2:0]] <= last_fetched_line_r;
+                completed_line_r[last_fetched_line_r[BANK_BITS-1:0]] <= last_fetched_line_r;
 
             if (display_line_step_w && !line_ready_w) begin
                 if (dbg_line_not_ready_r != 8'hFF)
@@ -977,7 +984,7 @@ module framebuffer_1080p #(
             in_flight_beats_r <= 4'd0;
             issue_spacing_r <= 4'd0;
             fetch_line_base_r <= 21'd0;
-            fetch_bank_r <= 3'd0;
+            fetch_bank_r <= '0;
             rd_buf_offset_r <= 21'd0;
             line0_prefetched_r <= 1'b0;
         end else begin
@@ -1007,7 +1014,7 @@ module framebuffer_1080p #(
                     rd_buf_offset_r <= frame_done_parity_r ? BUFFER_OFFSET : 21'd0;
                     last_fetched_line_r <= 9'd0;
                     line0_prefetched_r <= 1'b1;
-                    fetch_bank_r <= 3'd0;
+                    fetch_bank_r <= '0;
                     fetch_word_r <= 11'd0;
                     issue_word_r <= 11'd0;
                     in_flight_beats_r <= 4'd0;
@@ -1025,7 +1032,7 @@ module framebuffer_1080p #(
                     // Use incremental addition instead of multiplication
                     // (packed_width_r only changes at vsync so this is always correct)
                     last_fetched_line_r <= next_fetch_line_w;
-                    fetch_bank_r <= next_fetch_line_w[2:0];
+                    fetch_bank_r <= next_fetch_line_w[BANK_BITS-1:0];
                     fetch_word_r <= 11'd0;
                     issue_word_r <= 11'd0;
                     in_flight_beats_r <= 4'd0;
@@ -1164,8 +1171,9 @@ module framebuffer_1080p #(
     // small buffer on the write side.
 
     // Stored as RGB565 (the memory format, converted back on the read side):
-    // 8192 x 16 = 8 BSRAM blocks; 8192 x 18 needed 9 (a2p25 GW5A-25 fit, 10-11).
-    reg [15:0] line_buf [0:8191] /* synthesis syn_ramstyle="block_ram" */;
+    // LINE_BANKS x 1024 x 16 = LINE_BANKS BSRAM blocks (x18 would need one
+    // more per 8 banks — a2p25 GW5A-25 fit, 10-11).
+    reg [15:0] line_buf [0:LINE_BANKS*1024-1] /* synthesis syn_ramstyle="block_ram" */;
 
     // ---- Write side (clk domain, 54 MHz) ----
     // Each 32-bit word contains 2 packed RGB565 pixels.
@@ -1266,7 +1274,7 @@ module framebuffer_1080p #(
                     bp_sync_pending_r <= 1'b1;
 
                 if (fb_we_r) begin
-                    line_buf[{bypass_y_r[2:0], bypass_x_r[9:0]}] <= rgb666_to_565(fb_data_r);
+                    line_buf[{bypass_y_r[BANK_BITS-1:0], bypass_x_r[9:0]}] <= rgb666_to_565(fb_data_r);
                     if (bypass_x_r == fb_width - 11'd1) begin
                         bypass_x_r <= 11'd0;
                         // Apply frame sync at clean line boundary only
@@ -1288,7 +1296,7 @@ module framebuffer_1080p #(
     // Bank = line[2:0], computed directly from hdmi_cy — no CDC needed.
     // Bank = fb_line[2:0] from the pixel-domain vertical tracker (x5
     // vertical scaling handled there; no per-pixel arithmetic here)
-    wire [2:0] rd_bank_w = fb_line_px_r[2:0];
+    wire [BANK_BITS-1:0] rd_bank_w = fb_line_px_r[BANK_BITS-1:0];
 
     // =========================================================================
     // Output path — clk_pixel domain (27 MHz)
@@ -1399,7 +1407,7 @@ module framebuffer_1080p #(
     end
 
     // Pipeline stage 1: address register + control flags (posedge N)
-    reg [12:0] lb_rd_addr;
+    reg [BANK_BITS+9:0] lb_rd_addr;
     reg in_active_s1_r;
 
     always @(posedge clk_pixel) begin
@@ -1434,7 +1442,7 @@ module framebuffer_1080p #(
     // at +0.004..+0.303 across 60K rolls. This copy has no logic on either
     // side and can be placed at the blocks. +1 read latency, compensated by
     // the cx+4 lookahead / H_TRIGGER_LEAD above and the extra active-flag stage.
-    (* syn_keep = 1, syn_preserve = 1 *) reg [12:0] lb_rd_addr_q;
+    (* syn_keep = 1, syn_preserve = 1 *) reg [BANK_BITS+9:0] lb_rd_addr_q;
     reg in_active_s1b_r;
     always @(posedge clk_pixel) begin
         lb_rd_addr_q    <= lb_rd_addr;

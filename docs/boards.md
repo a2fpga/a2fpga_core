@@ -1,8 +1,9 @@
 # Board Matrix
 
-> Status (2026-10-25): rebuilt from the `.gprj` files, the `*_profile.vh` switches and the
-> committed `impl/*_resources.json` snapshots of the 2026-10-23/25 builds. The a2n9 and
-> a2n20v1 rows are from their project files only (no recent build).
+> Status (2026-11-15): rebuilt from the `.gprj` files, the `*_profile.vh` switches and the
+> committed `impl/*_resources.json` snapshots of the 2026-10-23/25 builds; a2p25 rows from
+> the 2026-11-15 build (Mockingboard + Uthernet II in). The a2n9 and a2n20v1 rows are from
+> their project files only (no recent build).
 
 The A2FPGA core targets several boards that differ by FPGA, framebuffer memory, display
 output, coprocessor and maturity. **Pick the right board before doing anything**: the build
@@ -22,7 +23,7 @@ Deprecated boards and builds live under [`boards/deprecated/`](../boards/depreca
 | [`a2n20v2-GS`](../boards/deprecated/a2n20v2-GS/README.md) (`boards/deprecated/`) | Tang Nano 20K, GW2AR-LV18QN88C8/I7 | SDRAM | SDRAM | HDMI 720x480 | SDRAM | none | `a2n20v2_gs.gprj` | **Deprecated build**: superseded by a2n20v2-Enhanced, which has the GS-specific build features |
 | [`a2n20v2-Enhanced`](../boards/a2n20v2-Enhanced/README.md) | Tang Nano 20K, GW2AR-LV18QN88C8/I7 | SDRAM | none / SDRAM (see variants) | HDMI 720x480 | SDRAM | BL616 (4-wire SPI) | `a2n20v2_enhanced.gprj`, `_dualrate.gprj`, `_fb.gprj` | Beta: USB host (gamepad, storage, Ethernet), disk-image serving, menu, self-update of MCU and FPGA from a USB stick |
 | [`a2mega`](../boards/a2mega/README.md) | Tang Mega SOM, **two dies**: GW5AT-LV60PG484AC1/I0 (60K) or GW5AST-LV138PG484AC1/I0 (138K) | DDR3 | DDR3, 1080p | USB-C DisplayPort Alt Mode, 1080p, 2-lane HBR (board 1.0a3) | DDR3 (pipelined DOC) | ESP32-S3 (8-bit OSPI) | `a2mega.gprj` (60K), `a2mega_138B.gprj` (138K) | WIP, active development: Enhanced feature set ported to the ESP32 and live on the IIgs; 65C816 in-socket work on the 138K; board rev 1.0a4 gated |
-| [`a2p25`](../boards/a2p25/README.md) | Tang Primer 25K, GW5A-LV25MG121NC1/I0 | HyperRAM 64 Mbit | HyperRAM, 1080p | USB-C DisplayPort Alt Mode, 1080p, 4-lane RBR through the hardened MIPI D-PHY (board rev displayport1) | HyperRAM (pipelined DOC) | ESP32-S3 (8-bit OSPI, shared a2mega firmware) | `a2p25.gprj` (`legacy_a2p25_rev0.gprj` is the unmaintained previous revision) | WIP: IIgs boots on the new core over DP 1080p with SHR and DOC audio (2026-10-11); logic-bound at ~97% CLS |
+| [`a2p25`](../boards/a2p25/README.md) | Tang Primer 25K, GW5A-LV25MG121NC1/I0 | HyperRAM 64 Mbit | HyperRAM, 1080p | USB-C DisplayPort Alt Mode, 1080p, 4-lane RBR through the hardened MIPI D-PHY (board rev displayport1) | HyperRAM (pipelined DOC) | ESP32-S3 (8-bit OSPI, shared a2mega firmware) | `a2p25.gprj` (`legacy_a2p25_rev0.gprj` is the unmaintained previous revision) | WIP: IIgs boots on the new core over DP 1080p with SHR and DOC audio (2026-10-11); Mockingboard + Uthernet II in since 2026-11-15 (96% CLS, 50/56 BSRAM) |
 | [`a2n9`](../boards/deprecated/a2n9/README.md) (`boards/deprecated/`) | Tang Nano 9K, GW1NR-LV9QN88PC6/I5 | none used | none | HDMI 720x480 | no | none | `a2n9.gprj` | **Deprecated board**: development board never released beyond a limited set of testers; no IIgs, no SuperSprite |
 | [`a2n20v1`](../boards/deprecated/a2n20v1/README.md) (`boards/deprecated/`) | Tang Nano 20K, GW2AR-LV18QN88C8/I7 | none used | none | HDMI 720x480 | no | none | `a2n20v1.gprj` | **Deprecated board**: development board never released beyond a limited set of testers; superseded by a2n20v2 |
 
@@ -47,7 +48,7 @@ Mockingboard 4, Disk II 5, ProDOS HDD 6, SuperSprite 7.
 | a2n20v2-Enhanced | ✓ | ✓ | ✓ | ✓ | ✓ (BL616 USB-Ethernet bridge) | ✓ |
 | a2mega 60K | | | | ✓ | ✓ (ESP32 WiFi bridge) | ✓ |
 | a2mega 138K | ✓ | ✓ | ✓ | ✓ | ✓ (ESP32 WiFi bridge) | ✓ |
-| a2p25 | off (budget) | off (budget) | off (no UART pins) | ✓ | off (budget) | ✓ |
+| a2p25 | off (budget: 16 BSRAM + ~5k logic) | ✓ | off (no UART pins) | ✓ | ✓ (ESP32 WiFi bridge) | ✓ |
 
 ### The three Enhanced builds
 
@@ -69,7 +70,7 @@ defines. The resource numbers are the committed snapshots.
 | a2n20v2_enhanced_dualrate / _fb | 86% / 88% | 31 / 35 of 46 | |
 | a2mega (60K) | 67% | 107/118 | BSRAM |
 | a2mega_138B | 38% | 134/340 | clk100 timing at the +0.5 ns policy line (see `boards/a2mega/docs/timing_round2.md`) |
-| a2p25 | 97% | 52/56 | logic; see `boards/a2p25/docs/RESOURCE_AUDIT.md` before adding anything |
+| a2p25 | 96% | 50/56 | logic and BSRAM; see `boards/a2p25/docs/RESOURCE_AUDIT.md` §8 before adding anything |
 
 ## Notable per-board differences
 

@@ -162,6 +162,16 @@ fpgaflash CLI) is NOT yet silicon-validated — its status reads returned
 busy/0xFF in both entry modes; do not rely on it until debugged against
 openFPGALoader's working 500 kHz sequence.
 
+## ESP32 telnet console (port 23) is key-driven: never paste commands into it
+
+Every byte sent to the a2mega/a2p25 ESP32 telnet console is a hotkey, dispatched at once.
+A pasted `spireg 0x75` is **s p i r e g** = select, PD status, I2C scan, HPD retrain,
+EQ cycle, **FPGA reload from flash**. On 2026-11-16 a scripted `help` + four `spireg`
+lines reloaded the FPGA four times under a running game and left the mux EQ and lane
+toggles changed. Line commands exist only after `:` (one per line, empty line exits), and
+the serial CLI on USB1 (`+++`) is line-oriented throughout. Key map and safe scripting
+recipes: [boards/a2mega/docs/ESP32_CONSOLE.md](../boards/a2mega/docs/ESP32_CONSOLE.md).
+
 ## GW5AT: GROUP/GRP_LOC region constraints can make the placer thrash for HOURS
 
 Attempting to close `clk_sym` (135 MHz DP symbol domain) timing on the
