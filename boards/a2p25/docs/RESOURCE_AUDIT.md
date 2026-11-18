@@ -1659,8 +1659,27 @@ GLU queue re-slice and the slot-table registers apply there too).
    The stick is confirmed bad on two machines and best explains the
    Apple-side bytes in the directory sector. Firmware hardening done in
    session `disk-write-bounds` (branch `claude/strange-heisenberg-ca020e`,
-   fw fc9649c6 built, not flashed); the origin of the junk lba is still
-   open. Details: `stick_corruption_2026-11-17_forensics.txt`.
+   three commits 1dfc0419 / 31616ad9 / 98e7de84, fw `38f0e5b4` built, not
+   flashed): checked register reads + device-ID probe before serving,
+   image-bounded seeks, mount-time size plausibility, write-failure counters
+   with read-only fallback, CMD+lba read twice (an Apple /RES between the
+   two reads otherwise yields lba 0), quiesce + unmount before every FPGA
+   reload and ESP32 restart. Junk-lba origin per that session: floating OSPI
+   reads while the fabric is dark (reload window; IIgs power cycle with a
+   Mac back-powering the ESP32 over USB1). Write-up
+   `STICK_CORRUPTION_2026-11-17.md` on that branch. **Decision 2026-11-18
+   (Ed): merge the firmware branch AFTER a flash test on the card**, which
+   waits on a replacement stick (the old one is dead). Flash test recipe:
+   (a) copy `a2fpga_esp32_225_ospi_diskguard_38f0e5b4.bin` (sha256
+   38f0e5b4…1d83cb, 1,129,888 B) to the new stick, FIRMWARE menu → UPDATE
+   MCU (.BIN ON VOLUME) → INSTALL, or telnet `fwupdate <file>` then
+   `fwupdate go`; or (b) `make BOARD_REV=225 DP_TEST=0 PORT=/dev/cu.usbmodemXXXX
+   upload` over USB1 with the Apple II off (download-mode and back-power
+   traps in `ESP32_FW_A2P25.md`). Then: images mount and list, a Disk II
+   boot + a game save writes back, `fpga_stream.py` reload with a writable
+   image mounted leaves the directory intact (OSD shows no OUT OF RANGE or
+   write-failure counts), FIRMWARE page shows the new slot. Details:
+   `stick_corruption_2026-11-17_forensics.txt`.
    An earlier stream this evening also went out with a stale file (a save
    directory collided with yesterday's read-only `rolls/g1`), caught by the
    stamp read-back: name every roll directory uniquely.
