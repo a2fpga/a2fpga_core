@@ -1678,8 +1678,21 @@ GLU queue re-slice and the slot-table registers apply there too).
    reads while the fabric is dark (reload window; IIgs power cycle with a
    Mac back-powering the ESP32 over USB1). Write-up
    `STICK_CORRUPTION_2026-11-17.md` on that branch. **Decision 2026-11-18
-   (Ed): merge the firmware branch AFTER a flash test on the card**, which
-   waits on a replacement stick (the old one is dead). Flash test recipe:
+   (Ed): merge the firmware branch AFTER a flash test on the card.**
+   **FLASH TEST PASSED 2026-11-18 07:52, branch MERGED (f5ea6a34):**
+   replacement stick in (76 root entries incl. the Mac's copies of the
+   4 GB `disk1.nib`/`disk2.nib`), `.bin` FTP'd to the stick in 6 s,
+   installed from the telnet menu mirror (FIRMWARE → UPDATE MCU → file →
+   check "1103K -> APP1" → INSTALL; ~70 s), board back in 17 s, menu header
+   MCU NOV 17 2026 22:13:35, stick + D1/D2 (RW) + HDD remounted, core stamp
+   20261117210112 unchanged. Regression test: `fpga_stream.py` of the same
+   aca89216 image with both drives mounted RW → directory listing before and
+   after IDENTICAL (names + sizes), images remount, no OUT OF RANGE or write
+   failures logged. Owed to Ed at the machine: a Disk II write-back (game
+   save) under the new firmware. Telnet notes: the line mode has NO
+   `fwupdate` (serial CLI only); the menu mirror's state persists between
+   telnet sessions, arrows need ~0.8 s gaps, the cursor line is the
+   `ESC[7m` inverse line. The recipe as planned:
    (a) copy `a2fpga_esp32_225_ospi_diskguard_38f0e5b4.bin` (sha256
    38f0e5b4…1d83cb, 1,129,888 B) to the new stick, FIRMWARE menu → UPDATE
    MCU (.BIN ON VOLUME) → INSTALL, or telnet `fwupdate <file>` then
