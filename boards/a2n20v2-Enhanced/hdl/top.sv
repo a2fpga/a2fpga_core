@@ -1786,10 +1786,11 @@ module top #(
 
     wire signed [15:0] core_audio_l_w;
     wire signed [15:0] core_audio_r_w;
-    // Saturating mix (hdl/sound/core_audio_mix.sv): Mockingboard << 4
-    // since 2026-11-17 (+6 dB, it was quiet beside the DOC), sum clamped.
-    core_audio_mix i_audio_mix_l (.sg_i(sg_audio_l), .ssp_i(ssp_audio_w), .mb_i(mb_audio_l), .spk_i(speaker_audio_w), .out_o(core_audio_l_w));
-    core_audio_mix i_audio_mix_r (.sg_i(sg_audio_r), .ssp_i(ssp_audio_w), .mb_i(mb_audio_r), .spk_i(speaker_audio_w), .out_o(core_audio_r_w));
+    // Saturating mix (hdl/sound/core_audio_mix.sv): Mockingboard gain is a
+    // live select (shift 3 + gain; power-up 2 = << 5 since 2026-11-17, it was
+    // quiet beside the DOC), sum clamped.
+    core_audio_mix i_audio_mix_l (.sg_i(sg_audio_l), .ssp_i(ssp_audio_w), .mb_i(mb_audio_l), .mb_gain_i(2'd2), .spk_i(speaker_audio_w), .out_o(core_audio_l_w));
+    core_audio_mix i_audio_mix_r (.sg_i(sg_audio_r), .ssp_i(ssp_audio_w), .mb_i(mb_audio_r), .mb_gain_i(2'd2), .spk_i(speaker_audio_w), .out_o(core_audio_r_w));
 
     // CDC to shift audio to the pixel clock domain from the logic clock domain
 
