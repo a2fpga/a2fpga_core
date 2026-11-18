@@ -1635,7 +1635,16 @@ GLU queue re-slice and the slot-table registers apply there too).
    is recorded, not actioned. Durability rolls of the final source
    (d9ad8c2a): roll 1 `360a7c36` 0/0 worst +0.17 ns clk_mem; roll 2
    `0bec0499` 0/0 worst +0.195 ns clk_mem (clk100 +0.81, clk_pix +1.43,
-   clk_tx +1.74); roll 3 pending.
+   clk_tx +1.74); roll 3 `dcccc602` 0/0 worst +0.361 ns clk_tx (clk100
+   +0.60, clk_pix +0.71, clk_mem +1.04). **Build of record = roll 1
+   `360a7c36` (stamp 20261117201857), the bitstream on the card for every
+   check above**, committed with its timing report and resource snapshot;
+   the placement/pin/power side files in `impl/pnr` are roll 3's (regenerated
+   per build, identical in content for pins and power). Position: logic 73 %,
+   BSRAM 50/56.
+
+   **Gate status 2026-11-17 evening: items 1-5 all done on hardware.** The
+   branch is ready to merge.
 
 ### 8.5 What is still off, and what it would take
 
