@@ -46,9 +46,9 @@ Mockingboard 4, Disk II 5, ProDOS HDD 6, SuperSprite 7.
 | a2n9 | | ✓ | ✓ | | | |
 | a2n20v2-GS | ✓ | ✓ | ✓ | | | |
 | a2n20v2-Enhanced | ✓ | ✓ | ✓ | ✓ | ✓ (BL616 USB-Ethernet bridge) | ✓ |
-| a2mega 60K | | | | ✓ | ✓ (ESP32 WiFi bridge) | ✓ |
-| a2mega 138K | ✓ | ✓ | ✓ | ✓ | ✓ (ESP32 WiFi bridge) | ✓ |
-| a2p25 | off (budget: 16 BSRAM + ~5k logic) | ✓ | off (no UART pins) | ✓ | ✓ (ESP32 WiFi bridge) | ✓ |
+| a2mega 60K | | | | ✓ | ✓ (ESP32 WiFi or USB-Ethernet bridge) | ✓ |
+| a2mega 138K | ✓ | ✓ | ✓ | ✓ | ✓ (ESP32 WiFi or USB-Ethernet bridge) | ✓ |
+| a2p25 | off (budget: 16 BSRAM + ~5k logic) | ✓ | off (no UART pins) | ✓ | ✓ (ESP32 WiFi or USB-Ethernet bridge) | ✓ |
 
 ### The three Enhanced builds
 

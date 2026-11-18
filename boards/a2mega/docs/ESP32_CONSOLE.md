@@ -116,7 +116,7 @@ leave it. Line commands, from `help`:
 | `viddbg` | the same 0x70–0x77 debug block as telnet `z` |
 | `spir <space> <addr> <len> [inc]`, `spiw <space> <addr> <inc> <b0> …` | raw OSPI space read/write |
 | `meminfo`, `pins` | ESP32 heap, pin map |
-| `wifi [<ssid> [psk]]`, `net` | WiFi credentials in NVS, IP status |
+| `wifi [<ssid> [psk]]`, `net` | WiFi credentials in NVS; `net` = Uthernet uplink (WiFi / USB-Ethernet), adapter state, IP status |
 | `pd`, `i2cscan` | PD status, DP I2C scan (PD boards) |
 | `dp130 r <reg> [n] \| w <reg> <val> \| probe` | SN75DP130 registers (a2p25) |
 | `a2reset` | pulse the Apple II /RES line 200 ms (boards with the reset pin) |

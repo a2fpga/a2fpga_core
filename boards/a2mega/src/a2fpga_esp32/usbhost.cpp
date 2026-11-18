@@ -1,5 +1,6 @@
 /*
- * usbhost.cpp — ESP32-S3 USB host for gamepads and HID input (see usbhost.h).
+ * usbhost.cpp — ESP32-S3 USB host for gamepads, HID input, mass storage and
+ * (via usbeth.c) CDC-ECM/NCM Ethernet adapters (see usbhost.h).
  *
  * Ported from the a2n20v2-Enhanced BL616 firmware (CherryUSB):
  *   firmware_host/usbh_xinput.c   — XInput class match (FF/5D/01), report layout
@@ -33,6 +34,7 @@
 #include "freertos/queue.h"
 #include "freertos/semphr.h"
 #include "usbstorage.h"
+#include "usbeth.h"
 
 #include "osd_console.h"   /* osd_log (C linkage) */
 
@@ -200,7 +202,7 @@ static void parse_consumer_layout(const uint8_t *d, uint32_t len, consumer_layou
 }
 
 /* ---- per-device bookkeeping ------------------------------------------------ */
-enum devkind { DK_NONE, DK_XINPUT, DK_KBD, DK_CONSUMER, DK_MSC };
+enum devkind { DK_NONE, DK_XINPUT, DK_KBD, DK_CONSUMER, DK_MSC, DK_ETH };
 /* one serviced interface of a device (composite remotes carry a keyboard
  * interface AND a consumer-page interface; both must be read) */
 struct hintf {
@@ -226,6 +228,8 @@ struct hdev {
     uint16_t mps_bulk;
     uint32_t msc_blocks, msc_bsize;
     uint32_t msc_tag;
+    /* CDC-ECM/NCM Ethernet adapter owned by usbeth.c */
+    bool     eth;
 };
 #define MAX_DEV 4
 static hdev s_devs[MAX_DEV];
@@ -238,10 +242,11 @@ static SemaphoreHandle_t s_msc_lock = NULL;
 
 static void recompute_presence(void)
 {
-    bool pad = false, hid = false, msc = false;
+    bool pad = false, hid = false, msc = false, eth = false;
     for (auto &d : s_devs) {
         if (!d.dev) continue;
         if (d.msc) msc = true;
+        if (d.eth) eth = true;
         for (uint8_t i = 0; i < d.nin; i++) {
             if (d.in[i].kind == DK_XINPUT) pad = true;
             if (d.in[i].kind == DK_KBD || d.in[i].kind == DK_CONSUMER) hid = true;
@@ -250,7 +255,7 @@ static void recompute_presence(void)
     s_pad_present = pad; s_hid_present = hid;
     if (!pad) s_pad_buttons = 0;
     if (!hid) { s_kbd_buttons = 0; s_con_buttons = 0; }
-    snprintf(s_status, sizeof(s_status), "HOST%s%s%s", pad ? " PAD" : "", hid ? " HID" : "", msc ? " STICK" : "");
+    snprintf(s_status, sizeof(s_status), "HOST%s%s%s%s", pad ? " PAD" : "", hid ? " HID" : "", msc ? " STICK" : "", eth ? " ETH" : "");
 }
 
 /* buttons = OR over every serviced interface of every device */
@@ -491,8 +496,18 @@ static void attach_device(uint8_t addr)
         else if (id->bInterfaceClass == 0x03 && id->bInterfaceSubClass == 0x01 && id->bInterfaceProtocol == 0x01) k = DK_KBD;
         else if (id->bInterfaceClass == 0x03) k = DK_CONSUMER;
         else if (id->bInterfaceClass == 0x08 && id->bInterfaceSubClass == 0x06 && id->bInterfaceProtocol == 0x50 && !s_msc && !d->msc) k = DK_MSC;
+        /* CDC Ethernet (ECM 02/06 or NCM 02/0D) control interface: the
+         * adapter's data interface (class 0x0A) is claimed by usbeth.c */
+        else if (id->bInterfaceClass == 0x02 && (id->bInterfaceSubClass == 0x06 || id->bInterfaceSubClass == 0x0D) && !d->eth) k = DK_ETH;
         if (k == DK_NONE || d->nin >= MAX_INTF) continue;
         hintf *f = &d->in[d->nin]; memset(f, 0, sizeof(*f)); f->dev = d; f->intf = i;
+        if (k == DK_ETH) {
+            if (usbeth_attach(s_client, d->dev, (const uint8_t *)cfg, cfg->wTotalLength, i,
+                              dd ? dd->idVendor : 0, dd ? dd->idProduct : 0)) {
+                f->kind = k; d->eth = true; d->nin++;      /* interfaces released by usbeth_detach */
+            }
+            continue;
+        }
         if (k == DK_MSC) {
             for (uint8_t e = 0; e < id->bNumEndpoints; e++) {
                 int eoff = off;
@@ -537,6 +552,7 @@ static void attach_device(uint8_t addr)
     if (d->nin == 0) goto drop;
     for (uint8_t n = 0; n < d->nin; n++) {
         hintf *f = &d->in[n];
+        if (f->kind == DK_ETH) continue;                  /* running already (usbeth_attach) */
         if (f->kind == DK_MSC) {
             if (!msc_init(d)) {
                 osd_log("USB HOST: STORAGE DEVICE NOT READY");
@@ -579,6 +595,7 @@ static void detach_device(usb_device_handle_t h)
         usbstorage_on_msc(false);
         if (s_msc_lock) { xSemaphoreTake(s_msc_lock, portMAX_DELAY); xSemaphoreGive(s_msc_lock); }
     }
+    if (d->eth) { usbeth_detach(d->dev); d->eth = false; }
     for (uint8_t n = 0; n < d->nin; n++) {
         hintf *f = &d->in[n];
         if (f->xin) { usb_host_transfer_free(f->xin); f->xin = NULL; }

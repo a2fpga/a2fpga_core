@@ -31,6 +31,7 @@ static const char *TAG = "wifi_br";
 static bool         s_started;          /* esp_wifi_start succeeded */
 static volatile bool s_link_up;         /* associated (L2 usable for raw TX) */
 static volatile bool s_got_ip;          /* ESP32's own DHCP lease obtained */
+static volatile bool s_bridging = true; /* copy frames towards the Apple II (net_uplink.c) */
 static volatile uint32_t s_ip;          /* ESP32's own IPv4, network byte order */
 static uint8_t      s_sta_mac[6];       /* ESP32 station MAC (NAT outer MAC) */
 static uint8_t      s_apple_mac[6];     /* Apple II SHAR (NAT inner MAC) */
@@ -179,7 +180,7 @@ static esp_err_t bridge_rxcb(void *buffer, uint16_t len, void *eb)
     if (len >= 14 && memcmp(f, s_sta_mac, 6) == 0)
         wifi_dbg_rx_ucast++;
 
-    if (len >= 14 && len <= W5100_MAX_FRAME && w5100_macraw_active()) {
+    if (s_bridging && len >= 14 && len <= W5100_MAX_FRAME && w5100_macraw_active()) {
         bool mcast = (f[0] & 0x01) != 0;                    /* covers broadcast */
         bool tous  = (memcmp(f, s_sta_mac, 6) == 0);
         if (mcast || tous) {
@@ -226,10 +227,10 @@ void wifi_bridge_poll(void)
 }
 
 /* =========================================================================
- * w5100.h bridge hooks (override the weak stubs in w5100.c)
+ * Uplink interface (routed to w5100.h's bridge hooks by net_uplink.c)
  * ========================================================================= */
 
-void w5100_bridge_tx(const uint8_t *frame, uint32_t len)
+void wifi_bridge_tx(const uint8_t *frame, uint32_t len)
 {
     if (!s_started || !s_link_up || len < 14 || len > W5100_MAX_FRAME)
         return;
@@ -252,14 +253,14 @@ void w5100_bridge_tx(const uint8_t *frame, uint32_t len)
     }
 }
 
-bool w5100_bridge_uplink_mac(uint8_t mac[6])
+bool wifi_bridge_uplink_mac(uint8_t mac[6])
 {
     if (!s_started) return false;
     memcpy(mac, s_sta_mac, 6);
     return true;
 }
 
-void w5100_bridge_set_uplink_mac(const uint8_t mac[6])
+void wifi_bridge_set_apple_mac(const uint8_t mac[6])
 {
     /* WiFi STA cannot impersonate the Apple II's MAC on air; record SHAR as
      * the MAC-NAT inner address instead. */
@@ -269,11 +270,8 @@ void w5100_bridge_set_uplink_mac(const uint8_t mac[6])
              mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
 }
 
-void w5100_bridge_set_promiscuous(void)
-{
-    /* Not applicable: STA MAC NAT replaces the promiscuous fallback. */
-    ESP_LOGW(TAG, "promiscuous mode not supported on the WiFi uplink");
-}
+bool wifi_bridge_started(void) { return s_started; }
+void wifi_bridge_set_bridging(bool on) { s_bridging = on; }
 
 /* =========================================================================
  * WiFi bring-up

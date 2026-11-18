@@ -18,7 +18,7 @@ reconfigurable at runtime by the coprocessor). Default assignment:
 | Mockingboard | 2 | 4 | Sweet Micro Systems Mockingboard (2× AY-3-8910 + 2× 6522) | all but a2mega 60K and a2p25 |
 | Super Serial Card | 3 | 2 | Apple Super Serial Card (6551 ACIA) | all but a2mega 60K and a2p25 |
 | Disk II | 4 | 5 | Apple Disk II controller, images served track-on-demand by the coprocessor | a2n20v2-Enhanced, a2mega, a2p25 |
-| Uthernet II | 5 | 3 | a2RetroSystems Uthernet II (WIZnet W5100), network engine on the coprocessor | a2n20v2-Enhanced (USB Ethernet), a2mega (WiFi) |
+| Uthernet II | 5 | 3 | a2RetroSystems Uthernet II (WIZnet W5100), network engine on the coprocessor | a2n20v2-Enhanced (USB Ethernet), a2mega and a2p25 (WiFi or CDC-ECM/NCM USB Ethernet) |
 | ProDOS HDD | 6 | 6 | AppleWin-style ProDOS hard-disk card, two block-device units served by the coprocessor | a2n20v2-Enhanced, a2mega, a2p25 |
 
 The per-board set is decided in `boards/<board>/hdl/<board>_profile.vh` (and per die on the
@@ -92,11 +92,13 @@ space (9 BSRAM blocks on the Tang Nano 20K). The socket engine and the network b
 coprocessor, which reaches the backing store through the connector's memory SPACE 3 and is
 notified of socket commands by a per-socket doorbell. MACRAW mode is implemented (IP65, ADTPro,
 Contiki, Marinetti); the hardware TCP/UDP socket modes are not. On the Enhanced the frames go
-out a USB-Ethernet adapter (CDC-ECM, RTL8153 class); on the a2mega the ESP32 bridges them to
-WiFi with MAC NAT. Design and the FPGA-to-firmware contract:
+out a USB-Ethernet adapter (RTL8152 / ASIX vendor drivers); on the a2mega and a2p25 the ESP32
+bridges them to WiFi with MAC NAT, or to a CDC-ECM/NCM USB-Ethernet adapter on its USB-C port
+(same MAC NAT; see the ESP32 port notes). Design and the FPGA-to-firmware contract:
 [UTHERNET2.md](../boards/a2n20v2-Enhanced/docs/UTHERNET2.md) and
-[UTHERNET2_PROTOCOL.md](../boards/a2n20v2-Enhanced/docs/UTHERNET2_PROTOCOL.md). Off on the a2p25
-(BSRAM budget).
+[UTHERNET2_PROTOCOL.md](../boards/a2n20v2-Enhanced/docs/UTHERNET2_PROTOCOL.md); the ESP32 side in
+[ESP32_ENHANCED_PORT.md](../boards/a2mega/docs/ESP32_ENHANCED_PORT.md#networking). On the a2p25
+since the 2026-11-15 BSRAM pass.
 
 ## CardROM — [`cardrom.s`](../boards/a2n20v2-Enhanced/src/cardrom/cardrom.s) (excised)
 

@@ -556,6 +556,8 @@ static void ftpd_thread(void *arg)
 
 void ftpd_init(void)
 {
+    if (s_fslock)
+        return;                            /* already running */
     s_fslock = xSemaphoreCreateMutex();
     xTaskCreatePinnedToCore(ftpd_thread, "ftpd", 4096, NULL, 2, NULL, 1);
 }

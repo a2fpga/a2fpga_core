@@ -40,7 +40,8 @@ first slice that was already ported.
 | SSC → TCP Hayes modem | missing; SSC core off, no UART pins | P7 — only after an SSC core that talks over the OSPI link exists (new HDL); defer |
 | WS2812 MCU-liveness LED | n/a (LED0 heartbeat, LED1 = HPD) | drop |
 | Standalone fallback (no MCU) | present in the connector | keep |
-| USB enumeration supervisor, SD tunnel, RTL8152/CDC-ECM/ASIX | n/a (no USB host / no SD / WiFi) | drop |
+| USB enumeration supervisor, SD tunnel | n/a (no SD) | drop |
+| RTL8152/CDC-ECM/ASIX USB-Ethernet uplink | **generic CDC-ECM/NCM host driver** (`usbeth.c`, 2026-11-17) on USB1 as a second Uthernet II uplink beside WiFi; built, hardware test pending | see `../../a2mega/docs/ESP32_ENHANCED_PORT.md` § USB-Ethernet uplink |
 
 ## 3. Proposed order
 

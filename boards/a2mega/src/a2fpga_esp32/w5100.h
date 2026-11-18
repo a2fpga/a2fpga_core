@@ -111,7 +111,7 @@ void w5100_macraw_rx(const uint8_t *frame, uint32_t len);
  * yet set (all zero). */
 bool w5100_get_mac(uint8_t mac[6]);
 
-/* ---- bridge hooks (implemented weak here, overridden in wifi_bridge.c) ----
+/* ---- bridge hooks (implemented weak here, overridden in net_uplink.c) ----
  * BL616 heritage: on the Enhanced board the "uplink" is a USB-Ethernet dongle
  * whose hardware MAC is programmed to equal the Apple II's SHAR. On WiFi the
  * station MAC cannot impersonate the Apple II, so wifi_bridge.c implements

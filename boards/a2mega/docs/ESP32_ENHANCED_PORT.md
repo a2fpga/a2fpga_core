@@ -14,7 +14,7 @@ branch work (FPGA-fabric `usb_hid_host` core).
 | MCU↔FPGA link     | 4-wire SPI Mode 1, ~20 MHz         | Octal SPI (8-bit parallel), sync-pattern framing |
 | Gamepad / HID     | BL616 USB host (XInput)            | **ESP32-S3 USB host** on the board's USB-C port (feature port item P2; the ESP32 writes the pad/key regs 0x16–0x1B) |
 | Storage           | USB MSC stick (SD fallback tunnel) | **LittleFS on the ESP32 flash** (images by FTP) and USB mass storage on the ESP32's USB port; no SD card on this board |
-| Networking        | USB Ethernet (CDC-ECM/RTL8152)     | **WiFi STA** (raw-frame bridge with MAC NAT)     |
+| Networking        | USB Ethernet (CDC-ECM/RTL8152)     | **WiFi STA** (raw-frame bridge with MAC NAT) **or a CDC-ECM/NCM USB-Ethernet adapter on USB1** (`usbeth.c`, 2026-11-17; the wire wins when it has carrier) |
 | Track/block buffers | SDRAM windows (0x200000/0x204000) | **BSRAM** buffers inside the OSPI connector spaces |
 | Menu/console text | SDRAM OSD text page (0x020800)     | **Text VRAM BSRAM (SPACE 1)** + pixel-domain OSD overlay renderer |
 | FPGA self-update  | Bit-banged JTAG→W25Q64, GW2AR      | ESP32 JTAG pins (IO40/41/42/45) → GW5AT SPI flash (chip specifics TBV on hardware) |
@@ -117,6 +117,38 @@ chaddr/broadcast-flag fixups included), ingress unicast is rewritten back to
 the Apple II's SHAR. This is required because 802.11 STA links only pass the
 station's own MAC.
 
+### USB-Ethernet uplink (2026-11-17, built, not yet run on hardware)
+
+A USB-Ethernet adapter on USB1 (through the same hub/dock as the gamepad and
+stick) is a second uplink. `usbeth.c` is a generic **CDC-ECM / CDC-NCM host
+driver** on ESP-IDF `usb_host` (claim control + data interface,
+SET_INTERFACE to the data alt setting, SET_ETHERNET_PACKET_FILTER, bulk
+IN/OUT, NETWORK_CONNECTION notifications; NCM adds NTB16 framing in
+`usbeth_proto.c`, unit-tested in `tests/host/`). It feeds two consumers:
+
+- the Apple II, through the same MAC-NAT scheme as WiFi (adapter MAC as the
+  outer MAC), so no promiscuous mode or vendor "set MAC" register is needed
+  and any adapter works the same way;
+- the ESP32's own lwIP, through an `esp_netif` attached to the driver
+  (route priority 120, above WiFi STA's 100), so telnet/FTP/port 2323 are
+  reachable over the wire with or without WiFi configured.
+
+`net_uplink.c` owns the `w5100_bridge_*` hooks and routes them: USB when the
+adapter reports carrier, WiFi otherwise; only the active uplink delivers
+frames to the Apple II. The CLI's `net` shows the active uplink and the
+adapter's state.
+
+Limits: the ESP32-S3 OTG is **Full Speed** (adapters run at 12 Mbit/s with
+64-byte bulk packets — fine for the Apple II). The IDF host library in the
+Arduino libs enumerates **configuration 1 only** (the enumeration-filter
+callback is compiled out), so dual-configuration Realtek parts whose ECM
+function sits on configuration 2 (RTL8153/8156 behind a vendor config 1)
+are not reached; adapters whose first configuration is ECM or NCM are the
+target. The wired netif always uses DHCP (the static-IP setting applies to
+WiFi). Why generic class drivers rather than the BL616's vendor drivers:
+the Enhanced's CDC-ECM failure was a CherryUSB host-side bulk-IN problem,
+not an ECM one, and the IDF bulk-IN path is proven by mass storage.
+
 ## Firmware (boards/a2mega/src/a2fpga_esp32, Arduino CLI build)
 
 Continues the existing sketch + `a2fpga_ospi_link` transport. New modules
@@ -127,7 +159,7 @@ ported from `a2n20_bl616/firmware_host`:
 - `menu.*`, `osd_console.*` — ported UI, gamepad polled from FPGA regs
 - `settings.*` — same blob layout, stored in NVS (Preferences)
 - `disk.*`, `gcr_dsk.*` — image mount/track-serve, FatFS→VFS (`SD_MMC`)
-- `w5100_bridge.*` — W5100 poll loop + WiFi raw-frame MAC-NAT bridge.
+- `w5100.*`, `wifi_bridge.*`, `usbeth.*`, `net_uplink.*` — W5100 poll loop; WiFi raw-frame MAC-NAT bridge; CDC-ECM/NCM USB-Ethernet uplink; uplink selection.
   Configured by `wifi.txt` in the SD card root (line 1 SSID, line 2
   password; optional lines 3-5 = static IP/netmask/gateway, else DHCP)
 - `fpgaupdate.*` — GW5AT JTAG flash writer (reuses `a2fpga_jtag` bit-bang;
