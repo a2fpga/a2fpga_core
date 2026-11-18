@@ -1594,6 +1594,74 @@ GLU queue re-slice and the slot-table registers apply there too).
    Mockingboard title do not play at once, and the sum still fits 16 bits
    unless the DOC is near full scale at the same instant. Shared-HDL change
    across all tops, so a decision for its own pass, not this merge.
+   **Taken as its own pass 2026-11-17 evening (ed: "yes, next pass"), branch
+   `claude/mockingboard-level-6db` off the merged main, commit 8907a509:**
+   `hdl/sound/core_audio_mix.sv` replaces the inline add on the a2p25,
+   a2mega, a2n20v2 and a2n20v2-Enhanced tops (deprecated GS top untouched):
+   Mockingboard << 4 (peak 12,240, +6 dB), 19-bit sum clamped to 16 bits so
+   a full-scale DOC under a speaker click or a Mockingboard chord clips
+   instead of wrapping. Bench `sim/audio_mix/run.sh` (reference model,
+   200k random cases + clamp corners) PASS. a2p25 rolls of that source: 1
+   `4b761551` 0/0 worst +0.013 clk_pix (framebuffer `v_border_px_r ->
+   h_trigger_r`, a pre-existing cone, placement noise: rolls 2/3 put it at
+   +1.56 / +0.92), 2 `64ab7913` 0/0 worst +0.85 clk_tx, 3 `bb7b63fa` 0/0
+   worst +0.046 clk_mem. Roll 1 streamed (stamp 20261117204243).
+   **Measured (ed's HDMI capture of Nox Archaist at << 4,
+   `tests/sound/nox.m4a`): peak -31.3 dBFS, RMS -36.9 dBFS, waveform
+   unipolar (min -0.0015, max +0.027 FS), L and R identical.** "A bit louder,
+   still somewhat quiet." Reference through the same chain: the February
+   DOC captures `game_1/game_2.m4a` peak at +1.3 / -1.9 dBFS, so the chain
+   passes full scale. The DP packetizer places the 16-bit sample in the top
+   16 of the 24-bit sub-frame field (`{sl, 8'h00}`, channel status word
+   length 16-in-20): correct, no packing attenuation. The AY core (YM2149.sv,
+   MODE 0) indexes its 32-step logarithmic YM table with the full 5 bits and
+   reaches 255 at volume 15: correct. So the shortfall is the real chip's
+   log DAC: ordinary music at volumes 8-12 sits 8-20 dB under the channel
+   peak, and a real card's amplifier makes it up; emulators apply gain.
+   At << 4 Nox's actual peak was ~885 counts (10-bit AY sum ~55 of 765).
+   **Done (commit 29c62fa7): the Mockingboard gain is a live 2-bit select,
+   bits 3:2 of the audio control byte at window index 55 (shift = 3 + value;
+   write 0x01/0x05/0x09/0x0D for << 3/4/5/6 with the mailbox bit kept),
+   power-up 2 = << 5 (full chord 24,480, 75 % FS, clip-free; << 6 clips full
+   chords, the sum saturates). Index 55 reads back {0, gain, clear, sel}.**
+   The level is picked by ear on one bitstream; the chosen value becomes the
+   reset default. Note for the pick: at << 5 Nox should peak near -25 dBFS;
+   matching DOC titles' loudness (RMS -15 to -20 dBFS) would need ~+15 dB
+   over << 4, which is past << 6 and clips chords, so the honest ceiling is
+   << 5 or << 6 with saturation doing the rest.
+   **Next, after the level (ed): audio quality.** The a2n20 tops run
+   `audio_out` (the IIR filter stage) between the mix and the output; the
+   a2p25 feeds the mix straight into the DP crossing because the filter's
+   DSP multipliers did not port from GW2A to GW5A at the time. Ed hears the
+   difference on the Mac playback. Separate item.
+   **Gain-select build (commit 29c62fa7), three rolls of the final source,
+   all 0/0: roll 1 `aca89216` (stamp 20261117210112) worst +0.56 clk100 =
+   BUILD OF RECORD, on the card; roll 2 `13149278` worst +0.029 clk_tx /
+   +0.033 clk_pix; roll 3 `658551cf` worst +0.67 clk_tx. Position: logic
+   73 %, BSRAM 50/56, +28 LUT per mixer channel. Power-up Mockingboard gain
+   << 5; the ear pick (bits 3:2 of index 55 live) is owed and, if it lands
+   elsewhere, becomes a firmware boot setting rather than a new HDL default.
+   Listening pick NOT done:** the session stopped when the USB stick's FAT32 directory turned
+   out destroyed (picker empty). Forensics from a 37 MB image of the stick:
+   the firmware's Disk II track write-back (`disk.c`) received a garbage
+   block number (lba 8,322,827 on a 230 KB .nib), seeked 4 GB past the end,
+   and FatFS extended `disk1.nib` (entry rewritten: size 0xFDFE1600,
+   1980-01-01 timestamp); the allocation was interrupted (FAT copy 2 holds a
+   chain copy 1 lacks), 5.2 GB of clusters are orphaned, and the root
+   directory's last 320 bytes hold Apple-side data + zeros (the other
+   entries are gone). A restart alone cannot produce field-precise damage.
+   Not an HDL defect of this pass. Revised the same night when the stick
+   failed to reformat on two machines: the stick is failing hardware and
+   served a corrupt directory sector first (the Apple-side bytes are a
+   disk-image page mapped onto the directory's address); the firmware then
+   trusted the corrupt 4 GB size, allowed a track request past the real end
+   and extended the file by 26 clusters (the FAT-copy disagreement). Firmware
+   hardening owed: sanity-check image sizes at mount, bound lbas, report
+   media errors, unmount before restart. Task card `disk-write-bounds`
+   (started by ed as its own session).
+   An earlier stream this evening also went out with a stale file (a save
+   directory collided with yesterday's read-only `rolls/g1`), caught by the
+   stamp read-back: name every roll directory uniquely.
    **Uthernet II, 2026-11-17, FAULT FOUND AND FIXED (retest on hardware
    pending the build).** IP65 DATE65 on 6f24025d, slot 3 on Your Card:
    `Initializing - No device found`. Bridge side healthy (ESP32 scratch 0x0C =
