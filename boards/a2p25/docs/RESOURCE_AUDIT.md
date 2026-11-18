@@ -1711,6 +1711,23 @@ GLU queue re-slice and the slot-table registers apply there too).
    lever if ed wants it durable: trim ≈ 400-800 LUT — the audio CDC's RAW path
    and its counters (≈ 390 LUT, the mailbox is proven) or the DebugOverlay
    residue (B6) — or constrain the PHY ck_en flop next to its DDR cell.
+   **Trim tried 2026-11-18 (ed: "trim the CDC raw path"), commit b88a0c10 on
+   `claude/a2p25-audio-filter`, NOT merged:** `audio_sample_cdc` got a
+   `RAW_PATH` parameter and the a2p25 passes 0 (mailbox only, no mixed-capture
+   detector; bit 0 of index 55 ignored, 48-51 read 0; the jump / max-step
+   counters stay; bench extended, 3 seeds PASS). It saved only ≈ 280 LUT
+   (19,094 → 18,806, 83 → 82 %) and the rolls did not improve: `ebfeeb74` 4
+   violations (clk100 −0.151), `a31fa48e` 0/0 but +0.039 clk100 / +0.046
+   clk_pix, `efc9bb67` −0.317 clk_mem_90. So the knife-edge is the placement at
+   82-83 %, not the CDC. Where the filter's cost really is: the module table
+   shows the IIR at ≈ 160 LUT; the +1,000 are **ALU carry chains** — eight
+   24-bit partial products summed into a 61-bit word per tap ≈ 300 ALU per tap
+   plus ≈ 200 for the input product, inherent to doing the exact 37×24 in
+   12×12 pieces. Ways down, all ed's call: a 2-tap filter (coeff_x2 = cy2 = 0,
+   −1/3 of the adders, second-order response); dropping the lowest partial
+   products (sub-LSB error, breaks the bit-exact bench); or a logic diet
+   elsewhere (sdp_engine 1,119 LUT, AUX channel + interface 1,153, second
+   PSG/6522 pair 690). Card still runs `3c863693`; main unchanged at 3a05b59e.
    Listening pick NOT done:** the session stopped when the USB stick's FAT32 directory turned
    out destroyed (picker empty). Forensics from a 37 MB image of the stick:
    the firmware's Disk II track write-back (`disk.c`) received a garbage
