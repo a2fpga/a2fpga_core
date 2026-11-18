@@ -80,6 +80,7 @@
         <File path="../../hdl/slots/slotmaker.sv" type="file.verilog" enable="1"/>
         <File path="../../hdl/slots/slotmaker_config_if.sv" type="file.verilog" enable="1"/>
         <File path="../../hdl/sound/apple_speaker.sv" type="file.verilog" enable="1"/>
+        <File path="../../hdl/sound/core_audio_mix.sv" type="file.verilog" enable="1"/>
         <File path="../../hdl/sound/audio_out.v" type="file.verilog" enable="1"/>
         <File path="../../hdl/sound/audio_timing.sv" type="file.verilog" enable="1"/>
         <File path="hdl/sound/ensoniq_bsram.sv" type="file.verilog" enable="1"/>
