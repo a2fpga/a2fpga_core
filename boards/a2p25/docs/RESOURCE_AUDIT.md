@@ -1634,9 +1634,14 @@ GLU queue re-slice and the slot-table registers apply there too).
    a2p25 feeds the mix straight into the DP crossing because the filter's
    DSP multipliers did not port from GW2A to GW5A at the time. Ed hears the
    difference on the Mac playback. Separate item.
-   **Gain-select build (commit 29c62fa7): roll 1 `aca89216` (stamp
-   20261117210112) 0/0 worst +0.56 clk100, on the card; listening pick NOT
-   done:** the session stopped when the USB stick's FAT32 directory turned
+   **Gain-select build (commit 29c62fa7), three rolls of the final source,
+   all 0/0: roll 1 `aca89216` (stamp 20261117210112) worst +0.56 clk100 =
+   BUILD OF RECORD, on the card; roll 2 `13149278` worst +0.029 clk_tx /
+   +0.033 clk_pix; roll 3 `658551cf` worst +0.67 clk_tx. Position: logic
+   73 %, BSRAM 50/56, +28 LUT per mixer channel. Power-up Mockingboard gain
+   << 5; the ear pick (bits 3:2 of index 55 live) is owed and, if it lands
+   elsewhere, becomes a firmware boot setting rather than a new HDL default.
+   Listening pick NOT done:** the session stopped when the USB stick's FAT32 directory turned
    out destroyed (picker empty). Forensics from a 37 MB image of the stick:
    the firmware's Disk II track write-back (`disk.c`) received a garbage
    block number (lba 8,322,827 on a 230 KB .nib), seeked 4 GB past the end,
