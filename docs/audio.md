@@ -80,9 +80,13 @@ Two things to know about it:
   constant: the a2p25 (54 MHz) passes 5,594,066.
 - **GW5A boards list [`iir_filter_gw5a.v`](../hdl/support/iir_filter_gw5a.v) instead of
   `iir_filter.v`.** Same modules, same filter, bit-exact (the bench runs both side by side);
-  the difference is that every product is written as a signed ≤27 × ≤36 piece, because the
-  Arora V DSP has only MULT12X12 and MULT27X36 (signed operands) and GowinSynthesis did not
-  map the original 16×40 / 37×24 products into a working filter on the GW5A.
+  the difference is that every product is written as a signed ≤12 × ≤12 piece and summed in
+  fabric. The original 16×40 / 37×24 products never gave a working filter on the GW5A, and
+  neither did ≤27 × ≤36 pieces: the MULT27X36 and MULTALU27X18 cells GowinSynthesis 1.9.12.03
+  infers for them compute wrong results on the GW5A-25 (verified on the a2p25 with the audio
+  CDC jump counter, 2026-11-18, while the RTL was bit-exact in simulation and the netlist
+  wiring checked out). MULT12X12, the DOC's multiplier, is the one DSP cell with hardware
+  proof here, so that is what the filter uses: 14 DSP blocks and about 1,350 LUT/ALU.
 
 Where it runs: the Tang Nano tops filter on the 27 MHz pixel clock after the CDC. The a2p25
 filters on **`clk_logic` ahead of the CDC**, so the band-limiting sees the full-rate sources
