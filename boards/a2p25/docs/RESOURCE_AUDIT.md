@@ -1650,15 +1650,17 @@ GLU queue re-slice and the slot-table registers apply there too).
    chain copy 1 lacks), 5.2 GB of clusters are orphaned, and the root
    directory's last 320 bytes hold Apple-side data + zeros (the other
    entries are gone). A restart alone cannot produce field-precise damage.
-   Not an HDL defect of this pass. Revised the same night when the stick
-   failed to reformat on two machines: the stick is failing hardware and
-   served a corrupt directory sector first (the Apple-side bytes are a
-   disk-image page mapped onto the directory's address); the firmware then
-   trusted the corrupt 4 GB size, allowed a track request past the real end
-   and extended the file by 26 clusters (the FAT-copy disagreement). Firmware
-   hardening owed: sanity-check image sizes at mount, bound lbas, report
-   media errors, unmount before restart. Task card `disk-write-bounds`
-   (started by ed as its own session).
+   Not an HDL defect of this pass. Final reading (after a wrong revision the
+   same night): BOTH a junk block number and a failing stick. `disk1.nib`'s
+   cluster chain is 130,045 clusters in both FAT copies, exactly what the
+   recorded 4 GB size needs, contiguous from the FSInfo next-free hint, so
+   FatFS really did extend the file to a 4 GB seek on a junk lba
+   (8,322,827); a second 3.1 GiB orphan run starts where that chain ends.
+   The stick is confirmed bad on two machines and best explains the
+   Apple-side bytes in the directory sector. Firmware hardening done in
+   session `disk-write-bounds` (branch `claude/strange-heisenberg-ca020e`,
+   fw fc9649c6 built, not flashed); the origin of the junk lba is still
+   open. Details: `stick_corruption_2026-11-17_forensics.txt`.
    An earlier stream this evening also went out with a stale file (a save
    directory collided with yesterday's read-only `rolls/g1`), caught by the
    stamp read-back: name every roll directory uniquely.

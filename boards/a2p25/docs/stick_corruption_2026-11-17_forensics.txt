@@ -78,3 +78,22 @@ The ESP32 restarts in the stream path are exonerated for the damage itself; one 
 interrupted the small extension (FAT0/FAT1 disagreement). Firmware hardening still owed:
 sanity-check image sizes at mount, bound every lba against the checked size, report media
 errors, close images and unmount before esp_restart().
+
+FINAL READING (later the same night; the "revised reading" above is withdrawn after the
+disk-serving session re-parsed the image and this session confirmed it):
+DISK1.NIB's cluster chain from cluster 183 is 130,045 clusters long in BOTH FAT copies
+(183-190, then one contiguous run 67168-197204, end-of-chain mark), = 4,261,314,560 B,
+the smallest chain that holds the recorded size 4,261,287,424 B, and the run begins right
+after the FSInfo next-free hint (67161). A corrupt size field cannot allocate clusters;
+only FatFS extending the file to a 4 GB seek does. So the firmware DID receive a junk
+block number (lba 8,322,827) for a track write and seeked there. The largest orphan run,
+197205-297429 (3.1 GiB), starts exactly where that chain ends: a second extension of the
+same kind, never attached to an entry. The FAT1-only chain 46692-46918 is a third,
+smaller, interrupted allocation. The 128 B of Apple-side data in the directory sector
+still fits a failing stick (wrong page served) better than anything the firmware writes,
+and the stick is confirmed bad (two machines cannot reformat it). Both are true: junk
+lbas from the request path AND a failing stick. Firmware hardening (session
+disk-write-bounds, branch claude/strange-heisenberg-ca020e, commits 1dfc0419 + 31616ad9,
+firmware fc9649c6 built, not flashed): size plausibility at mount, lba bounds, media-error
+reporting and read-only fallback, unmount before esp_restart(). Still open: WHERE the
+junk lba came from (OSPI request-register read race, FPGA latch, or a reload mid-request).
