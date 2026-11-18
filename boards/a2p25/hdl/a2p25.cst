@@ -140,3 +140,38 @@ IO_PORT "esp_data[7]" IO_TYPE=LVCMOS33 PULL_MODE=NONE;
 // FPGA LED (active high)
 IO_LOC  "led" B10;
 IO_PORT "led" IO_TYPE=LVCMOS33 PULL_MODE=NONE DRIVE=8;
+
+// ---- Audio IIR filter: pin its 28 MULT12X12 to the middle-right of the one DSP
+// row (DSP_R19[0..27] is every DSP block on the GW5A-25). Left free the filter
+// landed over the DP channel-management / D-PHY cluster at the left (clk100,
+// clk_tx knife-edges) and the HyperRAM PHY's IO-edge flops drifted; the filter's
+// own paths have a 3-cycle budget (a2p25.sdc), so its cells may sit anywhere.
+// 2026-11-18 experiment, ed's hypothesis (fixed DSP positions, not density).
+INS_LOC "i_audio_out/IIR_filter/q_h0_0_s0" DSP_R19[11][A];
+INS_LOC "i_audio_out/IIR_filter/q_l0_0_s0" DSP_R19[11][B];
+INS_LOC "i_audio_out/IIR_filter/q_h1_0_s0" DSP_R19[12][A];
+INS_LOC "i_audio_out/IIR_filter/q_l1_0_s0" DSP_R19[12][B];
+INS_LOC "i_audio_out/IIR_filter/iir_tap_0/r_0h_0_s0" DSP_R19[13][A];
+INS_LOC "i_audio_out/IIR_filter/iir_tap_0/r_0l_0_s0" DSP_R19[13][B];
+INS_LOC "i_audio_out/IIR_filter/iir_tap_0/r_1h_0_s0" DSP_R19[14][A];
+INS_LOC "i_audio_out/IIR_filter/iir_tap_0/r_1l_0_s0" DSP_R19[14][B];
+INS_LOC "i_audio_out/IIR_filter/iir_tap_0/r_2h_0_s0" DSP_R19[15][A];
+INS_LOC "i_audio_out/IIR_filter/iir_tap_0/r_2l_0_s0" DSP_R19[15][B];
+INS_LOC "i_audio_out/IIR_filter/iir_tap_0/r_3h_0_s0" DSP_R19[16][A];
+INS_LOC "i_audio_out/IIR_filter/iir_tap_0/r_3l_0_s0" DSP_R19[16][B];
+INS_LOC "i_audio_out/IIR_filter/iir_tap_1/r_0h_0_s0" DSP_R19[17][A];
+INS_LOC "i_audio_out/IIR_filter/iir_tap_1/r_0l_0_s0" DSP_R19[17][B];
+INS_LOC "i_audio_out/IIR_filter/iir_tap_1/r_1h_0_s0" DSP_R19[18][A];
+INS_LOC "i_audio_out/IIR_filter/iir_tap_1/r_1l_0_s0" DSP_R19[18][B];
+INS_LOC "i_audio_out/IIR_filter/iir_tap_1/r_2h_0_s0" DSP_R19[19][A];
+INS_LOC "i_audio_out/IIR_filter/iir_tap_1/r_2l_0_s0" DSP_R19[19][B];
+INS_LOC "i_audio_out/IIR_filter/iir_tap_1/r_3h_0_s0" DSP_R19[20][A];
+INS_LOC "i_audio_out/IIR_filter/iir_tap_1/r_3l_0_s0" DSP_R19[20][B];
+INS_LOC "i_audio_out/IIR_filter/iir_tap_2/r_0h_0_s0" DSP_R19[21][A];
+INS_LOC "i_audio_out/IIR_filter/iir_tap_2/r_0l_0_s0" DSP_R19[21][B];
+INS_LOC "i_audio_out/IIR_filter/iir_tap_2/r_1h_0_s0" DSP_R19[22][A];
+INS_LOC "i_audio_out/IIR_filter/iir_tap_2/r_1l_0_s0" DSP_R19[22][B];
+INS_LOC "i_audio_out/IIR_filter/iir_tap_2/r_2h_0_s0" DSP_R19[23][A];
+INS_LOC "i_audio_out/IIR_filter/iir_tap_2/r_2l_0_s0" DSP_R19[23][B];
+INS_LOC "i_audio_out/IIR_filter/iir_tap_2/r_3h_0_s0" DSP_R19[24][A];
+INS_LOC "i_audio_out/IIR_filter/iir_tap_2/r_3l_0_s0" DSP_R19[24][B];

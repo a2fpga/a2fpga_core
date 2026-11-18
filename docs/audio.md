@@ -87,6 +87,11 @@ Two things to know about it:
   CDC jump counter, 2026-11-18, while the RTL was bit-exact in simulation and the netlist
   wiring checked out). MULT12X12, the DOC's multiplier, is the one DSP cell with hardware
   proof here, so that is what the filter uses: 14 DSP blocks and about 1,350 LUT/ALU.
+  Every DSP block on the GW5A-25 is in one row (`DSP_R19[0..27]`); left unpinned, the filter's
+  cells scattered along it and its adder chains displaced the DP channel-management cluster and
+  the HyperRAM PHY's edge flops, costing timing on unrelated clocks. `a2p25.cst` pins the 28
+  cells to `DSP_R19[11..24]` (three clean rolls; the filter's own paths have a 3-cycle budget,
+  so its placement is free). A top that adds this filter on another GW5A should pin likewise.
 
 Where it runs: the Tang Nano tops filter on the 27 MHz pixel clock after the CDC. The a2p25
 filters on **`clk_logic` ahead of the CDC**, so the band-limiting sees the full-rate sources

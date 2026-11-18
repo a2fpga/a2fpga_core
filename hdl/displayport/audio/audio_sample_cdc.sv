@@ -31,6 +31,12 @@
 // No parity or reference copy needed, and no false positives while
 // T_src >= 2 T_dst.
 //
+// RAW_PATH = 0 (a2p25 since 2026-11-18, the mailbox proven and the logic budget
+// at 83 %): the raw flops, the mixed-capture detector and its two counters are
+// not built, the mailbox word is always the output (sel_safe is read back but
+// ignored), dbg[31:0] reads 0. The consumed-stream step counters stay: they
+// are the symptom counter that found the GW5A multiplier fault.
+//
 // dbg (all clk_dst, all saturating, cleared while `clear` is high):
 //   [15:0]  mixed captures on the raw path, any cycle
 //   [31:16] mixed captures that landed on a strobe = pops the raw path
@@ -43,7 +49,8 @@
 //
 module audio_sample_cdc #(
     parameter int W           = 16,
-    parameter int JUMP_THRESH = 2048
+    parameter int JUMP_THRESH = 2048,
+    parameter bit RAW_PATH    = 1       // 0: mailbox only, no raw path / mixed detector
 ) (
     input  logic          clk_src,
     input  logic [W-1:0]  l_src,
@@ -68,15 +75,23 @@ module audio_sample_cdc #(
     end
 
     // ---------------- raw path (the original double flop) ----------------
-    logic [WW-1:0] raw0 = '0, raw1 = '0, raw2 = '0;
-    always_ff @(posedge clk_dst) begin
-        raw0 <= {r_src, l_src};
-        raw1 <= raw0;
-        raw2 <= raw1;
-    end
-    // raw1 is the word the consumer sees this cycle; its neighbours are raw2
-    // (the capture before) and raw0 (the capture after).
-    wire mixed_w = (raw1 != raw2) && (raw1 != raw0);
+    logic [WW-1:0] raw1;
+    logic          mixed_w;
+    generate if (RAW_PATH) begin : g_raw
+        logic [WW-1:0] raw0 = '0, raw1_q = '0, raw2 = '0;
+        always_ff @(posedge clk_dst) begin
+            raw0   <= {r_src, l_src};
+            raw1_q <= raw0;
+            raw2   <= raw1_q;
+        end
+        // raw1 is the word the consumer sees this cycle; its neighbours are raw2
+        // (the capture before) and raw0 (the capture after).
+        assign raw1    = raw1_q;
+        assign mixed_w = (raw1_q != raw2) && (raw1_q != raw0);
+    end else begin : g_noraw
+        assign raw1    = '0;
+        assign mixed_w = 1'b0;
+    end endgenerate
 
     // ---------------- safe path (request / acknowledge mailbox) ----------------
     logic req_t = 1'b0;                      // clk_dst
@@ -105,7 +120,7 @@ module audio_sample_cdc #(
     end
 
     // ---------------- selection ----------------
-    wire [WW-1:0] sel_word_w = sel_s ? safe : raw1;
+    wire [WW-1:0] sel_word_w = (RAW_PATH && !sel_s) ? raw1 : safe;
     assign l_dst = sel_word_w[W-1:0];
     assign r_dst = sel_word_w[WW-1:W];
 
@@ -157,9 +172,9 @@ module audio_sample_cdc #(
             jump_cnt           <= '0;
             max_delta          <= '0;
         end else begin
-            if (mixed_r && mixed_cnt != 16'hFFFF)
+            if (RAW_PATH && mixed_r && mixed_cnt != 16'hFFFF)
                 mixed_cnt <= mixed_cnt + 16'd1;
-            if (mixed_r && strobe_r && mixed_consumed_cnt != 16'hFFFF)
+            if (RAW_PATH && mixed_r && strobe_r && mixed_consumed_cnt != 16'hFFFF)
                 mixed_consumed_cnt <= mixed_consumed_cnt + 16'd1;
             if (st[4]) begin
                 if (dmax_r > W'(JUMP_THRESH) && jump_cnt != 16'hFFFF)
