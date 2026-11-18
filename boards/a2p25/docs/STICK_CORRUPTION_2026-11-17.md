@@ -79,7 +79,9 @@ different interrupted allocation. The largest orphaned run, 197205–297429 (100
 3.3 GB), begins exactly where `DISK1.NIB`'s chain ends: a second extension of the same kind
 that never reached its directory update.
 
-So the junk write request is real and the sequence below stands. The two readings agree on
+The proposing session re-read its dump and withdrew the revised reading the same night; the
+record on main (commit `e450eef3`) now states both causes: a junk write lba from the request
+path **and** a failing stick. The sequence below stands. The two readings agree on
 what matters for the firmware: the directory sector's 128 bytes of Apple data are better
 explained by the stick's controller than by anything the firmware writes, the stick's size
 field can no longer be trusted, and a dying medium must be noticed. All of it is covered
@@ -106,8 +108,45 @@ same property. `esp32_ospi_connector.sv` exposes both combinationally (regs 0x48
 0x58–0x5B for the floppies, 0x27/0x28 and 0x2B/0x2C for the HDD units); no register latch
 is involved, and none is needed.
 
-`0x7EFF0B` with a `write pending` bit set is what the ESP32 reads when **the FPGA is not
-configured**. During `fpga_jtag_reload()` (and for the whole stream when the SRAM-erasing
+A second look at the request path, as briefed (connector regs 0x40–0x5F, `fpga_link`,
+`drive_ii.sv`, `hdd.sv`), for the three ways a wrong number could still arise on a live fabric:
+
+- **Half-updated or byte-mixed reads.** The connector and `drive_ii` both run on `clk_logic`
+  (`top.sv` wires the connector's `clk` to `clk_logic_w`; `drive_ii` clocks on
+  `a2bus_if.clk_logic`), so no clock-domain crossing sits between the track registers and the
+  register mux. The mux is live (`always @*` in `esp32_ospi_connector.sv`; the protocol
+  processor drives `reg_rdata` into the response slot and documents why it must not latch it).
+  Between the firmware's six transactions the lba can change only when `save_req_r` /
+  `load_req_r` / `req_track_r` change, and those move only on the firmware's own ack. The
+  low byte alone rules a live fabric out: 13 × t ≡ 0x0B (mod 256) has no solution for t < 64
+  (the first is t = 119), and no t < 64 gives 0xFF in byte 1.
+- **A request dropped under the firmware.** `system_reset_n` is `device_reset_n & a2_reset_n`:
+  the Apple's own /RES resets the track loader (`cur_track_r = TRACK_NONE`, `save_req_r`,
+  `load_req_r`, `dirty_r` cleared, `req_track_r = 0`) and `hdd.sv`'s service FSM. A reset
+  landing between the CMD read and the lba read leaves the firmware believing in a write whose
+  lba now reads 0 — the old dirty track's nibbles would land on track 0. A microsecond window,
+  but a real one, and firmware-side: `serve_drive()` / `serve_hdd()` now read CMD and lba a
+  second time after the first pass and serve only if both agree (`REQUEST CHANGED UNDER US -
+  RETRY` otherwise; the request, if still there, is served next poll). Write-up only, FPGA
+  side: that same reset also discards a dirty track that was never flushed (`dirty_r` clears),
+  so a Ctrl-Reset right after a save and before the next seek loses that track's writes; a
+  flush-on-reset or a reset-immune `dirty_r` is a `drive_ii.sv` decision for later.
+- **A stale request across a reload or power cycle.** The FPGA's request state resets with
+  the fabric (no request survives a reload), and the firmware caches nothing between polls,
+  so the next boot cannot "service yesterday's request". What a reload or power cycle *does*
+  do is leave the ESP32 polling a dark fabric: during `fpga_jtag_reload()`, during an
+  SRAM-erasing flash entry, and, per [ESP32_FW_A2P25.md](ESP32_FW_A2P25.md) ("with a Mac on
+  USB1 the board is back-powered through PTC F1: an IIgs power cycle does not reboot the
+  ESP32"), for as long as the IIgs is off with a Mac on USB1 if the FPGA's rail is not the
+  back-powered one. Whether the FPGA stays configured in that state is not verified here; the
+  device-ID probe makes it moot.
+- **The 0x7E byte.** Reg 0x7E is `REG_CORE_BUILD` (the build-stamp readback), but no path
+  puts a register *index* into a register *value*, and the lba is read from 0x48–0x4B. With
+  the lines undriven the ESP32 clocks in whatever the floating pins and its own crosstalk
+  give; 0x00 / 0x0B / 0xFF / 0x7E is that, not a sentinel.
+
+`0x7EFF0B` with a `write pending` bit set is therefore what the ESP32 reads when **the FPGA is
+not configured**. During `fpga_jtag_reload()` (and for the whole stream when the SRAM-erasing
 flash entry is used) the OSPI data lines are not driven by the connector; the ESP32 clocks
 in whatever the lines float to. The link layer does check the response frame (status byte
 OK bit and protocol version 1, `ospi_reg_read` in `a2fpga_ospi_link.c`), but after its one
@@ -178,7 +217,10 @@ which closes both routes.
   with the checked reads and, when a request is pending, require `fpga_link_probe()`. A
   request that fails any of this is **left pending** (no ack, no seek); the first failure
   logs `FPGA LINK INVALID - REQUEST IGNORED` to the OSD console, the first good request
-  afterwards logs `FPGA LINK BACK`.
+  afterwards logs `FPGA LINK BACK`. CMD and lba are then **read a second time** and must
+  agree with the first pass (an Apple /RES between the two reads resets the request on the
+  FPGA; see "Where the block number came from"); otherwise the poll is skipped with
+  `REQUEST CHANGED UNDER US - RETRY`.
 - Every seek is bounded by the image as mounted: `g_bytes[v]` (payload length, after any
   2IMG header) is recorded in `mount_drive()`, and the file position is computed in 64 bits.
   A floppy request must have `lba % 13 == 0`; a **write** must fit entirely
@@ -254,12 +296,12 @@ registers are sound.
 
 | | |
 |---|---|
-| Source | branch `claude/strange-heisenberg-ca020e` (two commits on `d13e70b7`: the request/bounds/quiesce fix, then the size check and media errors) |
-| Artifact | `build/a2fpga_esp32.ino.bin`, 1,129,536 B (sketch 1,129,387 B = 86 % of the 1.25 MB app slot, globals 125,456 B) |
-| sha256 | `fc9649c66791d4919cec3303b713979173db21879d7bede4ddd675bca6157471` |
-| Warnings | none in the changed files; the a2mega 1.0a3 variant (BOARD_REV=103) of the same sources also compiles |
+| Source | branch `claude/strange-heisenberg-ca020e` (three commits on `d13e70b7`: request/bounds/quiesce, size check + media errors, read-twice) |
+| Artifact | `build/a2fpga_esp32.ino.bin`, 1,129,888 B (sketch 1,129,743 B = 86 % of the 1.25 MB app slot, globals 125,456 B) |
+| sha256 | `38f0e5b46e645fcdc3452131616a8820a43d2f24353069d603eb335b7f1d83cb` |
+| Warnings | none in the changed files; the a2mega 1.0a3 variant (BOARD_REV=103) of the same sources compiled at the previous commit |
 | Flashed | **no** |
-| Superseded | `e9a7dee7…` (first commit only: no size check, no media-error handling) |
+| Superseded | `e9a7dee7…` (request/bounds/quiesce only), `fc9649c6…` (without the read-twice check) |
 
 Install per [ESP32_FW_A2P25.md](ESP32_FW_A2P25.md) ("Updating the firmware without the
 download-mode dance"): copy the `.bin` to a freshly formatted stick (or FTP it), FIRMWARE

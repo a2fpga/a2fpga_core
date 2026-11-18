@@ -838,6 +838,28 @@ static void serve_drive(int v)
         note_link_down("DISK II");
         return;
     }
+    /* The request is read as six separate OSPI transactions. On the FPGA the
+     * lba is combinational from the track registers and only moves on our
+     * ack — or on system_reset_n, which includes the Apple's /RES: a reset
+     * between the CMD read and the lba read drops the request (save_req_r,
+     * load_req_r, dirty_r clear; req_track_r = 0) and the lba we then read is
+     * 0 for a write we still believe in, i.e. the old dirty track's nibbles
+     * would land on track 0. Read the pair again and require agreement; a
+     * request that moved is left for the next poll. */
+    {
+        uint8_t  cmd2 = 0;
+        uint32_t lba2 = 0;
+        if (!fpga_reg_read_checked(A2REG_VOL_CMD(v), &cmd2) ||
+            !fpga_reg_read32_checked(A2REG_VOL_LBA0(v), &lba2)) {
+            note_link_down("DISK II");
+            return;
+        }
+        if (cmd2 != cmd || lba2 != lba) {
+            DLOGW("DISK II: D%d REQUEST CHANGED UNDER US (%02X/%lu -> %02X/%lu) - RETRY",
+                  v + 1, cmd, (unsigned long)lba, cmd2, (unsigned long)lba2);
+            return;
+        }
+    }
     uint32_t nblk  = (uint32_t)blk + 1u;
     uint32_t nbyte = nblk * SECTOR_BYTES;
     if (nbyte > MAX_TRACK_BYTES)
@@ -1025,6 +1047,20 @@ static void serve_hdd(int u)
         return;
     }
     uint32_t lba = (uint32_t)lba_l | ((uint32_t)lba_h << 8);
+    {   /* same read-twice rule as serve_drive (hdd.sv resets on /RES too) */
+        uint8_t req2 = 0, l2 = 0, h2 = 0;
+        if (!fpga_reg_read_checked(A2REG_HDD_REQ(u), &req2) ||
+            !fpga_reg_read_checked(A2REG_HDD_LBA_L(u), &l2) ||
+            !fpga_reg_read_checked(A2REG_HDD_LBA_H(u), &h2)) {
+            note_link_down("HDD");
+            return;
+        }
+        req2 &= (A2HDD_REQ_RD | A2HDD_REQ_WR);
+        if (req2 != req || l2 != lba_l || h2 != lba_h) {
+            DLOGW("HDD: UNIT %d REQUEST CHANGED UNDER US - RETRY", u + 1);
+            return;
+        }
+    }
     uint32_t addr = A2HDD_WINDOW(u);
     long     fpos = (long)g_hdd_base[u] + (long)lba * (long)SECTOR_BYTES;
 
