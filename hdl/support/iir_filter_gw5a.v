@@ -41,6 +41,13 @@
 //      y(37) * cy(24)   = ( y[36:10] * cy ) << 10  +  {1'b0, y[9:0]} * cy
 //          the low ten bits are unsigned, hence the zero sign bit.
 //
+//  Cost on the a2p25 (GowinSynthesis 1.9.12.03, 2026-11-18): 4 x MULT27X36 and
+//  3 x MULTALU27X18 (the taps' low piece with its add folded in) = 11 DSP
+//  blocks, 275 LUT, 547 FF with audio_out and the DC blockers; the `inp`
+//  register is absorbed into the input multiplier's pipeline register, so a
+//  multicycle exception on these paths must name the DSP DOUT pins as well as
+//  the fabric registers (boards/a2p25/hdl/a2p25.sdc).
+//
 //  Can be converted to 2-tap (coeff_x2 = 0, coeff_y2 = 0) or 1-tap (coeff_x1,2 = 0, coeff_y1,2 = 0)
 //
 module IIR_filter
