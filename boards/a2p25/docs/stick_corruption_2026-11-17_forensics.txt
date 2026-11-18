@@ -65,3 +65,16 @@ root directory (cluster 2), raw entries:
 clusters allocated in FAT0: 297216 (9288.0 MiB); reachable from surviving entries: 130135 (4066.7 MiB); orphaned: 167081 (5221.3 MiB)
 
 reading: DISK1.NIB entry size 0xFDFE1600 = 4,261,287,424 = lba 8,322,827 x 512, mtime/mdate 0x0579/0x0021 (1980-01-01, FatFS no-clock default) -> rewritten by the firmware's sync after a seek 4 GB past EOF on a garbage write lba; FAT1 chain 46692.. absent from FAT0 = interrupted extension; root-dir bytes 704-831 = Apple-side data, 832-1023 zero = the remaining entries gone.
+
+REVISED READING (same night, after the stick failed to reformat on a Mac and a Windows machine):
+the stick is failing hardware. Sequence that fits all of the above: (1) the stick returned a
+wrong page for the root-directory sector (bytes 704-831 of cluster 2 = a disk-image page
+mapped onto the directory's address by the failing flash controller) and a corrupt size in
+DISK1.NIB's entry; (2) the firmware mounted DISK1.NIB believing the 4 GB size, so a track
+request past the real 230 KB end was not refused, FatFS extended the file by 26 clusters
+(the FAT1-only chain 46692..46918, ~832 KB, i.e. a request near lba 2000, not 8 million),
+and the sync wrote the entry back with the corrupt size and the firmware's 1980 timestamp.
+The ESP32 restarts in the stream path are exonerated for the damage itself; one may have
+interrupted the small extension (FAT0/FAT1 disagreement). Firmware hardening still owed:
+sanity-check image sizes at mount, bound every lba against the checked size, report media
+errors, close images and unmount before esp_restart().
