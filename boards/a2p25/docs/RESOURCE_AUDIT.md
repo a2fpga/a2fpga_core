@@ -1220,6 +1220,13 @@ time, diff against the good copy: random blocks / boot blocks / FAT chain).
 Still-open suspects: the telnet `g` reload and `fpgastream` paths DO leave
 `disk_poll` running while the fabric reconfigures (garbage `HDD_REQ` reads
 → garbage block writes) — a quiesce is warranted there regardless.
+**Resolved 2026-11-17:** that suspect was the mechanism. A `fpga_stream.py`
+reload left `disk_poll` reading bus junk from the unconfigured FPGA; a junk
+write request with lba 0x7EFF0B made `disk.c` seek 4 GB past the end of
+`disk1.nib`, FatFS extended the file, and the stick's root directory went
+with it. Evidence, firmware fix (checked request reads, image-bounded seeks,
+quiesce + unmount before every reload/restart) and the unflashed build:
+[STICK_CORRUPTION_2026-11-17.md](STICK_CORRUPTION_2026-11-17.md).
 
 **Update 3 (ed, 2026-10-15 late): `a2p25_oldcache.bin` (`add13bfb…`,
 cache + whole-cache flush) pops too** (identified on the wire by its

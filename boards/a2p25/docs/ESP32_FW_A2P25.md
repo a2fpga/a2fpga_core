@@ -42,6 +42,14 @@ make BOARD_REV=225 PORT=/dev/cu.usbmodemXXXX upload
   `make BOARD_REV=225 compile` produced
   `build/a2fpga_esp32.ino.bin` with sha256 `d43c6b44…29504`. Nothing has
   been flashed yet.
+- **Build result (2026-11-17, disk-path hardening):** `make BOARD_REV=225
+  DP_TEST=0 compile` from a clean `build/` → `build/a2fpga_esp32.ino.bin`,
+  1,127,776 B (sketch 86 % of the 1.25 MB slot), sha256
+  `e9a7dee743c0d39d54490db958cb483df4ac7e3081c597ea18f41b2082673b0e`,
+  no warnings in the changed files, **not flashed**. What changed and why:
+  [STICK_CORRUPTION_2026-11-17.md](STICK_CORRUPTION_2026-11-17.md) (checked
+  request reads, image-bounded seeks, images closed and stick unmounted
+  before every restart and reload).
 
 ## Pin map (ESP32-S3-MINI-1 U5)
 

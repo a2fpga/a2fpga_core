@@ -43,6 +43,7 @@
 #include "osd_console.h"
 #include "menu.h"
 #include "board_pins.h"
+#include "disk.h"
 #if A2MEGA_HAS_USBC_PD
 #include "usbc_glue.h"
 #endif
@@ -640,9 +641,11 @@ static void session(int fd)
                  * re-roll / recovery; ~2-3 s dark). NEVER a consumer
                  * feature — bench tooling only (decision of record). */
                 tn_puts(fd, "fpga: reloading from flash\r\n");
+                disk_quiesce();          /* no serving off a dead fabric */
                 fpga_jtag_init_pins();
                 fpga_jtag_reload();
                 fpga_jtag_release_pins();
+                disk_request_remount();  /* re-register the disks in the new fabric */
                 continue;
             }
             if (esc_st == 0 && ch == 'z' && !menu_mode) {

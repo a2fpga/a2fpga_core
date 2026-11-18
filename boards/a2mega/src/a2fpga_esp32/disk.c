@@ -34,6 +34,8 @@
 
 #include "esp_log.h"
 #include "esp_timer.h"    /* esp_timer_get_time — us since boot */
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h" /* quiesce handshake with the disk task */
 
 #include "a2fpga_regs.h"
 #include "fpga_link.h"
@@ -102,6 +104,7 @@ static bool        g_writable[NDRV];
 static disk_fmt_t  g_fmt[NDRV];
 static gcr_order_t g_order[NDRV];                /* sector order for FMT_DSK    */
 static uint32_t    g_base[NDRV];                 /* payload offset (.2mg header)*/
+static uint32_t    g_bytes[NDRV];                /* payload length at mount     */
 static char        g_imgname[NDRV][PATH_MAX_LEN];/* resolved image path         */
 static uint8_t     g_trackbuf[MAX_TRACK_BYTES];  /* nibble track (FPGA window)  */
 static uint8_t     g_secbuf[DSK_TRACK_BYTES];    /* one sector track (16*256)   */
@@ -284,6 +287,7 @@ static void mount_drive(int v)
     g_fmt[v]      = FMT_NONE;
     g_order[v]    = GCR_ORDER_DOS;
     g_base[v]     = 0;
+    g_bytes[v]    = 0;
     fpga_reg_write(A2REG_VOL_READY(v), 0);
     fpga_reg_write(A2REG_VOL_MOUNTED(v), 0);
 
@@ -352,6 +356,7 @@ static void mount_drive(int v)
         g_fmt[v]      = fmt;
         g_order[v]    = order;
         g_base[v]     = base;
+        g_bytes[v]    = bytes;   /* every seek is bounded by this (see serve_drive) */
         strncpy(g_imgname[v], name, sizeof(g_imgname[v]) - 1);
         g_imgname[v][sizeof(g_imgname[v]) - 1] = '\0';
         opened = 1;
@@ -468,6 +473,63 @@ void disk_request_remount(void)
     g_remount_req = true;
 }
 
+/* ---- quiesce: stop serving and close every image --------------------------
+ * The FPGA is about to go away (JTAG flash entry, bitstream reload, RECONFIG)
+ * or the ESP32 is about to restart. Either way no file may be open and no
+ * request may be serviced until a remount is asked for: an unconfigured
+ * FPGA answers register reads with bus junk, and on 2026-11-17 a junk "write
+ * pending" with a junk lba made this task seek 4 GB past the end of a .nib
+ * and FatFS extended the file into the stick's directory (see
+ * boards/a2p25/docs/STICK_CORRUPTION_2026-11-17.md). The files belong to
+ * the disk task, so another task asks and waits for the close to happen in
+ * disk_poll(); the disk task itself (fpgaupdate/fwupdate run in it) closes
+ * inline. */
+static volatile bool g_quiesce_req = false;
+static volatile bool g_quiesced    = false;
+static TaskHandle_t  g_owner_task  = NULL;   /* the task that runs disk_poll */
+static void disk_unmount_all(void);
+
+static void do_quiesce(void)
+{
+    disk_unmount_all();
+    g_hide_console_at_us = 0;
+    g_quiesced = true;
+}
+
+void disk_quiesce(void)
+{
+    g_remount_req = false;              /* a pending remount must not reopen */
+    if (g_quiesced)
+        return;
+    if (g_owner_task == NULL || xTaskGetCurrentTaskHandle() == g_owner_task) {
+        do_quiesce();
+        return;
+    }
+    g_quiesce_req = true;
+    for (int i = 0; i < 250 && !g_quiesced; i++)   /* ~500 ms; a serve is ms */
+        vTaskDelay(pdMS_TO_TICKS(2));
+    if (!g_quiesced) {
+        /* The disk task is not running (suspended, or wedged on the link):
+         * close from here rather than restart with the files open. */
+        DLOGW("DISK: QUIESCE TIMEOUT - CLOSING IMAGES FROM %s",
+              pcTaskGetName(NULL));
+        g_quiesce_req = false;
+        do_quiesce();
+    }
+}
+
+bool disk_quiesced(void)
+{
+    return g_quiesced;
+}
+
+void disk_release_storage(void)
+{
+    disk_quiesce();
+    usbstorage_unmount();   /* no-op when the stick is not the volume */
+    DLOGI("DISK: IMAGES CLOSED, STORAGE RELEASED");
+}
+
 /* ---- Disk II (re)mount, logged to the shared OSD console -------------------
  * Mount status is appended to the boot console (osd_console). The console is
  * shown while we look for the image(s); on a successful mount we hide it so the
@@ -554,24 +616,115 @@ void disk_init(void)
     g_remount_req = true;
 }
 
+/* ---- request validation ---------------------------------------------------
+ * A request is served only when (a) every register of it came back in a
+ * valid OSPI frame AND the FPGA still answers its device ID — an
+ * unconfigured or reloading chip returns bus junk, which read as "write
+ * pending, lba 0x7EFF0B" on 2026-11-17 — and (b) the file position it
+ * implies lies inside the image as measured at mount. A request that fails
+ * (a) is left pending (the fabric is gone; a remount follows the reload).
+ * One that fails (b) is logged, never seeked, and acknowledged so the drive
+ * is not stuck (the protocol has no error channel; a bad read returns a
+ * zero track, like a short image). */
+static bool s_link_down_noted;
+
+static void note_link_down(const char *who)
+{
+    if (!s_link_down_noted) {
+        s_link_down_noted = true;
+        DLOGW("%s: FPGA LINK INVALID - REQUEST IGNORED", who);
+    }
+}
+
+/* Read a pending request's registers with frame checks and a device-ID
+ * probe. Returns false (and leaves the request pending) if the link is not
+ * trustworthy. */
+static bool read_request_ok(const char *who, uint8_t cmd_reg, uint8_t *cmd)
+{
+    if (!fpga_reg_read_checked(cmd_reg, cmd)) {
+        note_link_down(who);
+        return false;
+    }
+    if (*cmd == 0)
+        return true;              /* nothing pending: no probe needed */
+    if (!fpga_link_probe()) {    /* a real request comes from a live fabric */
+        note_link_down(who);
+        *cmd = 0;
+        return false;
+    }
+    if (s_link_down_noted) {
+        s_link_down_noted = false;
+        DLOGI("%s: FPGA LINK BACK", who);
+    }
+    return true;
+}
+
 static void serve_drive(int v)
 {
     if (!g_mounted[v])
         return;
 
-    uint8_t cmd = fpga_reg_read(A2REG_VOL_CMD(v));
+    uint8_t cmd = 0;
+    if (!read_request_ok("DISK II", A2REG_VOL_CMD(v), &cmd))
+        return;
     bool rd = (cmd & A2VOL_CMD_RD) != 0;
     bool wr = (cmd & A2VOL_CMD_WR) != 0;
     if (!rd && !wr)
         return;   /* nothing pending */
 
-    uint32_t lba   = fpga_reg_read32(A2REG_VOL_LBA0(v));
-    uint32_t nblk  = (uint32_t)fpga_reg_read(A2REG_VOL_BLK_CNT(v)) + 1u;
+    uint32_t lba = 0;
+    uint8_t  blk = 0;
+    if (!fpga_reg_read32_checked(A2REG_VOL_LBA0(v), &lba) ||
+        !fpga_reg_read_checked(A2REG_VOL_BLK_CNT(v), &blk)) {
+        note_link_down("DISK II");
+        return;
+    }
+    uint32_t nblk  = (uint32_t)blk + 1u;
     uint32_t nbyte = nblk * SECTOR_BYTES;
     if (nbyte > MAX_TRACK_BYTES)
         nbyte = MAX_TRACK_BYTES;
 
     uint32_t addr = A2DISK_WINDOW(v);
+
+    /* Bounds against the image as mounted. The FPGA asks for whole tracks
+     * (lba = track * 13, 13 blocks); the file position is computed in 64
+     * bits so a junk lba cannot wrap. A read may start inside the image and
+     * run short (a truncated .nib keeps its zero-fill behaviour); a write
+     * must fit entirely, so the file is never extended. */
+    const uint64_t img_end = (uint64_t)g_base[v] + g_bytes[v];
+    uint64_t fpos;
+    uint64_t flen;
+    if (g_fmt[v] == FMT_DSK) {
+        fpos = (uint64_t)g_base[v] + (uint64_t)(lba / 13u) * DSK_TRACK_BYTES;
+        flen = DSK_TRACK_BYTES;
+    } else {
+        fpos = (uint64_t)g_base[v] + (uint64_t)lba * SECTOR_BYTES;
+        flen = nbyte;
+    }
+    bool in_range = (lba % 13u == 0) &&
+                    (wr ? (fpos + flen <= img_end) : (fpos < img_end));
+    if (!in_range) {
+        static uint32_t s_last_bad[NDRV] = { 0xFFFFFFFFu, 0xFFFFFFFFu };
+        if (lba != s_last_bad[v]) {
+            s_last_bad[v] = lba;
+            DLOGW("DISK II: D%d %s LBA %lu OUT OF RANGE (IMG %lu B) - %s",
+                  v + 1, wr ? "WR" : "RD", (unsigned long)lba,
+                  (unsigned long)g_bytes[v],
+                  wr ? "NOT WRITTEN" : "ZERO TRACK");
+        }
+        if (!wr) {
+            memset(g_trackbuf, 0, nbyte);
+            for (uint32_t off = 0; off < nbyte; off += SECTOR_BYTES) {
+                uint32_t chunk = nbyte - off;
+                if (chunk > SECTOR_BYTES)
+                    chunk = SECTOR_BYTES;
+                fpga_mem_write(A2SPACE_DISK, addr + off,
+                               g_trackbuf + off, (uint16_t)chunk);
+            }
+        }
+        fpga_reg_write(A2REG_VOL_ACK(v), 1);   /* release the head */
+        return;
+    }
 
     /* Log disk activity to the console BUFFER on track change (a boot re-polling
      * the same track must not spam). Does NOT force the console visible — the
@@ -605,10 +758,9 @@ static void serve_drive(int v)
                  * write on the found-mask so a bad decode never corrupts the
                  * image. */
                 uint32_t track = lba / 13u;
-                long     fpos  = (long)g_base[v] +
-                                 (long)track * (long)DSK_TRACK_BYTES;
+                long     tpos  = (long)fpos;   /* in range: checked above */
                 size_t br = 0;
-                if (fseek(g_img[v], fpos, SEEK_SET) == 0)
+                if (fseek(g_img[v], tpos, SEEK_SET) == 0)
                     br = fread(g_secbuf, 1, DSK_TRACK_BYTES, g_img[v]);
                 if (br < DSK_TRACK_BYTES)
                     memset(g_secbuf + br, 0, DSK_TRACK_BYTES - br);
@@ -616,7 +768,7 @@ static void serve_drive(int v)
                                                      g_order[v], g_secbuf);
                 if (mask != 0) {
                     bool ok = false;
-                    if (fseek(g_img[v], fpos, SEEK_SET) == 0)
+                    if (fseek(g_img[v], tpos, SEEK_SET) == 0)
                         ok = fwrite(g_secbuf, 1, DSK_TRACK_BYTES, g_img[v]) ==
                              DSK_TRACK_BYTES;
                     if (!image_sync(g_img[v]))
@@ -630,9 +782,7 @@ static void serve_drive(int v)
                           v + 1, (unsigned long)track, (unsigned)mask);
             } else {
                 bool ok = false;
-                if (fseek(g_img[v], (long)g_base[v] +
-                                    (long)lba * (long)SECTOR_BYTES,
-                          SEEK_SET) == 0)
+                if (fseek(g_img[v], (long)fpos, SEEK_SET) == 0)   /* in range: checked above */
                     ok = fwrite(g_trackbuf, 1, nbyte, g_img[v]) == nbyte;
                 if (!image_sync(g_img[v]))
                     ok = false;
@@ -648,9 +798,7 @@ static void serve_drive(int v)
             /* Read this track's 16*256 file-order sectors and nibblize them
              * into the 6-and-2 GCR stream the window expects. */
             size_t br = 0;
-            if (fseek(g_img[v], (long)g_base[v] +
-                                (long)track * (long)DSK_TRACK_BYTES,
-                      SEEK_SET) == 0)
+            if (fseek(g_img[v], (long)fpos, SEEK_SET) == 0)   /* in range: checked above */
                 br = fread(g_secbuf, 1, DSK_TRACK_BYTES, g_img[v]);
             if (br < DSK_TRACK_BYTES)
                 memset(g_secbuf + br, 0, DSK_TRACK_BYTES - br);
@@ -659,9 +807,7 @@ static void serve_drive(int v)
         } else {
             /* .nib: raw nibble stream, streamed as-is. */
             size_t br = 0;
-            if (fseek(g_img[v], (long)g_base[v] +
-                                (long)lba * (long)SECTOR_BYTES,
-                      SEEK_SET) == 0)
+            if (fseek(g_img[v], (long)fpos, SEEK_SET) == 0)   /* in range: checked above */
                 br = fread(g_trackbuf, 1, nbyte, g_img[v]);
             if (br < nbyte) {
                 /* EOF: a zero-filled track has no sync/prologue nibbles, so RWTS
@@ -694,15 +840,35 @@ static void serve_hdd(int u)
     if (!g_hdd_mounted[u])
         return;
 
-    uint8_t req = fpga_reg_read(A2REG_HDD_REQ(u)) &
-                  (A2HDD_REQ_RD | A2HDD_REQ_WR);
+    uint8_t req = 0;
+    if (!read_request_ok("HDD", A2REG_HDD_REQ(u), &req))
+        return;
+    req &= (A2HDD_REQ_RD | A2HDD_REQ_WR);
     if (!req)
         return;   /* nothing pending */
 
-    uint32_t lba = (uint32_t)fpga_reg_read(A2REG_HDD_LBA_L(u)) |
-                   ((uint32_t)fpga_reg_read(A2REG_HDD_LBA_H(u)) << 8);
+    uint8_t lba_l = 0, lba_h = 0;
+    if (!fpga_reg_read_checked(A2REG_HDD_LBA_L(u), &lba_l) ||
+        !fpga_reg_read_checked(A2REG_HDD_LBA_H(u), &lba_h)) {
+        note_link_down("HDD");
+        return;
+    }
+    uint32_t lba = (uint32_t)lba_l | ((uint32_t)lba_h << 8);
     uint32_t addr = A2HDD_WINDOW(u);
     long     fpos = (long)g_hdd_base[u] + (long)lba * (long)SECTOR_BYTES;
+
+    /* Bounds: g_hdd_blocks is the payload length at mount (<= 65535), so a
+     * block inside it is inside the file; anything else is never seeked. */
+    if (lba >= g_hdd_blocks[u]) {
+        static uint32_t s_last_bad[NHDD] = { 0xFFFFFFFFu, 0xFFFFFFFFu };
+        if (lba != s_last_bad[u]) {
+            s_last_bad[u] = lba;
+            DLOGW("HDD: UNIT %d %s BLK %lu OUT OF RANGE (%lu BLK) - %s", u + 1,
+                  (req & A2HDD_REQ_WR) ? "WR" : "RD", (unsigned long)lba,
+                  (unsigned long)g_hdd_blocks[u],
+                  (req & A2HDD_REQ_WR) ? "NOT WRITTEN" : "ZERO BLOCK");
+        }
+    }
 
     if (req & A2HDD_REQ_WR) {
         /* write: block window -> image file */
@@ -761,6 +927,21 @@ static void apply_slot_map(void)
 
 void disk_poll(void)
 {
+    if (g_owner_task == NULL)
+        g_owner_task = xTaskGetCurrentTaskHandle();
+
+    /* Quiesce (see disk_quiesce): close everything and serve nothing until
+     * a remount is requested. */
+    if (g_quiesce_req) {
+        g_quiesce_req = false;
+        do_quiesce();
+    }
+    if (g_quiesced) {
+        if (!g_remount_req)
+            return;
+        g_quiesced = false;
+    }
+
     /* Storage backend change (USB stick attached/removed, reported by
      * usbhost): close the images first — they live on the volume about to
      * be swapped — then let the integrator swap /sdcard, then remount. */

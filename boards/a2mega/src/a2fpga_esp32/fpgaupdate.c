@@ -34,6 +34,7 @@
 #include "osd_console.h"
 #include "fpga_jtag.h"
 #include "fpgaupdate.h"
+#include "disk.h"
 
 static const char *TAG = "fpgaupd";
 
@@ -292,6 +293,13 @@ static void install(void)
     osd_log("FPGA: INSTALLING - SCREEN GOES DARK");
     vTaskDelay(pdMS_TO_TICKS(500));      /* let the warning page land */
 
+    /* Close the disk images and stop serving before the fabric dies: an
+     * unconfigured FPGA answers register reads with junk, which the disk
+     * task once served as a write (2026-11-17 stick corruption). We run in
+     * the disk task, so this closes inline; the bitstream file f stays open
+     * — it is read-only and closed before the reload. */
+    disk_quiesce();
+
     fpga_jtag_init_pins();
 
     /* Probe the live FPGA before killing it. */
@@ -301,6 +309,7 @@ static void install(void)
         ESP_LOGE(TAG, "live IDCODE %08lx != image's %08lx",
                  (unsigned long)id, (unsigned long)s_want_id);
         fail("JTAG IDCODE MISMATCH");
+        disk_request_remount();          /* nothing was touched: serve again */
         return;
     }
 
@@ -310,6 +319,7 @@ static void install(void)
         fclose(f);
         fpga_jtag_reload();              /* try to come back up */
         fail("COULD NOT ENTER FLASH MODE");
+        disk_request_remount();          /* re-register the disks if it did */
         return;
     }
 
@@ -361,6 +371,7 @@ static void install(void)
     fpga_jtag_reload();                  /* boot the new bitstream */
     vTaskDelay(pdMS_TO_TICKS(2000));
     s_state = FPU_IDLE;
+    disk_release_storage();              /* images closed above; detach the stick's FAT */
     esp_restart();                       /* clean full-system bring-up */
 }
 
