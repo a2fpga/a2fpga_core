@@ -1601,9 +1601,39 @@ GLU queue re-slice and the slot-table registers apply there too).
    Mockingboard << 4 (peak 12,240, +6 dB), 19-bit sum clamped to 16 bits so
    a full-scale DOC under a speaker click or a Mockingboard chord clips
    instead of wrapping. Bench `sim/audio_mix/run.sh` (reference model,
-   200k random cases + clamp corners) PASS. a2p25 rolls: (filled in below as
-   they land). Listening check owed: Nox Archaist level beside Arkanoid, and
-   Arkanoid itself unchanged (the DOC term is untouched).
+   200k random cases + clamp corners) PASS. a2p25 rolls of that source: 1
+   `4b761551` 0/0 worst +0.013 clk_pix (framebuffer `v_border_px_r ->
+   h_trigger_r`, a pre-existing cone, placement noise: rolls 2/3 put it at
+   +1.56 / +0.92), 2 `64ab7913` 0/0 worst +0.85 clk_tx, 3 `bb7b63fa` 0/0
+   worst +0.046 clk_mem. Roll 1 streamed (stamp 20261117204243).
+   **Measured (ed's HDMI capture of Nox Archaist at << 4,
+   `tests/sound/nox.m4a`): peak -31.3 dBFS, RMS -36.9 dBFS, waveform
+   unipolar (min -0.0015, max +0.027 FS), L and R identical.** "A bit louder,
+   still somewhat quiet." Reference through the same chain: the February
+   DOC captures `game_1/game_2.m4a` peak at +1.3 / -1.9 dBFS, so the chain
+   passes full scale. The DP packetizer places the 16-bit sample in the top
+   16 of the 24-bit sub-frame field (`{sl, 8'h00}`, channel status word
+   length 16-in-20): correct, no packing attenuation. The AY core (YM2149.sv,
+   MODE 0) indexes its 32-step logarithmic YM table with the full 5 bits and
+   reaches 255 at volume 15: correct. So the shortfall is the real chip's
+   log DAC: ordinary music at volumes 8-12 sits 8-20 dB under the channel
+   peak, and a real card's amplifier makes it up; emulators apply gain.
+   At << 4 Nox's actual peak was ~885 counts (10-bit AY sum ~55 of 765).
+   **Done (commit 29c62fa7): the Mockingboard gain is a live 2-bit select,
+   bits 3:2 of the audio control byte at window index 55 (shift = 3 + value;
+   write 0x01/0x05/0x09/0x0D for << 3/4/5/6 with the mailbox bit kept),
+   power-up 2 = << 5 (full chord 24,480, 75 % FS, clip-free; << 6 clips full
+   chords, the sum saturates). Index 55 reads back {0, gain, clear, sel}.**
+   The level is picked by ear on one bitstream; the chosen value becomes the
+   reset default. Note for the pick: at << 5 Nox should peak near -25 dBFS;
+   matching DOC titles' loudness (RMS -15 to -20 dBFS) would need ~+15 dB
+   over << 4, which is past << 6 and clips chords, so the honest ceiling is
+   << 5 or << 6 with saturation doing the rest.
+   **Next, after the level (ed): audio quality.** The a2n20 tops run
+   `audio_out` (the IIR filter stage) between the mix and the output; the
+   a2p25 feeds the mix straight into the DP crossing because the filter's
+   DSP multipliers did not port from GW2A to GW5A at the time. Ed hears the
+   difference on the Mac playback. Separate item.
    **Uthernet II, 2026-11-17, FAULT FOUND AND FIXED (retest on hardware
    pending the build).** IP65 DATE65 on 6f24025d, slot 3 on Your Card:
    `Initializing - No device found`. Bridge side healthy (ESP32 scratch 0x0C =
