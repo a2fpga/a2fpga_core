@@ -1564,6 +1564,28 @@ GLU queue re-slice and the slot-table registers apply there too).
    slots answer nothing, as before the pass.
 5. Uthernet II: DHCP through the ESP32 W5100 bridge; Mockingboard: a title
    with music (Ultima IV / Skyfox), both channels, IRQ-driven playback.
+   **Mockingboard DONE 2026-11-17 on 6f24025d (ed):** slot 4 set to Your Card,
+   Nox Archaist (both AY chips, 6522 timer-interrupt music driver): music
+   through the title sequence and in the game, no hang. That is the IRQ path
+   (card → LSF0108 open-drain → slot /IRQ) and both chips in one title.
+   Counters during play (Apple II video mode, DOC idle): consumed-mixed 0,
+   raw-path would-have-popped 1 since boot (swallowed by the mailbox), steps
+   > 2048 = 40 per 20 s with a 4096 maximum, which is what AY square-wave edges
+   look like to the step detector, not a fault.
+   **Observation (ed): the Mockingboard is quiet next to the other sources.**
+   Not a debloat artifact: the mix is the same expression on all three tops
+   (`core_audio = sg_audio + {ssp,3'b0} + {mb,3'b0} + {speaker,12'b0}`, 16-bit
+   signed). Peak levels: DOC `sg_audio` = full 16-bit scale; speaker toggles
+   4,096 (12.5 % FS); Mockingboard = three 8-bit channels summed into 10 bits,
+   then << 3, so 3 × 255 × 8 = 6,120 at full volume on all three voices (19 %
+   FS, −14.6 dB), and the AY's log volume table puts typical music well below
+   that. On the a2n20v2 the DOC term is zero, so the Mockingboard only competes
+   with the speaker and sounds normal; on a IIgs board the DOC titles set the
+   listener's reference at full scale. Lever if wanted: `{mb, 4'b0}` (peak
+   12,240, 37 % FS, +6 dB) in the shared mix expression; a DOC title and a
+   Mockingboard title do not play at once, and the sum still fits 16 bits
+   unless the DOC is near full scale at the same instant. Shared-HDL change
+   across all tops, so a decision for its own pass, not this merge.
 
 ### 8.5 What is still off, and what it would take
 
