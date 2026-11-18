@@ -1594,6 +1594,16 @@ GLU queue re-slice and the slot-table registers apply there too).
    Mockingboard title do not play at once, and the sum still fits 16 bits
    unless the DOC is near full scale at the same instant. Shared-HDL change
    across all tops, so a decision for its own pass, not this merge.
+   **Taken as its own pass 2026-11-17 evening (ed: "yes, next pass"), branch
+   `claude/mockingboard-level-6db` off the merged main, commit 8907a509:**
+   `hdl/sound/core_audio_mix.sv` replaces the inline add on the a2p25,
+   a2mega, a2n20v2 and a2n20v2-Enhanced tops (deprecated GS top untouched):
+   Mockingboard << 4 (peak 12,240, +6 dB), 19-bit sum clamped to 16 bits so
+   a full-scale DOC under a speaker click or a Mockingboard chord clips
+   instead of wrapping. Bench `sim/audio_mix/run.sh` (reference model,
+   200k random cases + clamp corners) PASS. a2p25 rolls: (filled in below as
+   they land). Listening check owed: Nox Archaist level beside Arkanoid, and
+   Arkanoid itself unchanged (the DOC term is untouched).
    **Uthernet II, 2026-11-17, FAULT FOUND AND FIXED (retest on hardware
    pending the build).** IP65 DATE65 on 6f24025d, slot 3 on Your Card:
    `Initializing - No device found`. Bridge side healthy (ESP32 scratch 0x0C =
