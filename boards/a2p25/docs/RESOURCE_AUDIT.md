@@ -1362,6 +1362,30 @@ GLU queue re-slice and the slot-table registers apply there too).
 
 1. SHR scroll / Marble Madness with 4 line banks: `VGC STALE 0`, line-not-ready
    and line-lag counters 0, no smear or tearing (B3).
+   **DONE 2026-11-17 on 6f24025d (ed playing, counters over telnet).** Marble
+   Madness is the one title in this record that has moved these counters (§7.14:
+   `VGC STALE` 6–32/frame and write-FIFO overflow before the DOC word cache,
+   0/2/0 after, on 8 banks); Arkanoid's static playfield never has. Six `z`
+   reads plus a 40-sample burst of regs 0x75/0x78/0x73 during play:
+
+   | Counter | Reading | Meaning |
+   |---|---|---|
+   | FB flags bit 0 (line-not-ready this frame) | 0 in 46 of 46 samples | the 4-bank line buffer never displayed a bank holding the wrong line while sampled |
+   | FB flags bit 1 (write-FIFO overflow) | 0 in 46 of 46 | renderer write port keeps up |
+   | `VGC HSYNC` missed | 0 in all | |
+   | `VGC STALE` (vgc_gen stale-word swaps/frame) | 0–2 typical (13 of 40 nonzero, max 2), one `z` read of 5 | same order as the October 0/2/0 on 8 banks; renderer-side read starvation, not the line buffer |
+   | `SHADOW DROPS`, `OVFL` | 0 | |
+   | DOC `LATE`, GLU drops, fetch drops | 0 / 0 / 0 (`MEMRD` 219–369/frame, `REQ` 7028) | DOC traffic high and clean |
+   | audio CDC consumed-mixed / max step | 0 / 6144 | mailbox default, no pops (ed) |
+
+   Caveat: this board's line-not-ready is a per-frame flash (bit 0 of reg 0x75
+   holds from the first event to the next vsync); the sticky total (`LINE NOT
+   READY TOTAL`) lives only on the compiled-out DebugOverlay. 46 clean random
+   samples bound the event rate well below one frame in ten; a rarer event would
+   need the sticky total routed to the debug window. `VGC STALE` is the §7.14
+   bandwidth symptom and is independent of LINE_BANKS; its 0–2 (one 5) matches
+   the post-cache baseline. **B3 (4 banks) holds under the hardest title on
+   record.**
 2. DOC listening set (POLY.SYNTH, Arkanoid): `GLU SOUND-RAM WRITE DROPS` 0,
    `LATE` ≈ 0 (B5a re-slice).
    **2026-11-16, first report (ed):** pops at specific places in Arkanoid on
