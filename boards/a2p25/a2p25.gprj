@@ -14,7 +14,7 @@
         <File path="../a2mega/hdl/esp32/osd_text_overlay.sv" type="file.verilog" enable="1"/>
         <File path="../a2mega/hdl/bus/apple_bus.sv" type="file.verilog" enable="1"/>
         <File path="../a2mega/hdl/memory/apple_memory.sv" type="file.verilog" enable="1"/>
-        <File path="../a2mega/hdl/sound/iir_filter.v" type="file.verilog" enable="1"/>
+        <File path="../../hdl/support/iir_filter_gw5a.v" type="file.verilog" enable="1"/>
         <File path="hdl/gowin/gowin_pll/gowin_pll.v" type="file.verilog" enable="1"/>
         <File path="hdl/gowin/gowin_pll/gowin_pll_mod.v" type="file.verilog" enable="1"/>
         <File path="hdl/gowin/pll_init.v" type="file.verilog" enable="1"/>

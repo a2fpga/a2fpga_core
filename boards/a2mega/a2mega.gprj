@@ -26,7 +26,7 @@
         <File path="hdl/gowin/60B/gowin_pll/pll_mDRP_intf.v" type="file.verilog" enable="1"/>
         <File path="hdl/gowin/60B/gowin_pll/pll_usb.v" type="file.verilog" enable="1"/>
         <File path="hdl/memory/apple_memory.sv" type="file.verilog" enable="1"/>
-        <File path="hdl/sound/iir_filter.v" type="file.verilog" enable="1"/>
+        <File path="../../hdl/support/iir_filter_gw5a.v" type="file.verilog" enable="1"/>
         <File path="hdl/top.sv" type="file.verilog" enable="1"/>
         <File path="../../hdl/displayport/audio/audio_sample_buffer.v" type="file.verilog" enable="1"/>
         <File path="../../hdl/displayport/audio/audio_sample_cdc.sv" type="file.verilog" enable="1"/>

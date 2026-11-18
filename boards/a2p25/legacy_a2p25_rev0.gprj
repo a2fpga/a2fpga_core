@@ -71,7 +71,7 @@
         <File path="hdl/gowin/gowin_pll/gowin_pll.v" type="file.verilog" enable="1"/>
         <File path="hdl/gowin/pll_init.v" type="file.verilog" enable="1"/>
         <File path="hdl/hdmi/serializer.sv" type="file.verilog" enable="1"/>
-        <File path="hdl/sound/iir_filter.v" type="file.verilog" enable="1"/>
+        <File path="../../hdl/support/iir_filter_gw5a.v" type="file.verilog" enable="1"/>
         <File path="hdl/top.sv" type="file.verilog" enable="1"/>
     </FileList>
 </Project>
