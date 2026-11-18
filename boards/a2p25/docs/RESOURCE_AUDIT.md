@@ -1555,6 +1555,12 @@ GLU queue re-slice and the slot-table registers apply there too).
    build), which is why the fix is the mailbox and not a lucky roll.
 3. OSD text and scanline-dim colours (565 quantisation, B4); the Apple picture
    itself is bit-exact.
+   **DONE 2026-11-17 (ed, on the fix build 360a7c36):** main menu over the
+   display: text crisp, inverse highlight bar and scanline dimming intact,
+   CORE stamp line reads the running build. On this board the menu draws on a
+   black field (pixel-domain overlay), so the 565 colour question is the
+   Apple picture itself, judged across Arkanoid, Marble Madness and Nox
+   Archaist today with nothing noticed.
 4. Slot assignments at power-up unchanged (slots.hex as register INITs, B7b).
    **DONE 2026-11-17 on 6f24025d:** read back through the connector (write
    reg 0x30 = slot, read 0x32 = card): slot 0/1 empty, 2 = SSC (3), 3 =
