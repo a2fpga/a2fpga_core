@@ -1,12 +1,16 @@
 # USB stick directory destroyed by a junk track write (2026-11-17)
 
-> Status (2026-11-17): root cause found in the ESP32 firmware's disk-serving path and fixed
-> in `boards/a2mega/src/a2fpga_esp32/` (shared by the a2p25 and the a2mega): request
-> registers are now validated against the OSPI frame status and a device-ID probe, every
-> seek is bounded by the image size measured at mount, and the restart and reload paths
-> close the images and unmount the stick first. Firmware built (BOARD_REV=225, DP_TEST=0),
-> **not flashed**; see "Build" at the end. The stick itself must be reformatted and the
-> images recopied: the damage to its directory is not repairable from the firmware side.
+> Status (2026-11-17, late): the ESP32 firmware's disk-serving path is hardened in
+> `boards/a2mega/src/a2fpga_esp32/` (shared by the a2p25 and the a2mega): request
+> registers are validated against the OSPI frame status and a device-ID probe, an image
+> whose size is not one a real image has is refused at mount, every seek is bounded by the
+> size measured at mount, write and sync failures are counted, shown on the OSD and followed
+> by a size re-check that turns the volume read-only, and the restart and reload paths close
+> the images and unmount the stick first. Firmware built (BOARD_REV=225, DP_TEST=0),
+> **not flashed**; see "Build" at the end. **The stick is also failing as hardware** (reads
+> fell from 16 MB/s to 100 KB/s the same evening; neither a Mac nor a Windows machine can
+> reformat it): retire it. The two readings of the evidence, and where they differ, are in
+> "Two readings" below.
 
 Companion to [HDD_BLOCK_WRITE_SHIFT.md](HDD_BLOCK_WRITE_SHIFT.md) (the 11-13 block-write
 defect in `hdd.sv`, unrelated to this one) and to the 10-15 notes in
@@ -48,6 +52,39 @@ parser on 11-17; every number below comes from that read.
 Arithmetic on the block number: 8,322,827 = 0x7EFF0B is **not a multiple of 13**
 (8,322,827 = 13 × 640,217 + 6). A `.nib` is served in 13-block tracks, so no track request
 has an lba that is not a multiple of 13.
+
+## Two readings
+
+The session that kept the forensic image (its dump is
+`boards/a2p25/docs/stick_corruption_2026-11-17_forensics.txt` on branch
+`claude/mockingboard-level-6db`, with the 2 GiB image's sha256
+`a63f903537570f1ca958e546ce5c226ec57abf473feb3e65f02ac892f04c74e2`) revised its reading
+after the stick failed to reformat: the failing flash controller served a wrong page for the
+root-directory sector (the 6502-looking bytes at 704–831) **and a corrupt size** in the
+`disk1.nib` entry; the firmware then mounted the file believing the 4 GB size, a track request
+past the real 230 KB end was not refused, FatFS extended the file by the 26 clusters of the
+FAT2-only chain 46692–46918 (a request near lba 2000), and the sync wrote the corrupt size back
+with the 1980 timestamp. In that reading the junk-lba write is moot and the restarts are
+exonerated.
+
+The cluster chain does not fit that reading. `DISK1.NIB`'s chain, read from FAT1 and again
+from FAT2, is 130,045 clusters long: the original 183–190, then one contiguous run
+67168–197204 of 130,037 clusters, ending in an end-of-chain mark. 130,045 × 32 KiB =
+4,261,314,560 B, the smallest chain that holds the recorded size of 4,261,287,424 B (the last
+cluster is 5,632 B in). A corrupt size field alone cannot create that chain; only FatFS
+extending the file to a seek position of 4 GB does, and the run starts right after the
+FSInfo "next free" hint (67161), which is where FatFS allocates from. The FAT2-only chain
+from 46692 is not part of `DISK1.NIB` at all (its chain never visits 46692), so it is a
+different interrupted allocation. The largest orphaned run, 197205–297429 (100,225 clusters,
+3.3 GB), begins exactly where `DISK1.NIB`'s chain ends: a second extension of the same kind
+that never reached its directory update.
+
+So the junk write request is real and the sequence below stands. The two readings agree on
+what matters for the firmware: the directory sector's 128 bytes of Apple data are better
+explained by the stick's controller than by anything the firmware writes, the stick's size
+field can no longer be trusted, and a dying medium must be noticed. All of it is covered
+by the fixes: a request from a dead fabric is refused, an implausible size is refused at
+mount, no seek leaves the mounted size, and write failures demote the volume to read-only.
 
 ## Where the block number came from
 
@@ -130,6 +167,13 @@ which closes both routes.
 
 `disk.c`:
 
+- **Mount-time size check.** A `.nib` must be 35 or 40 tracks × 6,656 B; a `.dsk`/`.do`/`.po`
+  floppy 35 or 40 tracks × 4,096 B; an HDD image a whole number of 512 B blocks between one
+  block and 32 MiB (`hdd.sv` addresses 16-bit block numbers, ProDOS stops at 65,535, so nothing
+  beyond is reachable); a `.2mg` header's offset and payload length must lie inside the file.
+  Anything else is refused with `SIZE <n> B IMPLAUSIBLE - NOT MOUNTED` on the OSD console
+  (the console is brought up so it is seen). With this, a corrupt directory size cannot widen
+  the bound below. The 4 GB `disk1.nib` entry would have been refused at the next boot.
 - `serve_drive()` / `serve_hdd()` read `VOL_CMD` / `HDD_REQ`, the lba and the block count
   with the checked reads and, when a request is pending, require `fpga_link_probe()`. A
   request that fails any of this is **left pending** (no ack, no seek); the first failure
@@ -146,6 +190,17 @@ which closes both routes.
   before when a write failed). The HDD path already had `lba < g_hdd_blocks[u]` on both
   reads and writes; it now logs the rejection the same way. Repeats of the same bad lba
   are logged once.
+- **Media errors.** A failed `fwrite`, `fflush` or `fsync` (and, on the `.dsk` path, a short
+  preload read of the track about to be merged) is counted per volume and reported on the OSD
+  console the first time and every 10th time after, with the errno and the running count. After
+  every failure the image is re-checked: `fstat()` of the open file (FatFS's in-memory size)
+  and `stat()` of the path (the directory entry, re-read from the medium) against the size
+  measured at mount. A size that moved, or a medium that cannot be read, turns the volume
+  **read-only**: `VOL_READONLY` / `HDD_CTL.READONLY` are written so the Apple sees a
+  write-protected disk from then on, the menu shows RO, and the OSD says
+  `<why> (<mount size> -> <seen>) - NOW READ-ONLY`. On the `.dsk` path a track whose preload
+  read failed is written only if every sector decoded (otherwise the missing sectors would be
+  written as zeros).
 - `disk_quiesce()`: close every image and serve nothing until `disk_request_remount()`.
   From the disk task (where `fpgaupdate` and `fwupdate` run) it closes inline; from
   another task it hands the close to `disk_poll()` and waits up to ~500 ms, then closes
@@ -181,9 +236,16 @@ registers are sound.
 - Telnet `g` with disks mounted: `FPGA LINK INVALID - REQUEST IGNORED` must **not** appear
   (the quiesce precedes the reload), the drives come back after the remount, and the
   images are unchanged.
-- Negative test of the bound without hardware: a `.nib` shorter than 35 tracks (or a
-  `.dsk` of 34 tracks) mounted in drive 1 and a `CATALOG` of track 34: the OSD logs
-  `OUT OF RANGE … ZERO TRACK`, the Apple reports an I/O error, and the file size is unchanged.
+- Size check: a `.nib` padded to 240,000 B (or any `.hdv` whose size is not a multiple of
+  512) is refused at mount with `SIZE … IMPLAUSIBLE - NOT MOUNTED` and the drive reports
+  `NOT FOUND`; the same file trimmed to 232,960 B mounts.
+- Bound: a 35-track `.dsk` mounted while the Apple seeks to track 35 or beyond (a copy
+  program with a 40-track option): the OSD logs `OUT OF RANGE … ZERO TRACK`, the Apple
+  reports an I/O error, and the file size is unchanged.
+- Media errors: pull the stick during a save (or use a stick known to fail writes): the OSD
+  shows `… WRITE FAILED (errno …) - 1 FAILURES`, then `DIRECTORY ENTRY UNREADABLE … - NOW
+  READ-ONLY`, the menu shows the drive RO, and the Apple's next write reports a
+  write-protected disk; the image's size and timestamps are unchanged afterwards.
 
 ## Build
 
@@ -192,11 +254,12 @@ registers are sound.
 
 | | |
 |---|---|
-| Source | this commit (branch `claude/strange-heisenberg-ca020e`, parent `d13e70b7`) |
-| Artifact | `build/a2fpga_esp32.ino.bin`, 1,127,776 B (sketch 1,127,635 B = 86 % of the 1.25 MB app slot, globals 125,424 B) |
-| sha256 | `e9a7dee743c0d39d54490db958cb483df4ac7e3081c597ea18f41b2082673b0e` |
-| Warnings | none in the changed files |
+| Source | branch `claude/strange-heisenberg-ca020e` (two commits on `d13e70b7`: the request/bounds/quiesce fix, then the size check and media errors) |
+| Artifact | `build/a2fpga_esp32.ino.bin`, 1,129,536 B (sketch 1,129,387 B = 86 % of the 1.25 MB app slot, globals 125,456 B) |
+| sha256 | `fc9649c66791d4919cec3303b713979173db21879d7bede4ddd675bca6157471` |
+| Warnings | none in the changed files; the a2mega 1.0a3 variant (BOARD_REV=103) of the same sources also compiles |
 | Flashed | **no** |
+| Superseded | `e9a7dee7…` (first commit only: no size check, no media-error handling) |
 
 Install per [ESP32_FW_A2P25.md](ESP32_FW_A2P25.md) ("Updating the firmware without the
 download-mode dance"): copy the `.bin` to a freshly formatted stick (or FTP it), FIRMWARE
