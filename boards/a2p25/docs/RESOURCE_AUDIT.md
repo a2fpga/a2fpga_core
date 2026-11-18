@@ -1586,6 +1586,33 @@ GLU queue re-slice and the slot-table registers apply there too).
    Mockingboard title do not play at once, and the sum still fits 16 bits
    unless the DOC is near full scale at the same instant. Shared-HDL change
    across all tops, so a decision for its own pass, not this merge.
+   **Uthernet II, 2026-11-17, FAULT FOUND AND FIXED (retest on hardware
+   pending the build).** IP65 DATE65 on 6f24025d, slot 3 on Your Card:
+   `Initializing - No device found`. Bridge side healthy (ESP32 scratch 0x0C =
+   0x80/0x90: defaults seeded and read back, heartbeat, doorbell never rung).
+   Monitor probe, slot 3 and a second copy of the card put in slot 7 through
+   regs 0x30/0x31/0x33: `C0B4:03` / `C0B4` -> 03 and `C0F4:03` / `C0F4` -> 03,
+   so the bus, M2SEL and the register front end are fine. Then IP65's actual
+   check (set address 0017, read the data port twice, expect the seeded RTR
+   07 D0): `C0B5:00 17`, `C0B7` -> **D0**, `C0B7` -> **55**, the bytes at
+   0018 and 001A. The data port returns the byte AFTER the one addressed.
+   Cause: `uthernet2.sv` auto-incremented the indirect address at
+   `data_in_strobe`, which the a2mega/a2p25 bus module raises ~280 ns into
+   phi0 (`DATA_COUNT`), while the 65816 latches read data at the end of phi0
+   ~220 ns later; the block-RAM read output had already moved to the next
+   address. The Enhanced's CPLD bridge registers read data before its strobe
+   (`IO_WRITE_DATA` precedes `IO_READ_DATA` in `hdl/bus/apple_bus.sv`), which
+   is why the identical shared file passed its bench and josh's ROM 01 IIgs.
+   Fix (commit d9ad8c2a): increment once per bus cycle that touched the data
+   port, when DEVICE SELECT falls, as a real W5100 does. Bench
+   `sim/uthernet2/run.sh`: strobe at tick 15 of 27 and a two-strobe variant,
+   IP65's probe, write path through both ports, doorbell, no-AI mode, MR
+   reset: PASS; the pre-fix card fails it with the hardware's exact bytes
+   (D0, 08). Sibling check: HDD (registered prefetch `buf_cpu_q_r`), F18A
+   (TMS9918 prefetch register) and the 6522 (flag-clearing reads do not alter
+   the byte read) do not have the pattern. The a2mega full core shares the
+   bus module and the card, so its Uthernet II had the same defect; the next
+   a2mega build picks the fix up.
 
 ### 8.5 What is still off, and what it would take
 
