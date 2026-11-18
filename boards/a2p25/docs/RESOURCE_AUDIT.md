@@ -1556,6 +1556,12 @@ GLU queue re-slice and the slot-table registers apply there too).
 3. OSD text and scanline-dim colours (565 quantisation, B4); the Apple picture
    itself is bit-exact.
 4. Slot assignments at power-up unchanged (slots.hex as register INITs, B7b).
+   **DONE 2026-11-17 on 6f24025d:** read back through the connector (write
+   reg 0x30 = slot, read 0x32 = card): slot 0/1 empty, 2 = SSC (3), 3 =
+   Uthernet II (5), 4 = Mockingboard (2), 5 = Disk II (4), 6 = HDD (6), 7 =
+   SuperSprite (1); reconfig 0. Identical to `hdl/slots/slots.hex`. The SSC
+   and SuperSprite IDs sit in slots whose cards are compiled out, so those
+   slots answer nothing, as before the pass.
 5. Uthernet II: DHCP through the ESP32 W5100 bridge; Mockingboard: a title
    with music (Ultima IV / Skyfox), both channels, IRQ-driven playback.
 
