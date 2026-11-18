@@ -157,7 +157,7 @@ the DOC telemetry; `z` reads it for you, or by hand in `:` mode:
 | 50, 51 | Audio CDC: mixed captures that landed on the 48 kHz strobe = **pops the raw path produced** (or would have, with the mailbox path selected), lo/hi |
 | 52, 53 | Audio CDC: consumed samples whose step vs the previous sample exceeded 2048 on L or R, on the path actually feeding the DP (symptom counter), lo/hi |
 | 54 | Audio CDC: largest consumed step, high byte |
-| 55 | Audio control read-back: bit 0 = mailbox path selected, bit 1 = counters held clear, bits 3:2 = Mockingboard gain select (shift 3 + value; power-up 2 = << 5). **Writing** this index sets the control byte (see below) |
+| 55 | Audio control read-back: bit 0 = mailbox path selected (a2p25 from the 2026-11-18 filter build: mailbox always, bit 0 read back but ignored, 48-51 read 0), bit 1 = counters held clear, bits 3:2 = Mockingboard gain select (shift 3 + value; power-up 2 = << 5). **Writing** this index sets the control byte (see below) |
 
 ```
 : spireg 0x5F 46

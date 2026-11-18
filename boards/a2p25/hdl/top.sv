@@ -1352,7 +1352,11 @@ module top #(
     wire [7:0]  aud_ctl_w;              // driven by esp32_ospi_connector below
     wire [63:0] aud_cdc_dbg_w;
     reg  [15:0] audio_sample_word [1:0];
-    audio_sample_cdc #(.W(16), .JUMP_THRESH(2048)) i_audio_cdc (
+    // RAW_PATH 0 since 2026-11-18: mailbox only (bit 0 of index 55 is read
+    // back but ignored, indices 48-51 read 0); the raw flops and the mixed
+    // detector went for logic budget once the filter stage took the core to
+    // 83 %. The consumed-stream jump / max-step counters (52-54) stay.
+    audio_sample_cdc #(.W(16), .JUMP_THRESH(2048), .RAW_PATH(0)) i_audio_cdc (
         .clk_src    (clk_logic_w),
         .l_src      (flt_audio_l_w),
         .r_src      (flt_audio_r_w),
