@@ -1661,6 +1661,56 @@ GLU queue re-slice and the slot-table registers apply there too).
    FTP + menu mirror into slot APP0: boot log `AUDIO: MOCKINGBOARD << 6
    (MAX)`, index 55 reads 0x0D; LEFT/RIGHT on the item gives HIGH/0x09 and
    MAX/0x0D with SETTINGS SAVED. Setting left at MAX.
+   **Audio output filter stage DONE 2026-11-18 (the a2n20 parity item above).**
+   `audio_out` (Sorgelig's 3-tap IIR low-pass + DC blocker) now runs on the a2p25
+   too, on `clk_logic` AHEAD of the CDC so the band-limiting sees the full-rate
+   sources (speaker bit, AY squares, DOC steps) and not the 48 kHz capture; the
+   DC blocker's strobe is 54 MHz / 1125 = 48.000 kHz, frequency-locked to the
+   pixel-domain strobe (one oscillator), so the mailbox carries one word per
+   period. `flt_rate` 5,594,066: audio_out's accumulator drops its increment on
+   the fire cycle, so the Tang Nano tops (27 MHz, 7,056,000) really filter at a
+   9.268 MHz ce, and that value reproduces it at 54 MHz; the bench shows both
+   configurations within 0.02 dB at every frequency (flat to 8 kHz, −0.7 dB at
+   10 kHz, −4.9 dB at 15 kHz, −11.2 dB at 20 kHz, −34 dB at 50 kHz). The IIR's
+   registers are all ce-enabled (ce at most every fifth clk54) and the SDC gives
+   them 3 cycles; two lessons there: a `*` in get_regs did not cross hierarchy
+   (the taps' `intreg` needed `*/*` patterns — first build was −0.050 ns
+   single-cycle on exactly those), and synthesis absorbs the ce-enabled `inp`
+   register into the DSP's AREG, so the exception must name the DSP DOUT pins.
+   **The GW5A multiplier finding (ed's 2025-09 "primitives" warning, confirmed):**
+   `hdl/support/iir_filter_gw5a.v` first wrote the 16×40 and 37×24 products as
+   signed ≤27×≤36 pieces; bit-exact against the GW2A file in Verilator (15 M
+   cycles, random coefficients, DC-blocker un-mute), netlist wiring checked by
+   hand (operands, constants, AREG+CE, MULTALU static mode = A·B, no sign pins on
+   Arora V — all operands signed), PnR clean — and on the card the consumed
+   stream swung full scale every sample: jump counter (window 52-53) saturating
+   in < 3 s and max step 0xFF at Mockingboard gain << 3, where the sources cannot
+   exceed ~3,000 counts (builds `8b449d4f`, `00c69b77` = MULT27X36 kept, MULTALU
+   replaced). With EVERY product a signed ≤12×≤12 piece (`fcde464a`, 33
+   MULT12X12 incl. the DOC's 5) the stream is clean: jumps 0, max step 0 at
+   << 3, 1,280 at << 6 with the game's music. So the MULT27X36 and MULTALU27X18
+   cells GowinSynthesis 1.9.12.03 infers compute wrong results on the GW5A-25;
+   MULT12X12 (the DOC's) is the only DSP cell this repo has hardware proof for.
+   Cost: 14 DSP blocks (16.5/28 with the DOC) and ≈ 1,350 LUT/ALU → logic 83 %
+   (was 75 %), vs 11 blocks / 275 LUT for the wrong version. Memory note
+   `gw5a-wide-dsp-multipliers-wrong`. GW5A projects (a2p25, legacy rev-0,
+   a2mega, a2mega_138B) list the shared file; the two board copies from 2025-09
+   (which also sign-extended the low ten bits of y) are gone.
+   **Rolls of the final source (commit 8122adb6 + sdc), 2026-11-18:** roll 1
+   `19dfb878` 0/0, worst +0.129 clk100 (+0.648 clk_pix, +1.097 clk_mem; streamed
+   first, counters clean: jumps 0 / max step 0 at << 3, 1,792 at << 6); roll 2
+   `536ec2a4` ONE violation, −0.192 clk_mem_90 (`i_hr_ctrl/u_phy/ck_en_n90 →
+   u_ck/D0`, the HyperRAM PHY's 90° clock-enable, 4.6 ns budget); roll 3
+   `3c863693` 0/0, worst +0.118 clk_pix (+0.198 clk100, +1.305 clk_mem) =
+   **BUILD OF RECORD** (the last build, so impl/pnr is one consistent set),
+   committed and on the card. The earlier all-12x12 probe `fcde464a` missed the same
+   clk_mem_90 path by −0.164, so 2 of 4 placements of this source fail there:
+   at 83 % logic that PHY path has become placement-sensitive, where the 27x36
+   version (79 %) closed 3 of 3 with +0.5 or better. Not the ≥ +0.5-on-every-
+   clock bar; honest status = closes 2 of 3, knife-edge on clk100/clk_pix. The
+   lever if ed wants it durable: trim ≈ 400-800 LUT — the audio CDC's RAW path
+   and its counters (≈ 390 LUT, the mailbox is proven) or the DebugOverlay
+   residue (B6) — or constrain the PHY ck_en flop next to its DDR cell.
    Listening pick NOT done:** the session stopped when the USB stick's FAT32 directory turned
    out destroyed (picker empty). Forensics from a 37 MB image of the stick:
    the firmware's Disk II track write-back (`disk.c`) received a garbage
