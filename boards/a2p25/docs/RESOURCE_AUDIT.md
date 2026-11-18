@@ -1649,8 +1649,18 @@ GLU queue re-slice and the slot-table registers apply there too).
    BUILD OF RECORD, on the card; roll 2 `13149278` worst +0.029 clk_tx /
    +0.033 clk_pix; roll 3 `658551cf` worst +0.67 clk_tx. Position: logic
    73 %, BSRAM 50/56, +28 LUT per mixer channel. Power-up Mockingboard gain
-   << 5; the ear pick (bits 3:2 of index 55 live) is owed and, if it lands
-   elsewhere, becomes a firmware boot setting rather than a new HDL default.
+   << 5. **Ear pick DONE 2026-11-18** (Nox Archaist title music vs the
+   startup beep, stepped live through index 55 = 0x05 / 0x09 / 0x0D): Ed:
+   << 5 and << 6 both sound fine, << 6 obviously louder, no audible clipping,
+   lean << 6; and the level should be a user setting. So the HDL default
+   stays << 5 and the ESP32 firmware owns the byte: SETTINGS → MOCKINGBOARD
+   VOLUME (LOW / MEDIUM / HIGH / MAX = << 3..6, default MAX), persisted in the
+   settings blob (`mb_volume`, one reserved byte, 0 = default), written at
+   boot with the slot map and live on change (`audio_ctl.c`). Firmware
+   `1c303a4c` (1,130,272 B, +384 B) built and INSTALLED 2026-11-18 08:14 via
+   FTP + menu mirror into slot APP0: boot log `AUDIO: MOCKINGBOARD << 6
+   (MAX)`, index 55 reads 0x0D; LEFT/RIGHT on the item gives HIGH/0x09 and
+   MAX/0x0D with SETTINGS SAVED. Setting left at MAX.
    Listening pick NOT done:** the session stopped when the USB stick's FAT32 directory turned
    out destroyed (picker empty). Forensics from a 37 MB image of the stick:
    the firmware's Disk II track write-back (`disk.c`) received a garbage

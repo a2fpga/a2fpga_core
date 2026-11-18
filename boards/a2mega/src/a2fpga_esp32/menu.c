@@ -36,6 +36,7 @@
 #include "menu.h"
 #include "usbhost.h"
 #include "fwupdate.h"
+#include "audio_ctl.h"
 
 static const char *TAG = "menu";
 
@@ -1071,8 +1072,28 @@ static void gs_socket_change(int id, int dir)
     screen_refresh();
 }
 
+static void mb_volume_change(int id, int dir)
+{
+    (void)id;
+    int sh = audio_mb_shift() + (dir < 0 ? -1 : 1);
+    if (sh < AUDIO_MB_SHIFT_MIN) sh = AUDIO_MB_SHIFT_MAX;
+    if (sh > AUDIO_MB_SHIFT_MAX) sh = AUDIO_MB_SHIFT_MIN;
+    settings()->mb_volume = (uint8_t)(sh - AUDIO_MB_SHIFT_MIN + 1);
+    save_settings_status();
+    audio_ctl_apply();                    /* live, no reload */
+    screen_refresh();
+}
+
 static void settings_build(void)
 {
+    {
+        menu_item_t *v = mi_add(MI_CHOICE, "MOCKINGBOARD VOLUME", audio_mb_label());
+        v->on_change = mb_volume_change;
+        char info[MENU_LABEL_LEN + 1];
+        snprintf(info, sizeof(info), "AY SUM << %d  (CORE POWER-UP << 5)", audio_mb_shift());
+        mi_add(MI_INFO, info, "");
+        mi_add(MI_INFO, "", "");
+    }
     {
         menu_item_t *g = mi_add(MI_TOGGLE, "GS SOCKET 65816",
                                 settings()->gs_socket_off ? "OFF" : "AUTO");
