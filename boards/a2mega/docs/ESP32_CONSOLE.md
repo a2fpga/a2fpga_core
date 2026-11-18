@@ -170,7 +170,7 @@ return 0 there); 48–55 from the audio-CDC instrument build of the same day.
 **Audio CDC control (a2p25; a2mega once its top is rebuilt from 2026-11-16 source): a WRITE to window index 55.** Bit 0 = 1 feeds
 the DP with the request/acknowledge mailbox word instead of the raw
 double-flop word; bit 1 = 1 holds counters 48–54 at zero (pulse it to clear).
-**Power-up value is 0x09 (mailbox, Mockingboard gain 2 = << 5) from the 2026-11-17 mixer build (0x01 on the 11-16 build);** bits 3:2 pick the Mockingboard level live: write 0x01 / 0x05 / 0x09 / 0x0D for << 3 / << 4 / << 5 / << 6 (keep bit 0 set). the
+**Power-up value is 0x09 (mailbox, Mockingboard gain 2 = << 5) from the 2026-11-17 mixer build (0x01 on the 11-16 build);** bits 3:2 pick the Mockingboard level live: write 0x01 / 0x05 / 0x09 / 0x0D for << 3 / << 4 / << 5 / << 6 (keep bit 0 set). **From the 2026-11-18 firmware the ESP32 owns this byte:** SETTINGS → MOCKINGBOARD VOLUME (LOW/MEDIUM/HIGH/MAX = << 3..6, default MAX = << 6 after the ear pick) is written at boot with the slot map and live on change (`audio_ctl.c`), so a hand write here lasts until the next ESP32 boot; a telnet `g` reload without an ESP32 restart leaves the core at its power-up << 5 until then. the
 instrument build of the same morning powered up on the raw path (0x00). Write 0
 only to reproduce the pops for measurement.
 Live, no reload. Not a scratch register: `w5100.c` rewrites scratch1–4

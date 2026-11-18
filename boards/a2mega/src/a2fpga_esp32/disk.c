@@ -46,6 +46,7 @@
 void a2_reset_hold_release(const char *why);
 #include "usbstorage.h"   /* USB stick as the image volume (backend switch) */
 #include "settings.h"     /* persisted image overrides + slot map */
+#include "audio_ctl.h"    /* Mockingboard level, applied with the slot map */
 #include "disk.h"
 #include "gs_socket.h"
 
@@ -1202,6 +1203,7 @@ void disk_poll(void)
                  * and the Apple II is still held in reset so the reconfig is
                  * race-free. */
                 apply_slot_map();
+                audio_ctl_apply();                   /* Mockingboard level (window index 55) */
 
                 gs_socket_a2_release();              /* 0x2E.0, via the socket module (keeps its assert bit) */
                 /* boards where the ESP32 owns the /RES pin (a2p25 IO33) */
