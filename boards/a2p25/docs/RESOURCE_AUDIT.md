@@ -1613,6 +1613,23 @@ GLU queue re-slice and the slot-table registers apply there too).
    the byte read) do not have the pattern. The a2mega full core shares the
    bus module and the card, so its Uthernet II had the same defect; the next
    a2mega build picks the fix up.
+   **Uthernet II DONE 2026-11-17 on the fix build (roll 1 fs `360a7c36`,
+   stamp 20261117201857, streamed, stamp read back).** DATE65 after a power
+   cycle: `Initializing - Ok`, `Obtaining IP address - Ok` (DHCP lease),
+   `Resolving pool.ntp.org - Ok` (DNS), `Getting time - Tue Nov 17 22:27:45
+   2026` (NTP), then `Setting time - Fail`. The last step is cc65's
+   `clock_settime` writing the ProDOS clock, no frames involved (checked in
+   `apps/date65.c`); the four network steps are the test and all passed
+   through the ESP32's WiFi MACRAW bridge with MAC NAT. Bridge status after
+   the run: 0x9F (MACRAW open, uplink mirrored, MAC valid, MAC filter on,
+   seeded), 11 frames Apple -> wire, 184 wire -> Apple (low byte), **142 RX
+   frames dropped for a full MACRAW ring** (low byte). That last number is the
+   August finding (a real W5100's tiny ring overflowing under LAN
+   broadcast/multicast) reproduced on WiFi; DHCP still succeeded here, so it
+   is recorded, not actioned. Durability rolls of the final source
+   (d9ad8c2a): roll 1 `360a7c36` 0/0 worst +0.17 ns clk_mem; roll 2
+   `0bec0499` 0/0 worst +0.195 ns clk_mem (clk100 +0.81, clk_pix +1.43,
+   clk_tx +1.74); roll 3 pending.
 
 ### 8.5 What is still off, and what it would take
 
