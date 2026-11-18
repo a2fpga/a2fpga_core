@@ -798,6 +798,7 @@ static void cmd_process(String cmd) {
         // Pulse the FPGA's RECONFIG_N (open-drain style: drive low, then
         // release to the R32 pull-up) — reload the bitstream from flash.
         Serial.println("reconfig: pulsing RECONFIG_N low 1 ms");
+        disk_quiesce();                   // no serving off a dead fabric
         pinMode(PIN_FPGA_RECONFIG_N, OUTPUT);
         digitalWrite(PIN_FPGA_RECONFIG_N, LOW);
         delay(1);
@@ -806,11 +807,13 @@ static void cmd_process(String cmd) {
         while (!digitalRead(PIN_FPGA_DONE) && millis() - t0 < 5000) delay(10);
         Serial.printf("reconfig: DONE=%d after %lu ms\n", digitalRead(PIN_FPGA_DONE),
                       (unsigned long)(millis() - t0));
+        disk_request_remount();           // re-register the disks in the new fabric
 #endif
 
     } else if (cmd == "restart") {
         Serial.println("Restarting...");
         Serial.flush();
+        disk_release_storage();           // close images, detach the stick's FAT
         delay(100);
         ESP.restart();
 
