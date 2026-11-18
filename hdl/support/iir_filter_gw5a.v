@@ -22,31 +22,35 @@
 //  differs is how the two wide products are written.
 //
 //  The GW2A file writes a 16 x 40 and a 37 x 24 signed multiply and leaves the
-//  mapping to synthesis. The Arora V DSP block offers MULT12X12 and MULT27X36
-//  only, both with signed operands (UG305 4.1), and GowinSynthesis did not turn
-//  those oversize products into a working filter on the GW5A (a2p25, 2025-09;
-//  a hand-split copy then lived under boards/a2mega and boards/a2p25 until
-//  2026-11-18 -- it sign-extended the low ten bits of y, a sub-LSB error, and
-//  was built but never carried by a shipped top). Here every product is a
-//  signed <= 27 x <= 36 piece, so each one is a single MULT27X36 (two DSP
-//  blocks) or folds away as a constant, and the result is bit-exact with the
-//  GW2A file -- proven by sim/audio_out/run.sh, which runs both under
-//  audio_out side by side:
+//  mapping to synthesis. On the Arora V (GW5A) that does not give a working
+//  filter, and neither does writing them as <= 27 x <= 36 pieces: the cells
+//  GowinSynthesis 1.9.12.03 infers for those, MULT27X36 and MULTALU27X18,
+//  compute wrong results on the GW5A-25 -- the netlist wiring checked out by
+//  hand (operands, constants, absorbed AREG with its CE, static ALU mode = A*B)
+//  and the RTL is bit-exact with the GW2A file in simulation, yet on the a2p25
+//  the output swung full scale every sample (2026-11-18, builds 8b449d4f and
+//  00c69b77, audio CDC jump counter saturating at Mockingboard gain << 3). The
+//  only DSP cell this repo has hardware proof for is MULT12X12 (the DOC's), so
+//  every product here is a signed <= 12 x <= 12 piece: operands are split into
+//  a signed top chunk and 11-bit unsigned chunks (a zero sign bit makes each a
+//  signed 12-bit operand), one MULT12X12 per pair, shifted and summed in fabric.
+//  Bit-exact with the GW2A file (sim/audio_out/run.sh), clean on the card
+//  (build fcde464a: jumps 0, max step 0 at << 3).
 //
-//      inp(16) * cx(40) = inp * s(cx[35:0])
-//                       + ( inp * s(cx[39:36]) + (cx[35] ? inp : 0) ) << 36
-//          s() reads the bits as signed; the carry term undoes the sign the
-//          low 36 bits were given. For the coefficients the tops pass
-//          (cx < 2^23) the whole second line is a constant zero.
-//      y(37) * cy(24)   = ( y[36:10] * cy ) << 10  +  {1'b0, y[9:0]} * cy
-//          the low ten bits are unsigned, hence the zero sign bit.
+//      inp(16) * cx(40):  inp = s(inp[15:11]) << 11 + u(inp[10:0])
+//                         cx  = s(cx[39:33]) << 33 + u(cx[32:22]) << 22
+//                             + u(cx[21:11]) << 11 + u(cx[10:0])      -> 8 products
+//      y(37) * cy(24):    y   = s(y[36:33]) << 33 + u(y[32:22]) << 22
+//                             + u(y[21:11]) << 11 + u(y[10:0])
+//                         cy  = s(cy[23:12]) << 12 + u(cy[11:1]) << 1 + cy[0]
+//                                                                    -> 8 products + y
 //
-//  Cost on the a2p25 (GowinSynthesis 1.9.12.03, 2026-11-18): 4 x MULT27X36 and
-//  3 x MULTALU27X18 (the taps' low piece with its add folded in) = 11 DSP
-//  blocks, 275 LUT, 547 FF with audio_out and the DC blockers; the `inp`
-//  register is absorbed into the input multiplier's pipeline register, so a
-//  multicycle exception on these paths must name the DSP DOUT pins as well as
-//  the fabric registers (boards/a2p25/hdl/a2p25.sdc).
+//  Cost on the a2p25 (2026-11-18): 28 MULT12X12 = 14 DSP blocks after constant
+//  folding (the tops' cx has no bits above 22), about 1,350 LUT/ALU and 550 FF
+//  with audio_out and the DC blockers, vs 11 blocks / 275 LUT for the wrong
+//  27x36 version. The `inp` register is absorbed into the input multipliers'
+//  pipeline registers, so a multicycle exception on these paths must name the
+//  DSP DOUT pins as well as the fabric registers (boards/a2p25/hdl/a2p25.sdc).
 //
 //  Can be converted to 2-tap (coeff_x2 = 0, coeff_y2 = 0) or 1-tap (coeff_x1,2 = 0, coeff_y1,2 = 0)
 //
@@ -94,14 +98,29 @@ wire [23:0] vcoeff_y2 = use_params ? pcoeff_y2[23:0] : cy2;
 
 reg [15:0] inp, inp_m;
 
-// inp * vcoeff in Arora V pieces (see the header): one MULT27X36 plus a
-// 16 x 4 correction that is a constant for the tops' coefficients.
-wire signed [26:0] mx_a = {{11{inp[15]}}, inp};
-wire signed [35:0] mx_b = vcoeff[35:0];
-wire signed [62:0] mx_p /* synthesis syn_use_dsp = 1 */ = mx_a * mx_b;
-wire signed [3:0]  mx_hi4 = vcoeff[39:36];
-wire signed [20:0] mx_hi  = $signed(inp) * mx_hi4 + (vcoeff[35] ? $signed({{5{inp[15]}}, inp}) : 21'sd0);
-wire        [59:0] inp_mul = mx_p[59:0] + {{3{mx_hi[20]}}, mx_hi, 36'd0};
+// inp * vcoeff in MULT12X12 pieces: inp = s(inp[15:11]) << 11 + u(inp[10:0]);
+// vcoeff = s(v[39:33]) << 33 + u(v[32:22]) << 22 + u(v[21:11]) << 11 + u(v[10:0]).
+// Every unsigned piece is 11 bits so it is a signed 12-bit operand with a zero
+// sign bit; 2 x 4 = 8 products, each a MULT12X12.
+wire signed [11:0] ia_h = {{7{inp[15]}}, inp[15:11]};
+wire signed [11:0] ia_l = {1'b0, inp[10:0]};
+wire signed [11:0] vb_3 = {{5{vcoeff[39]}}, vcoeff[39:33]};
+wire signed [11:0] vb_2 = {1'b0, vcoeff[32:22]};
+wire signed [11:0] vb_1 = {1'b0, vcoeff[21:11]};
+wire signed [11:0] vb_0 = {1'b0, vcoeff[10:0]};
+wire signed [23:0] q_h3 /* synthesis syn_use_dsp = 1 syn_keep = 1 */ = ia_h * vb_3;
+wire signed [23:0] q_h2 /* synthesis syn_use_dsp = 1 syn_keep = 1 */ = ia_h * vb_2;
+wire signed [23:0] q_h1 /* synthesis syn_use_dsp = 1 syn_keep = 1 */ = ia_h * vb_1;
+wire signed [23:0] q_h0 /* synthesis syn_use_dsp = 1 syn_keep = 1 */ = ia_h * vb_0;
+wire signed [23:0] q_l3 /* synthesis syn_use_dsp = 1 syn_keep = 1 */ = ia_l * vb_3;
+wire signed [23:0] q_l2 /* synthesis syn_use_dsp = 1 syn_keep = 1 */ = ia_l * vb_2;
+wire signed [23:0] q_l1 /* synthesis syn_use_dsp = 1 syn_keep = 1 */ = ia_l * vb_1;
+wire signed [23:0] q_l0 /* synthesis syn_use_dsp = 1 syn_keep = 1 */ = ia_l * vb_0;
+// weights: h*b3 << 44, h*b2 << 33, h*b1 << 22, h*b0 << 11, l*b3 << 33, l*b2 << 22, l*b1 << 11, l*b0 << 0
+wire signed [59:0] inp_mul_s =
+      ({{36{q_h3[23]}}, q_h3} <<< 44) + ({{36{q_h2[23]}}, q_h2} <<< 33) + ({{36{q_h1[23]}}, q_h1} <<< 22) + ({{36{q_h0[23]}}, q_h0} <<< 11)
+    + ({{36{q_l3[23]}}, q_l3} <<< 33) + ({{36{q_l2[23]}}, q_l2} <<< 22) + ({{36{q_l1[23]}}, q_l1} <<< 11) + {{36{q_l0[23]}}, q_l0};
+wire        [59:0] inp_mul = inp_mul_s;
 
 wire [39:0] x = inp_mul[59:20];
 wire [39:0] y = x + tap0;
@@ -202,15 +221,29 @@ module iir_filter_tap
 	output [39:0] tap
 );
 
-// y[36:0] * cy in Arora V pieces (see the header): the high 27 bits and the
-// low 10 bits (unsigned, hence the zero sign bit) each against the 24-bit
-// coefficient; two MULT27X36.
-wire signed [26:0] my_hi = y[36:10];
-wire signed [10:0] my_lo = {1'b0, y[9:0]};
-wire signed [23:0] my_c  = cy;
-wire signed [50:0] p_hi /* synthesis syn_use_dsp = 1 */ = my_hi * my_c;
-wire signed [34:0] p_lo /* synthesis syn_use_dsp = 1 */ = my_lo * my_c;
-wire        [60:0] y_mul = {p_hi, 10'd0} + {{26{p_lo[34]}}, p_lo};
+// y[36:0] * cy in MULT12X12 pieces: y = s(y[36:33]) << 33 + u(y[32:22]) << 22
+// + u(y[21:11]) << 11 + u(y[10:0]); cy = s(cy[23:12]) << 12 + u(cy[11:1]) << 1 + cy[0].
+// 4 x 2 = 8 products, each a MULT12X12, plus y shifted in when cy[0] is set.
+wire signed [11:0] ya_3 = {{8{y[36]}}, y[36:33]};
+wire signed [11:0] ya_2 = {1'b0, y[32:22]};
+wire signed [11:0] ya_1 = {1'b0, y[21:11]};
+wire signed [11:0] ya_0 = {1'b0, y[10:0]};
+wire signed [11:0] cb_h = cy[23:12];
+wire signed [11:0] cb_l = {1'b0, cy[11:1]};
+wire signed [23:0] r_3h /* synthesis syn_use_dsp = 1 syn_keep = 1 */ = ya_3 * cb_h;
+wire signed [23:0] r_2h /* synthesis syn_use_dsp = 1 syn_keep = 1 */ = ya_2 * cb_h;
+wire signed [23:0] r_1h /* synthesis syn_use_dsp = 1 syn_keep = 1 */ = ya_1 * cb_h;
+wire signed [23:0] r_0h /* synthesis syn_use_dsp = 1 syn_keep = 1 */ = ya_0 * cb_h;
+wire signed [23:0] r_3l /* synthesis syn_use_dsp = 1 syn_keep = 1 */ = ya_3 * cb_l;
+wire signed [23:0] r_2l /* synthesis syn_use_dsp = 1 syn_keep = 1 */ = ya_2 * cb_l;
+wire signed [23:0] r_1l /* synthesis syn_use_dsp = 1 syn_keep = 1 */ = ya_1 * cb_l;
+wire signed [23:0] r_0l /* synthesis syn_use_dsp = 1 syn_keep = 1 */ = ya_0 * cb_l;
+wire signed [60:0] y_s37 = {{24{y[36]}}, y[36:0]};
+wire signed [60:0] y_mul_s =
+      ({{37{r_3h[23]}}, r_3h} <<< 45) + ({{37{r_2h[23]}}, r_2h} <<< 34) + ({{37{r_1h[23]}}, r_1h} <<< 23) + ({{37{r_0h[23]}}, r_0h} <<< 12)
+    + ({{37{r_3l[23]}}, r_3l} <<< 34) + ({{37{r_2l[23]}}, r_2l} <<< 23) + ({{37{r_1l[23]}}, r_1l} <<< 12) + ({{37{r_0l[23]}}, r_0l} <<< 1)
+    + (cy[0] ? y_s37 : 61'sd0);
+wire        [60:0] y_mul = y_mul_s;
 
 function [39:0] x_mul;
 	input [39:0] x;

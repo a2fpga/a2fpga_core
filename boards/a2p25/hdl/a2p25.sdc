@@ -40,16 +40,18 @@ set_false_path -from [get_regs {hr_rst_sync_r_2*}] -to [get_regs {i_hr_ctrl/rst_
 # Audio output filter (hdl/support/iir_filter_gw5a.v under i_audio_out): every
 # register inside IIR_filter is enabled by the filter ce (or the 48 kHz sample
 # ce), and audio_out's accumulator fires that ce at most every fifth clk54
-# (54 MHz / 11.19 MHz), so a tap update -- two cascaded MULT27X36 products and
-# the 40-bit adds -- may take three cycles. Register-to-register inside the
+# (54 MHz / 11.19 MHz), so a tap update -- the input product, the 40-bit add,
+# the tap product (MULT12X12 pieces and their adder trees) -- may take three
+# cycles. Register-to-register inside the
 # filter only; the inputs (cl/cr in audio_out) and the outputs stay single-cycle.
 # Two things learned on the first builds (2026-11-18): a `*` in get_regs /
 # get_pins did not cross a hierarchy level here (SUG940 says it can), so the
 # taps' intreg one level down (iir_tap_N/intreg) get their own `*/*` patterns;
-# and synthesis folds the ce-enabled `inp` register into the input multiplier's
-# DSP pipeline register (mx_p_0_s), so that path launches from the DSP cell's
-# DOUT pins, not from a fabric register (single-cycle it is -0.05 .. +0.02 ns;
-# the covered DSP -> DSP -> intreg path arrives at 26 ns against 57 ns).
+# and synthesis folds the ce-enabled `inp` register into the input multipliers'
+# DSP pipeline registers (the q_* cells), so those paths launch from the DSP
+# cells' DOUT pins, not from a fabric register (single-cycle the 27x36 version
+# was -0.05 .. +0.02 ns; covered, a DSP -> DSP -> intreg path arrived at 26 ns
+# against 57 ns).
 # No bare -to pattern: it would also relax the single-cycle flt_ce -> CE paths.
 set_multicycle_path 3 -setup -from [get_regs {i_audio_out/IIR_filter/*}] -to [get_regs {i_audio_out/IIR_filter/*}]
 set_multicycle_path 2 -hold  -from [get_regs {i_audio_out/IIR_filter/*}] -to [get_regs {i_audio_out/IIR_filter/*}]
