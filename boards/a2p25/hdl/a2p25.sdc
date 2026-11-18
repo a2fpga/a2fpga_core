@@ -37,4 +37,12 @@ set_false_path -from [get_regs {i_hr_ctrl/dly_code*}]
 // is not real (it failed -0.148 ns on a placement roll, 8.9 ns of route).
 // Scoped to this crossing only; clk_hr-domain release paths stay timed.
 set_false_path -from [get_regs {hr_rst_sync_r_2*}] -to [get_regs {i_hr_ctrl/rst_n_m*}]
+# Audio output filter (hdl/support/iir_filter_gw5a.v under i_audio_out): every
+# register inside IIR_filter is enabled by the filter ce (or the 48 kHz sample
+# ce), and audio_out's accumulator fires that ce at most every fifth clk54
+# (54 MHz / 11.19 MHz), so a tap update -- two cascaded MULT27X36 products and
+# the 40-bit adds -- may take three cycles. Register-to-register inside the
+# filter only; the inputs (cl/cr in audio_out) and the outputs stay single-cycle.
+set_multicycle_path 3 -setup -from [get_regs {i_audio_out/IIR_filter/*}] -to [get_regs {i_audio_out/IIR_filter/*}]
+set_multicycle_path 2 -hold  -from [get_regs {i_audio_out/IIR_filter/*}] -to [get_regs {i_audio_out/IIR_filter/*}]
 set_clock_groups -asynchronous -group [get_clocks {clk50}] -group [get_clocks {clk100}] -group [get_clocks {clk54}] -group [get_clocks {clk_sym}] -group [get_clocks {clk_tx}] -group [get_clocks {clk_pix}] -group [get_clocks {clk_hr clk_mem clk_mem_90}]
