@@ -1643,7 +1643,10 @@ GLU queue re-slice and the slot-table registers apply there too).
    check above**, committed with its timing report and resource snapshot;
    the placement/pin/power side files in `impl/pnr` are roll 3's (regenerated
    per build, identical in content for pins and power). Position: logic 73 %,
-   BSRAM 50/56.
+   BSRAM 50/56. Constraint note at the merge: main's `a2p25.sdc` carries one
+   false path the branch never had (`hr_rst_sync_r_2 -> i_hr_ctrl/rst_n_m`,
+   added by c34f7765); the build of record was timed WITHOUT it, the stricter
+   case, so it holds under main's constraints too.
 
    **Gate status 2026-11-17 evening: items 1-5 all done on hardware.** The
    branch is ready to merge.
