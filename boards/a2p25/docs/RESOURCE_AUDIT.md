@@ -1634,6 +1634,22 @@ GLU queue re-slice and the slot-table registers apply there too).
    a2p25 feeds the mix straight into the DP crossing because the filter's
    DSP multipliers did not port from GW2A to GW5A at the time. Ed hears the
    difference on the Mac playback. Separate item.
+   **Gain-select build (commit 29c62fa7): roll 1 `aca89216` (stamp
+   20261117210112) 0/0 worst +0.56 clk100, on the card; listening pick NOT
+   done:** the session stopped when the USB stick's FAT32 directory turned
+   out destroyed (picker empty). Forensics from a 37 MB image of the stick:
+   the firmware's Disk II track write-back (`disk.c`) received a garbage
+   block number (lba 8,322,827 on a 230 KB .nib), seeked 4 GB past the end,
+   and FatFS extended `disk1.nib` (entry rewritten: size 0xFDFE1600,
+   1980-01-01 timestamp); the allocation was interrupted (FAT copy 2 holds a
+   chain copy 1 lacks), 5.2 GB of clusters are orphaned, and the root
+   directory's last 320 bytes hold Apple-side data + zeros (the other
+   entries are gone). A restart alone cannot produce field-precise damage.
+   Not an HDL defect of this pass; firmware defect = no bounds check on
+   lbas + restart with images open. Task card proposed (`disk-write-bounds`).
+   An earlier stream this evening also went out with a stale file (a save
+   directory collided with yesterday's read-only `rolls/g1`), caught by the
+   stamp read-back: name every roll directory uniquely.
    **Uthernet II, 2026-11-17, FAULT FOUND AND FIXED (retest on hardware
    pending the build).** IP65 DATE65 on 6f24025d, slot 3 on Your Card:
    `Initializing - No device found`. Bridge side healthy (ESP32 scratch 0x0C =
