@@ -77,3 +77,4 @@ boards/a2mega/captures/
 
 # Verilator build output of the simulation benches
 sim/**/obj_dir/
+sim/**/*_run.log

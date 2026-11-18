@@ -93,6 +93,20 @@ module Uthernet2 #(
     wire wr_access   = access && !a2bus_if.rw_n;
     wire data_access = access && (subreg == SUB_DATA);
 
+    // End of the card's bus cycle: DEVICE SELECT (phi0-qualified) falls. The
+    // indirect address auto-increments HERE, not at the data strobe. On the
+    // a2p25/a2mega bus the strobe lands ~280 ns into phi0 while the 65816
+    // latches read data at the end of phi0, ~220 ns later; incrementing at the
+    // strobe swung the block-RAM output to the NEXT byte before the CPU read
+    // it (IP65 read RTR as D0 08 instead of 07 D0 -> "No device found",
+    // a2p25 2026-11-17). The Enhanced's CPLD bridge registers read data before
+    // its strobe, which is why the same code passed there. A real W5100
+    // increments after the access completes; so does this now, once per bus
+    // cycle however many strobes the bus module raises.
+    reg  dev_sel_q = 1'b0;
+    reg  data_seen_r = 1'b0;
+    wire cycle_end = dev_sel_q && !card_dev_sel;
+
     // -------------------------------------------------------
     // Indirect-interface registers
     // -------------------------------------------------------
@@ -196,9 +210,14 @@ module Uthernet2 #(
             endcase
         end
 
-        // Auto-increment after any data-port access (read or write) when MR.AI set
-        if (data_access && (mode_r & W5100_MR_AI))
-            data_addr_r <= addr_next;
+        // Auto-increment once per bus cycle that touched the data port, at
+        // the end of that cycle (see cycle_end above), when MR.AI is set
+        dev_sel_q <= card_dev_sel;
+        if (data_access) data_seen_r <= 1'b1;
+        if (cycle_end && data_seen_r) begin
+            data_seen_r <= 1'b0;
+            if (mode_r & W5100_MR_AI) data_addr_r <= addr_next;
+        end
     end
 
     // -------------------------------------------------------
