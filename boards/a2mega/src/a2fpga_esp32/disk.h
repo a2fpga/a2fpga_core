@@ -65,8 +65,12 @@ bool disk_remount_pending(void);
  * directory (path relative to the SD root, "" = root); poll returns -1 while
  * pending, else the number of entries filled. Directories are always included
  * (is_dir set); files are filtered by exts, a NULL-terminated list of
- * extensions (no dot, case-insensitive). Directories sort before files. */
-#define DISK_LIST_MAX 24
+ * extensions (no dot, case-insensitive). Directories sort before files and
+ * each group is alphabetized (FAT hands back creation order). A directory
+ * with more than DISK_LIST_MAX matching entries is cut at the cap; the
+ * picker says so. The ESP32-S3 has the RAM for a large cap (the BL616 build
+ * stays at 64). */
+#define DISK_LIST_MAX 128
 typedef struct {
     char name[64];   /* entry name within the directory (LFN; longer skipped) */
     bool is_dir;

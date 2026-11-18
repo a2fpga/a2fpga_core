@@ -1170,7 +1170,9 @@ so it was abandoned rather than debugged; the current build was reinstalled
 
 - The UPDATE FPGA picker lists only the first 24 directory entries; a stick
   with many test images silently hides the rest. Twelve superseded images
-  were deleted (ed's instruction).
+  were deleted (ed's instruction). *Fixed 2026-11-14: the shared ESP32
+  firmware now lists up to 128 entries per directory, alphabetized, and the
+  picker shows a "LIST FULL" row when a folder exceeds that.*
 - `.fs` → `.bin` is a straight pack of the bit lines (comments stripped);
   verified byte-identical against the IDE's `.bin` for the current build, so
   any committed `.fs` can be reinstalled over WiFi.
