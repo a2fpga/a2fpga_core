@@ -45,6 +45,7 @@
 #include "osd_console.h"
 #include "usbhost.h"
 #include "usbstorage.h"
+#include "ble_hid.h"
 #include "fwupdate.h"
 #include "settings.h"
 #include "wedge_watch.h"
@@ -644,6 +645,13 @@ static void cmd_process(String cmd) {
             free(buf);
         }
 
+    } else if (cmd == "ble" || cmd.startsWith("ble ")) {
+        String toks[4];
+        int nt = split_ws(cmd, toks, 4);
+        const char *argv[4];
+        for (int i = 0; i < nt; i++) argv[i] = toks[i].c_str();
+        ble_hid_console(nt, argv, [](void *, const char *line) { Serial.println(line); }, nullptr);
+
     } else if (cmd == "meminfo") {
         size_t psram_total = heap_caps_get_total_size(MALLOC_CAP_SPIRAM);
         size_t psram_free = heap_caps_get_free_size(MALLOC_CAP_SPIRAM);
@@ -835,6 +843,7 @@ static void cmd_process(String cmd) {
         Serial.println("  pins      - Show pin assignments");
         Serial.println("  wifi [<ssid> [psk]] - Show/set WiFi credentials (NVS)");
         Serial.println("  net       - Show WiFi/IP status");
+        Serial.println("  ble [pair|cancel|list|connect <n>|forget] - Bluetooth HID device");
 #if A2MEGA_HAS_USBC_PD
         Serial.println("  pd        - Show USB-C PD / DP Alt Mode status");
         Serial.println("  i2cscan   - List devices on the DP I2C bus");
@@ -1149,6 +1158,9 @@ static void start_subsystems() {
     // USB host on the module's USB-C (gamepads, HID remotes): device-first
     // role decision, then the OTG host stack (usbhost.cpp)
     usbhost_start();
+    // BLE HID host (ble_hid.c): Bluetooth remote / keyboard / gamepad on the
+    // module's own radio, no USB channel. Reconnects the paired device.
+    ble_hid_start();
 
     disk_init();
     menu_init();

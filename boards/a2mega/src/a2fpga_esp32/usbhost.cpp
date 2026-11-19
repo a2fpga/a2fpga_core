@@ -22,6 +22,7 @@
 #include "board_pins.h"
 #include "usbhost.h"
 #include "a2fpga_regs.h"
+#include "hid_map.h"
 
 #if A2MEGA_HAS_OSPI_LINK
 
@@ -105,99 +106,9 @@ static const uint8_t k_xbox_ep2[4][3] = {
 };
 
 /* ---- HID keyboard / consumer (usbh_hidinput.c) ---------------------------- */
-/* Keyboard usages -> menu buttons. The ESP32 menu's OK is A and back is B
- * (BTN_OK / BTN_BACK in menu.c); SELECT = Apple II <-> MCU; Y = menu <->
- * console. Arrows/OK/Menu arrive as keyboard usages on the known remotes. */
-static uint16_t map_kbd_usage(uint8_t u)
-{
-    switch (u) {
-    case 0x52: return A2PAD_U;        /* Up arrow */
-    case 0x51: return A2PAD_D;        /* Down arrow */
-    case 0x50: return A2PAD_L;        /* Left arrow */
-    case 0x4F: return A2PAD_R;        /* Right arrow */
-    case 0x28:                        /* Enter (remote OK button) */
-    case 0x58: return A2PAD_A;        /* Keypad Enter        -> OK */
-    case 0x29:                        /* Esc */
-    case 0x2A: return A2PAD_B;        /* Backspace           -> back */
-    case 0x65:                        /* Application ("menu" key) */
-    case 0x2B: return A2PAD_SELECT;   /* Tab      -> Apple II <-> MCU */
-    case 0x1C: return A2PAD_Y;        /* Y        -> menu <-> console */
-    default:   return 0;
-    }
-}
-static uint16_t map_consumer_usage(uint16_t u)
-{
-    switch (u) {
-    case 0x223:                       /* AC Home (remote Home button) */
-    case 0x040: return A2PAD_SELECT;  /* Menu     -> Apple II <-> MCU */
-    case 0x224: return A2PAD_B;       /* AC Back             -> back */
-    case 0x041: return A2PAD_A;       /* Menu Pick           -> OK */
-    case 0x042: return A2PAD_U;       /* Menu Up */
-    case 0x043: return A2PAD_D;       /* Menu Down */
-    case 0x044: return A2PAD_L;       /* Menu Left */
-    case 0x045: return A2PAD_R;       /* Menu Right */
-    default:    return 0;             /* volume keys: no menu meaning here */
-    }
-}
-
-/* consumer-page input report layout, from the report descriptor */
-struct consumer_layout {
-    bool     valid;
-    bool     is_array;     /* array of usage codes vs 1-bit-per-usage bitmap */
-    uint8_t  rid;          /* report ID (0 = none) */
-    uint8_t  field_bits;   /* array: bits per entry (8/16); bitmap: 1 */
-    uint8_t  field_count;  /* array: entries; bitmap: bits */
-    uint16_t usages[16];   /* bitmap only: usage per bit position */
-    uint8_t  nusages;
-};
-
-/* Minimal HID report-descriptor parse: for each Input item on the Consumer
- * page record the report ID, entry size/count and (for bitmaps) the per-bit
- * usage list. Prefers a usage-code ARRAY over a bitmap (usbh_hidinput.c). */
-static void parse_consumer_layout(const uint8_t *d, uint32_t len, consumer_layout *out)
-{
-    uint16_t usage_page = 0, rcount = 0, rsize = 0, usage_min = 0;
-    uint8_t  rid = 0;
-    uint16_t usages[16]; uint8_t nus = 0; bool have_min = false;
-    memset(out, 0, sizeof(*out));
-    uint32_t i = 0;
-    while (i < len) {
-        uint8_t  b   = d[i++];
-        uint8_t  sz  = b & 3; if (sz == 3) sz = 4;
-        uint8_t  typ = (b >> 2) & 3, tag = b >> 4;
-        uint32_t val = 0;
-        for (uint8_t k = 0; k < sz && i < len; k++) val |= (uint32_t)d[i++] << (8 * k);
-        if (typ == 1) {              /* global */
-            switch (tag) {
-            case 0: usage_page = (uint16_t)val; break;
-            case 7: rsize = (uint16_t)val; break;
-            case 9: rcount = (uint16_t)val; break;
-            case 8: rid = (uint8_t)val; break;
-            }
-        } else if (typ == 2) {       /* local */
-            switch (tag) {
-            case 0: if (nus < 16) usages[nus++] = (uint16_t)val; break;
-            case 1: usage_min = (uint16_t)val; have_min = true; break;
-            case 2:                  /* usage max: bitmap declared as a range */
-                if (have_min) { for (uint16_t u = 0; u < 16 && usage_min + u <= val; u++) if (nus < 16) usages[nus++] = usage_min + u; }
-                break;
-            }
-        } else if (typ == 0) {       /* main */
-            if (tag == 8 && usage_page == 0x0C && !out->valid) {   /* Input, Consumer page */
-                bool is_array = (val & 0x02) == 0;                   /* bit1: 0 = array, 1 = variable */
-                if (is_array && (rsize == 8 || rsize == 16)) {
-                    out->valid = true; out->is_array = true; out->rid = rid;
-                    out->field_bits = (uint8_t)rsize; out->field_count = (uint8_t)rcount;
-                } else if (!is_array && rsize == 1 && nus > 0) {
-                    out->valid = true; out->is_array = false; out->rid = rid;
-                    out->field_bits = 1; out->field_count = (uint8_t)rcount;
-                    out->nusages = nus; memcpy(out->usages, usages, sizeof(usages));
-                }
-            }
-            if (tag == 8 || tag == 9 || tag == 11) { nus = 0; have_min = false; }   /* Input/Output/Feature clear locals */
-        }
-    }
-}
+/* Usage -> button tables and the consumer-page layout parser live in
+ * hid_map.c (shared with the BLE HID host since 2026-11-19). */
+typedef hid_consumer_layout_t consumer_layout;
 
 /* ---- per-device bookkeeping ------------------------------------------------ */
 enum devkind { DK_NONE, DK_XINPUT, DK_KBD, DK_CONSUMER, DK_MSC };
@@ -390,30 +301,13 @@ static void in_xfer_cb(usb_transfer_t *t)
             if (n >= 14 && buf[0] == 0x00 && buf[1] == 0x14)
                 f->buttons = xinput_to_a2pad((uint16_t)buf[2] | ((uint16_t)buf[3] << 8));
             break;
-        case DK_KBD: {               /* boot report: [mods, reserved, key1..key6] */
-            uint16_t bits = 0;
-            for (int k = 2; k < 8 && k < n; k++) if (buf[k] > 0x01) bits |= map_kbd_usage(buf[k]);
-            f->buttons = bits;
+        case DK_KBD:                 /* boot report: [mods, reserved, key1..key6] */
+            f->buttons = hid_decode_boot_kbd(buf, n);
             break;
-        }
-        case DK_CONSUMER: {
-            const consumer_layout *c = &f->con; uint16_t bits = 0; int off = 0;
-            if (c->rid) { if (n < 1 || buf[0] != c->rid) break; off = 1; }
-            if (c->is_array) {
-                int bytes = c->field_bits / 8;
-                for (int f = 0; f < c->field_count && off + bytes <= n; f++, off += bytes) {
-                    uint16_t u = buf[off] | (bytes == 2 ? (uint16_t)buf[off + 1] << 8 : 0);
-                    if (u) bits |= map_consumer_usage(u);
-                }
-            } else {
-                for (int f = 0; f < c->field_count && f < c->nusages; f++) {
-                    int byte = off + f / 8, bit = f % 8;
-                    if (byte < n && (buf[byte] >> bit) & 1) bits |= map_consumer_usage(c->usages[f]);
-                }
-            }
-            f->buttons = bits;
+        case DK_CONSUMER:
+            if (f->con.rid && (n < 1 || buf[0] != f->con.rid)) break;   /* another report ID: keep state */
+            f->buttons = hid_decode_consumer(&f->con, buf, n);
             break;
-        }
         default: break;
         }
         recompute_buttons();
@@ -523,7 +417,7 @@ static void attach_device(uint8_t addr)
             if (hd && hd->bLength >= 9) { const uint8_t *hb = (const uint8_t *)hd; rlen = hb[7] | ((uint16_t)hb[8] << 8); }
             static uint8_t rdesc[512];
             if (rlen && rlen <= 512 && ctrl_xfer(d, 0x81, 0x06, 0x2200, i, rlen, rdesc) == ESP_OK)
-                parse_consumer_layout(rdesc, rlen, &f->con);
+                hid_parse_consumer_layout(rdesc, rlen, &f->con);
             if (!f->con.valid) {
                 /* not a consumer-page report: a non-boot keyboard or something
                  * else on this interface — leave it claimed but unread */

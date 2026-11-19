@@ -137,9 +137,10 @@ ported from `a2n20_bl616/firmware_host`:
 
 - CardROM/INH bootstrap and the bus-event FIFO (Enhanced debug machinery)
 - Paddle/joystick emulation from gamepad (not in Enhanced either)
-- Bluetooth HID (future; lands as additional writers of the same pad regs).
-  Feasibility study and plan (2026-11-18):
-  [BLE_HID_FEASIBILITY.md](BLE_HID_FEASIBILITY.md) — BLE HOGP on raw
-  esp-nimble, +179 KB flash, needs the `min_spiffs` partition scheme first
+- ~~Bluetooth HID~~ — **in since 2026-11-19** (`ble_hid.c` + `hid_map.c`,
+  BLUETOOTH menu with a PAIR screen; one bonded remote / keyboard / gamepad,
+  OR-ed into `menu_tick()` like the USB host). Study, measurements and the
+  partition decision: [BLE_HID_FEASIBILITY.md](BLE_HID_FEASIBILITY.md).
+  Not yet exercised on hardware.
 - MCU firmware self-update from SD (ESP32 reflashes over its own USB-C;
   OTA-from-SD can come later)

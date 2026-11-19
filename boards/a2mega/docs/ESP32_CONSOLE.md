@@ -74,6 +74,11 @@ spireg <reg 0..126> [val]    read or write an FPGA OSPI register (hex ok: 0x75)
 gs | gs set <idx> <val> | gs arm|listen|off|auto|mode <0-3>|hold <ms>
    |autotrig on|off|clear|freeze|run|trig|untrig | gs trace | gs events|evclear
                              IIgs CPU-socket module (a2mega 138B only)
+ble [pair|cancel|list|connect <n>|forget]
+                             Bluetooth HID device (ble_hid.c): status, start
+                             the 60 s pairing scan, list what it found, connect
+                             to entry n (-1/none = strongest), drop the bond.
+                             Works without the FPGA link (2026-11-19).
 ```
 
 Anything else in key mode is dispatched as hotkeys: a pasted `spireg 0x75`
@@ -117,6 +122,7 @@ leave it. Line commands, from `help`:
 | `spir <space> <addr> <len> [inc]`, `spiw <space> <addr> <inc> <b0> …` | raw OSPI space read/write |
 | `meminfo`, `pins` | ESP32 heap, pin map |
 | `wifi [<ssid> [psk]]`, `net` | WiFi credentials in NVS, IP status |
+| `ble [pair\|cancel\|list\|connect <n>\|forget]` | Bluetooth HID remote/keyboard/gamepad: status, pairing scan, candidates, connect, forget (2026-11-19) |
 | `pd`, `i2cscan` | PD status, DP I2C scan (PD boards) |
 | `dp130 r <reg> [n] \| w <reg> <val> \| probe` | SN75DP130 registers (a2p25) |
 | `a2reset` | pulse the Apple II /RES line 200 ms (boards with the reset pin) |

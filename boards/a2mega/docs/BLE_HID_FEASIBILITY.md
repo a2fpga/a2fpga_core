@@ -1,6 +1,6 @@
 # BLE HID (HOGP) on the a2mega / a2p25 ESP32-S3 — feasibility and plan
 
-> Date: 2026-11-18. Research only: no firmware source changed, nothing flashed.
+> Date: 2026-11-18 (research); implemented 2026-11-19 — see "Status" below.
 > Decision (Ed, 2026-11-18 evening): assume the `min_spiffs` partition scheme
 > and assume a USB stick is present; the shrunken LittleFS fallback volume
 > (§3.1) is accepted, not a trade-off to weigh.
@@ -8,6 +8,46 @@
 > and the a2p25 displayport1). Build measurements below are from throwaway
 > variants that were built and discarded; the exact sources are described in
 > the appendix so they can be recreated.
+
+## Status (2026-11-19)
+
+Phases 0–2 of §7 are written and build; **nothing has run on hardware yet**
+(no card flashed from this branch). What landed, all in
+`boards/a2mega/src/a2fpga_esp32/`:
+
+- `Makefile`: `PartitionScheme=min_spiffs` for BOARD_REV 225 and 103
+  (migration note in `boards/a2p25/docs/ESP32_FW_A2P25.md`).
+- `hid_map.c/.h`: the usage tables and consumer-layout parser hoisted out of
+  `usbhost.cpp` (which now calls them), plus a general report-map parser
+  (keyboard array, consumer array/bitmap, button bitmap, hat, X/Y axes) and a
+  gamepad button table (Linux-gamepad order for ≥ 15-button pads: Xbox BLE,
+  Stadia, Steam).
+- `ble_hid.c/.h`: HOGP central on raw esp-nimble exactly as §2.3 describes:
+  Just Works bonding, `ble_store_config_init()` bonds in NVS, GAP name read,
+  HID service → characteristics → descriptors (one Find Information pass over
+  the service, CCCD/Report Reference assigned by handle order) → Report
+  References → `ble_gattc_read_long` of the Report Map → CCCD writes on every
+  input report (Boot Keyboard Input only when the map yields nothing) →
+  `NOTIFY_RX` decode into the A2PAD word. One peer, record in NVS
+  `blehid/peer`; reconnect = `ble_gap_connect(..., BLE_HS_FOREVER)` to the
+  bonded address at a 1 s / 50 ms initiating scan (5 % duty). Encryption
+  failure (device lost its bond) deletes ours and re-pairs once on the same
+  link; `REPEAT_PAIRING` lets the device re-pair.
+- `menu.c`: a top-level **BLUETOOTH** entry (STATUS / DEVICE / ADDRESS,
+  PAIR NEW DEVICE, FORGET DEVICE) and a **PAIR BLUETOOTH DEVICE** screen: a
+  60 s active scan lists HID advertisers by RSSI; A on one connects, or
+  "CONNECT STRONGEST" fires by itself 15 s after the first device appears
+  (a BLE-only user has no other input); B cancels. Both screens repaint on
+  host events. SYSTEM STATUS shows the BLE state; `menu_tick()` ORs
+  `ble_hid_buttons()` in.
+- Console: `ble [pair|cancel|list|connect <n>|forget]` on the serial CLI and
+  in telnet line mode (`ESP32_CONSOLE.md`).
+
+First hardware pass (gate 0 of §6): `meminfo` before/after — `ble_hid_start()`
+logs `BLE: HOST UP, INTERNAL HEAP a -> b` to the OSD console — then pair the
+4842 remote's BLE equivalent / a BLE keyboard / an Xbox pad and watch
+`ble status`. Open items after that: passkey display for MITM-only keyboards
+(none seen yet), the WiFi-bridge throughput check with BLE connected.
 
 ## 1. Why
 
