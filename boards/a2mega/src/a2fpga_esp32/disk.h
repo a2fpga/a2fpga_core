@@ -32,6 +32,12 @@ extern "C" {
  * be mounted at /sdcard). The first disk_poll() performs the initial mount. */
 void disk_init(void);
 
+/* True once the Apple II reset has been released by the disk task (media
+ * mounted, or the 10 s deadline). Late-start work that must not compete
+ * with the USB stick's enumeration for internal RAM (the BLE host) waits
+ * for this. */
+bool disk_a2_released(void);
+
 /* Service any pending track/block requests for all drives/units. Call
  * repeatedly from a dedicated task (~2 ms cadence). Never blocks. */
 void disk_poll(void);

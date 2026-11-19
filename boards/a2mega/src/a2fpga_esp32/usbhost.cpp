@@ -596,6 +596,101 @@ bool     usbhost_hid_present(void) { return s_hid_present; }
 uint16_t usbhost_buttons(void)     { return (uint16_t)(s_pad_buttons | s_kbd_buttons | s_con_buttons); }
 const char *usbhost_status_str(void) { return s_status; }
 
+/* ---- device listing (USB DEVICES screen, `usb` console) ------------------- */
+static void str16_to_ascii(const usb_str_desc_t *sd, char *out, int cap)
+{
+    int n = 0;
+    if (sd && sd->bLength >= 2) {
+        int chars = (sd->bLength - 2) / 2;
+        for (int i = 0; i < chars && n < cap - 1; i++) {
+            uint16_t c = sd->wData[i];
+            char ch = (c >= 32 && c < 127) ? (char)c : '?';
+            if (ch >= 'a' && ch <= 'z') ch = (char)(ch - 32);
+            out[n++] = ch;
+        }
+    }
+    out[n] = 0;
+}
+
+static const char *intf_kind(uint8_t cls, uint8_t sub, uint8_t proto)
+{
+    switch (cls) {
+    case 0x09: return "HUB";
+    case 0x08: return (sub == 0x06 && proto == 0x50) ? "STORAGE" : "STORAGE?";
+    case 0x03: return (sub == 0x01 && proto == 0x01) ? "KEYBOARD" :
+                      (sub == 0x01 && proto == 0x02) ? "MOUSE" : "HID";
+    case 0x02: return sub == 0x06 ? "ETHERNET ECM" : sub == 0x0D ? "ETHERNET NCM" :
+                      sub == 0x02 ? "CDC SERIAL" : "CDC";
+    case 0x0A: return NULL;                              /* CDC data: look at the control intf */
+    case 0x01: return "AUDIO";
+    case 0x0E: return "VIDEO";
+    case 0xE0: return "WIRELESS";
+    case 0xFF: return (sub == 0x5D && proto == 0x01) ? "XINPUT PAD" : "VENDOR";
+    default:   return NULL;
+    }
+}
+
+int usbhost_list(usbhost_devinfo_t *out, int max)
+{
+    if (!s_active || !s_client || max <= 0) return 0;
+    uint8_t addrs[8]; int num = 0;
+    if (usb_host_device_addr_list_fill(8, addrs, &num) != ESP_OK) return 0;
+    int n = 0;
+    for (int i = 0; i < num && n < max; i++) {
+        usb_device_handle_t h = NULL;
+        if (usb_host_device_open(s_client, addrs[i], &h) != ESP_OK) continue;
+        usbhost_devinfo_t *o = &out[n];
+        memset(o, 0, sizeof(*o));
+        o->addr = addrs[i];
+        const usb_device_desc_t *dd = NULL;
+        if (usb_host_get_device_descriptor(h, &dd) == ESP_OK && dd) {
+            o->vid = dd->idVendor; o->pid = dd->idProduct;
+            if (dd->bDeviceClass == 0x09) strcpy(o->kind, "HUB");
+        }
+        usb_device_info_t info;
+        if (usb_host_device_info(h, &info) == ESP_OK) {
+            str16_to_ascii(info.str_desc_product, o->product, sizeof(o->product));
+            o->speed = (uint8_t)info.speed;
+        }
+        const usb_config_desc_t *cfg = NULL;
+        if (!o->kind[0] && usb_host_get_active_config_descriptor(h, &cfg) == ESP_OK && cfg) {
+            char classes[14] = "";
+            for (uint8_t k = 0; k < cfg->bNumInterfaces && !o->kind[0]; k++) {
+                int off = 0;
+                const usb_intf_desc_t *id = usb_parse_interface_descriptor(cfg, k, 0, &off);
+                if (!id) continue;
+                const char *kd = intf_kind(id->bInterfaceClass, id->bInterfaceSubClass, id->bInterfaceProtocol);
+                if (kd) snprintf(o->kind, sizeof(o->kind), "%s", kd);
+                else if (!classes[0]) snprintf(classes, sizeof(classes), "CLASS %02X", id->bInterfaceClass);
+            }
+            if (!o->kind[0]) snprintf(o->kind, sizeof(o->kind), "%s", classes[0] ? classes : "NO INTERFACE");
+        }
+        if (!o->kind[0]) strcpy(o->kind, "UNKNOWN");
+        for (auto &d : s_devs) if (d.dev && d.addr == o->addr && d.nin) o->served = true;
+        usb_host_device_close(s_client, h);
+        n++;
+    }
+    return n;
+}
+
+void usbhost_console(void (*out)(void *ctx, const char *line), void *ctx)
+{
+    char b[112];
+    snprintf(b, sizeof(b), "usb: %s%s", s_status, s_active ? "" : " (device mode: no host enumeration)");
+    out(ctx, b);
+    if (!s_active) return;
+    usbhost_devinfo_t devs[8];
+    int n = usbhost_list(devs, 8);
+    if (!n) { out(ctx, "  (no devices enumerated)"); return; }
+    static const char *const spd[] = { "LS", "FS", "HS" };
+    for (int i = 0; i < n; i++) {
+        snprintf(b, sizeof(b), "  addr %u  %04X:%04X  %-13s %s  %s%s", devs[i].addr, devs[i].vid, devs[i].pid,
+                 devs[i].kind, devs[i].speed < 3 ? spd[devs[i].speed] : "??",
+                 devs[i].product[0] ? devs[i].product : "-", devs[i].served ? "  [in use]" : "");
+        out(ctx, b);
+    }
+}
+
 #else  /* !A2MEGA_HAS_OSPI_LINK: dp_test builds keep the port in device mode */
 
 void     usbhost_start(void)       {}
@@ -604,6 +699,8 @@ bool     usbhost_pad_present(void) { return false; }
 bool     usbhost_hid_present(void) { return false; }
 uint16_t usbhost_buttons(void)     { return 0; }
 const char *usbhost_status_str(void) { return "DEVICE MODE"; }
+int      usbhost_list(usbhost_devinfo_t *o, int m) { (void)o; (void)m; return 0; }
+void     usbhost_console(void (*out)(void *ctx, const char *line), void *ctx) { out(ctx, "usb: not built into this variant"); }
 bool     usbhost_msc_present(void) { return false; }
 bool     usbhost_msc_capacity(uint32_t *b, uint32_t *s) { (void)b; (void)s; return false; }
 bool     usbhost_msc_read(uint32_t l, uint32_t c, uint8_t *b) { (void)l; (void)c; (void)b; return false; }

@@ -25,6 +25,7 @@
 #include "esp_log.h"
 #include "esp_timer.h"
 #include "esp_system.h"
+#include "esp_heap_caps.h"
 
 #include "fpga_link.h"
 #include "fpga_screen.h"
@@ -93,7 +94,7 @@ typedef struct menu_screen {
     bool (*on_back)(void);             /* optional: B pressed; true = stay */
 } menu_screen_t;
 
-static menu_item_t s_items[MENU_MAX_ITEMS];
+static menu_item_t *s_items;           /* MENU_MAX_ITEMS, PSRAM (menu_init) */
 static int         s_nitems;
 
 /* navigation stack */
@@ -513,7 +514,7 @@ static void slots_enter(void)
 
 /* ======================= SCREEN: FILE PICKER ============================== */
 /* Generic list-of-files picker: fills a target settings name field. */
-static disk_list_ent_t s_pick_ents[DISK_LIST_MAX];
+static disk_list_ent_t *s_pick_ents;   /* DISK_LIST_MAX, PSRAM (menu_init) */
 static int   s_pick_count;
 static bool  s_pick_fpga;                      /* FPGA bitstream picker mode */
 static bool  s_pick_mcu;                       /* MCU firmware (.bin) picker mode */
@@ -1218,10 +1219,26 @@ static void ble_forget(int id)
     screen_refresh();
 }
 
+static void ble_radio_change(int id, int dir)
+{
+    (void)id; (void)dir;
+    settings()->ble_off = !settings()->ble_off;
+    save_settings_status();
+    if (!settings()->ble_off && !ble_hid_available()) {
+        ble_hid_start();                  /* late start is fine */
+        set_status(" BLUETOOTH STARTING");
+    } else if (settings()->ble_off) {
+        set_status(" RADIO STAYS UP UNTIL THE NEXT BOOT");
+    }
+    screen_refresh();
+}
+
 static void ble_build(void)
 {
     menu_item_t *m;
     char b[MENU_LABEL_LEN + 1];
+    m = mi_add(MI_TOGGLE, "BLUETOOTH RADIO", settings()->ble_off ? "OFF" : "ON");
+    m->on_change = ble_radio_change;
     mi_add(MI_INFO, "STATUS", ble_hid_state_str());
     if (ble_hid_peer_known()) {
         const char *nm = ble_hid_peer_name();
@@ -1259,6 +1276,52 @@ static void ble_build(void)
 
 static const menu_screen_t SCR_BLUETOOTH = { "BLUETOOTH", ble_build };
 
+/* ======================= SCREEN: USB DEVICES ============================== */
+/* What the ESP32's USB host (usbhost.cpp) has enumerated on USB1: hubs and
+ * unclaimed devices included, so a stick that did not come up behind a hub
+ * is visible as absent (the a2n20v2-Enhanced menu had the same page). */
+static void usb_refresh(int id)
+{
+    (void)id;
+    screen_refresh();
+}
+
+static void usb_build(void)
+{
+    menu_item_t *m;
+    mi_add(MI_INFO, "USB1 PORT", usbhost_status_str());
+    mi_add(MI_INFO, "", "");
+    if (!usbhost_active()) {
+        mi_add(MI_INFO, "PORT IS IN DEVICE MODE (A COMPUTER", "");
+        mi_add(MI_INFO, "WAS ATTACHED AT BOOT): NO HOST", "");
+    } else {
+        usbhost_devinfo_t devs[8];
+        int n = usbhost_list(devs, 8);
+        if (!n)
+            mi_add(MI_INFO, "(NO DEVICES ENUMERATED)", "");
+        for (int i = 0; i < n; i++) {
+            char b[MENU_LABEL_LEN + 1];
+            snprintf(b, sizeof(b), "%u  %04X:%04X  %s%s", devs[i].addr, devs[i].vid, devs[i].pid,
+                     devs[i].kind, devs[i].served ? " *" : "");
+            mi_add(MI_INFO, b, "");
+            if (devs[i].product[0]) {
+                snprintf(b, sizeof(b), "   %s", devs[i].product);
+                mi_add(MI_INFO, b, "");
+            }
+        }
+    }
+    mi_add(MI_INFO, "", "");
+    m = mi_add(MI_ACTION, "REFRESH", "");
+    m->action = usb_refresh;
+    mi_add(MI_INFO, "", "");
+    mi_add(MI_INFO, "* = IN USE BY THIS FIRMWARE", "");
+    mi_add(MI_INFO, "THE HOST HAS 8 CHANNELS: A HUB TAKES", "");
+    mi_add(MI_INFO, "2, A STICK 3, A HID DONGLE 3 - USE", "");
+    mi_add(MI_INFO, "BLUETOOTH FOR REMOTES AND PADS.", "");
+}
+
+static const menu_screen_t SCR_USB = { "USB DEVICES", usb_build };
+
 /* ======================= SCREEN: ROOT ===================================== */
 static void root_enter(int id)
 {
@@ -1266,10 +1329,11 @@ static void root_enter(int id)
     case 0: screen_push(&SCR_STATUS);    break;
     case 1: screen_push(&SCR_DISKS);     break;
     case 2: slots_enter();              break;
-    case 3: screen_push(&SCR_NETWORK);   break;
-    case 4: screen_push(&SCR_BLUETOOTH); break;
-    case 5: screen_push(&SCR_FIRMWARE);  break;
-    case 6: screen_push(&SCR_SETTINGS);  break;
+    case 3: screen_push(&SCR_USB);       break;
+    case 4: screen_push(&SCR_NETWORK);   break;
+    case 5: screen_push(&SCR_BLUETOOTH); break;
+    case 6: screen_push(&SCR_FIRMWARE);  break;
+    case 7: screen_push(&SCR_SETTINGS);  break;
     }
 }
 
@@ -1290,10 +1354,10 @@ static void root_restart_mcu(int id)
 static void root_build(void)
 {
     static const char *const entries[] = {
-        "SYSTEM STATUS", "DISK IMAGES", "SLOT ASSIGNMENTS", "NETWORK",
-        "BLUETOOTH", "FIRMWARE", "SETTINGS"
+        "SYSTEM STATUS", "DISK IMAGES", "SLOT ASSIGNMENTS", "USB DEVICES",
+        "NETWORK", "BLUETOOTH", "FIRMWARE", "SETTINGS"
     };
-    for (int i = 0; i < 7; i++) {
+    for (int i = 0; i < 8; i++) {
         menu_item_t *m = mi_add(MI_SUBMENU, entries[i], "");
         m->action = root_enter;
         m->id = i;
@@ -1527,6 +1591,16 @@ void menu_tick(void)
 
 void menu_init(void)
 {
+    /* item table (9 KB) + picker listing (8 KB): CPU-only data -> PSRAM,
+     * keeping the internal heap for USB/WiFi/BLE (heap diet 2026-11-19) */
+    if (!s_items) {
+        s_items = (menu_item_t *)heap_caps_calloc(MENU_MAX_ITEMS, sizeof(menu_item_t), MALLOC_CAP_SPIRAM);
+        if (!s_items) s_items = (menu_item_t *)calloc(MENU_MAX_ITEMS, sizeof(menu_item_t));
+    }
+    if (!s_pick_ents) {
+        s_pick_ents = (disk_list_ent_t *)heap_caps_calloc(DISK_LIST_MAX, sizeof(disk_list_ent_t), MALLOC_CAP_SPIRAM);
+        if (!s_pick_ents) s_pick_ents = (disk_list_ent_t *)calloc(DISK_LIST_MAX, sizeof(disk_list_ent_t));
+    }
     s_depth = 0;
     s_stack[0]  = &SCR_ROOT;
     s_cursor[0] = 0;

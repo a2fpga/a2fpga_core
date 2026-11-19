@@ -15,6 +15,7 @@
 #include "board_pins.h"
 #include "a2fpga_regs.h"
 #include "hid_map.h"
+#include "settings.h"
 #include "ble_hid.h"
 
 #if A2MEGA_HAS_OSPI_LINK
@@ -994,6 +995,18 @@ void ble_hid_console(int argc, const char *const *argv, void (*out)(void *ctx, c
         }
         return;
     }
+    if (!strcmp(sub, "radio")) {
+        const char *v = argc >= 3 ? argv[2] : "";
+        if (!strcmp(v, "on") || !strcmp(v, "off")) {
+            settings()->ble_off = !strcmp(v, "off");
+            settings_save();
+            if (!settings()->ble_off && !s_ready) ble_hid_start();
+        }
+        snprintf(b, sizeof(b), "ble: radio %s%s", settings()->ble_off ? "OFF" : "ON",
+                 (settings()->ble_off && s_ready) ? " (stays up until the next boot)" : "");
+        out(ctx, b);
+        return;
+    }
     if (!strcmp(sub, "pair"))   { ble_hid_pair_begin();  out(ctx, s_msg); return; }
     if (!strcmp(sub, "cancel")) { ble_hid_pair_cancel(); out(ctx, s_msg); return; }
     if (!strcmp(sub, "forget")) { ble_hid_forget();      out(ctx, s_msg); return; }
@@ -1018,7 +1031,7 @@ void ble_hid_console(int argc, const char *const *argv, void (*out)(void *ctx, c
         out(ctx, s_msg);
         return;
     }
-    out(ctx, "ble [status|pair|cancel|list|connect <n>|forget]");
+    out(ctx, "ble [status|pair|cancel|list|connect <n>|forget|radio on|off]");
 }
 
 #else  /* !A2MEGA_HAS_OSPI_LINK: dp_test builds carry no menu/pad path */

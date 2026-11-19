@@ -34,6 +34,7 @@
 #include "disk.h"
 #include "osd_console.h"
 #include "ftpd.h"
+#include "esp_heap_caps.h"
 
 #define FTP_PORT    21
 #define CWD_MAX     192
@@ -51,7 +52,7 @@ typedef struct {
     volatile bool in_use;
 } ftps_t;
 
-static ftps_t s_sess[MAX_SESSIONS];
+static ftps_t *s_sess;                   /* MAX_SESSIONS, PSRAM (ftpd_init) */
 static SemaphoreHandle_t s_fslock;
 
 static void reply(ftps_t *fs, const char *s)
@@ -556,6 +557,13 @@ static void ftpd_thread(void *arg)
 
 void ftpd_init(void)
 {
+    /* 5.5 KB of session state + transfer chunks: lwIP copies on send/recv
+     * and the stick path copies into USB transfer buffers, so PSRAM is fine */
+    if (!s_sess) {
+        s_sess = (ftps_t *)heap_caps_calloc(MAX_SESSIONS, sizeof(ftps_t), MALLOC_CAP_SPIRAM);
+        if (!s_sess) s_sess = (ftps_t *)calloc(MAX_SESSIONS, sizeof(ftps_t));
+        if (!s_sess) return;
+    }
     s_fslock = xSemaphoreCreateMutex();
     xTaskCreatePinnedToCore(ftpd_thread, "ftpd", 4096, NULL, 2, NULL, 1);
 }

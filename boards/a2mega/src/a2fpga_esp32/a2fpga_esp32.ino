@@ -645,6 +645,9 @@ static void cmd_process(String cmd) {
             free(buf);
         }
 
+    } else if (cmd == "usb") {
+        usbhost_console([](void *, const char *line) { Serial.println(line); }, nullptr);
+
     } else if (cmd == "ble" || cmd.startsWith("ble ")) {
         String toks[4];
         int nt = split_ws(cmd, toks, 4);
@@ -843,7 +846,8 @@ static void cmd_process(String cmd) {
         Serial.println("  pins      - Show pin assignments");
         Serial.println("  wifi [<ssid> [psk]] - Show/set WiFi credentials (NVS)");
         Serial.println("  net       - Show WiFi/IP status");
-        Serial.println("  ble [pair|cancel|list|connect <n>|forget] - Bluetooth HID device");
+        Serial.println("  usb       - List enumerated USB devices (host mode only)");
+        Serial.println("  ble [pair|cancel|list|connect <n>|forget|radio on|off] - Bluetooth HID device");
 #if A2MEGA_HAS_USBC_PD
         Serial.println("  pd        - Show USB-C PD / DP Alt Mode status");
         Serial.println("  i2cscan   - List devices on the DP I2C bus");
@@ -1158,9 +1162,8 @@ static void start_subsystems() {
     // USB host on the module's USB-C (gamepads, HID remotes): device-first
     // role decision, then the OTG host stack (usbhost.cpp)
     usbhost_start();
-    // BLE HID host (ble_hid.c): Bluetooth remote / keyboard / gamepad on the
-    // module's own radio, no USB channel. Reconnects the paired device.
-    ble_hid_start();
+    // The BLE HID host (ble_hid.c) starts later, from loop(), once the disk
+    // task has released the Apple II reset: see the note there.
 
     disk_init();
     menu_init();
@@ -1345,6 +1348,19 @@ void setup() {
 
 void loop() {
     if (viddbg_request) { viddbg_request = false; viddbg_log(); }
+    // BLE HID host: started only after the disk task has released the Apple
+    // II reset (media mounted, or its 10 s deadline), so the USB stick's
+    // enumeration gets its internal-RAM allocations before the BLE host
+    // takes its ~55 KB. With BLE first (a2p25, 2026-11-19) the stick behind
+    // the hub never enumerated. BLUETOOTH -> RADIO OFF skips it entirely.
+    {
+        static bool s_ble_decided = false;
+        if (!s_ble_decided && subsystems_up && disk_a2_released()) {
+            s_ble_decided = true;
+            if (!settings()->ble_off) ble_hid_start();
+            else osd_log("BLE: RADIO OFF (SETTINGS)");
+        }
+    }
 #if PIN_A2_RESET_OUT >= 0
     // reset-hold backstop: a machine with no media, or a link that never
     // came up, still boots

@@ -43,6 +43,8 @@
 #include "osd_console.h"
 #include "menu.h"
 #include "ble_hid.h"
+#include "usbhost.h"
+#include "esp_heap_caps.h"
 #include "board_pins.h"
 #include "disk.h"
 #if A2MEGA_HAS_USBC_PD
@@ -296,11 +298,30 @@ static void tn_exec_line(int fd, char *line)
     if (nt == 0)
         return;
     if (!strcmp(tok[0], "help") || !strcmp(tok[0], "?")) {
-        tn_puts(fd, "spireg <reg> [val] | gs | gs set <idx> <val> | gs arm|listen|off|auto|mode <0-3>|hold <ms>|autotrig on|off|clear|freeze|run|trig|untrig | gs trace | gs events|evclear | ble [pair|cancel|list|connect <n>|forget]\r\n");
+        tn_puts(fd, "spireg <reg> [val] | gs | gs set <idx> <val> | gs arm|listen|off|auto|mode <0-3>|hold <ms>|autotrig on|off|clear|freeze|run|trig|untrig | gs trace | gs events|evclear | ble [pair|cancel|list|connect <n>|forget|radio on|off] | usb | meminfo\r\n");
         return;
     }
     if (!strcmp(tok[0], "ble")) {      /* no FPGA link needed */
         ble_hid_console(nt, (const char *const *)tok, tn_console_line, &fd);
+        return;
+    }
+    if (!strcmp(tok[0], "usb")) {
+        usbhost_console(tn_console_line, &fd);
+        return;
+    }
+    if (!strcmp(tok[0], "meminfo")) {
+        char b[112];
+        snprintf(b, sizeof(b), "internal: %u free, %u largest block, %u min ever, %u total",
+                 (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL),
+                 (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL),
+                 (unsigned)heap_caps_get_minimum_free_size(MALLOC_CAP_INTERNAL),
+                 (unsigned)heap_caps_get_total_size(MALLOC_CAP_INTERNAL));
+        tn_console_line(&fd, b);
+        snprintf(b, sizeof(b), "psram:    %u free, %u largest block, %u total",
+                 (unsigned)heap_caps_get_free_size(MALLOC_CAP_SPIRAM),
+                 (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_SPIRAM),
+                 (unsigned)heap_caps_get_total_size(MALLOC_CAP_SPIRAM));
+        tn_console_line(&fd, b);
         return;
     }
     if (!fpga_link_ok()) {

@@ -57,13 +57,31 @@ Gate 0 numbers (`meminfo`, steady state after boot, Mac on USB1 so no stick):
 
 So the BLE host costs ~79 KB of internal RAM: ~14 KB taken statically by the
 controller plus ~55 KB allocated at `ble_hid_start()` (OSD line `BLE UP: INT
-HEAP 109812 -> 5xxxx`). 32 KB free internal is **tight** and is the next
-thing to work on: the 2 MB PSRAM sits 98 % idle, so the firmware's own large
-buffers (disk track buffers, telnet tee, FTP, OSD text) can move to
-`heap_caps_malloc(MALLOC_CAP_SPIRAM)`, and the WiFi dynamic buffer counts in
-`wifi_init_config_t` can come down. Not yet done: pairing an actual device
-(needs one in pairing mode), the menu on the Apple II display, WiFi-bridge
-throughput with BLE connected, passkey display for MITM-only keyboards.
+HEAP 109812 -> 5xxxx`). 32 KB free internal was **too tight**: with the hub +
+stick back on USB1 the hub enumerated but the stick behind it never did (USB
+DEVICES / `usb` showed only the hub; no volumes mounted, Apple II booted to
+no media). Changes in the follow-up build the same evening:
+
+- the BLE host now starts from `loop()` only after the disk task has
+  released the Apple II reset (media mounted or its 10 s deadline), so the
+  stick's enumeration takes its internal-RAM allocations first;
+- BLUETOOTH → `BLUETOOTH RADIO ON/OFF` (setting `ble_off`, console `ble radio
+  on|off`): OFF skips the host at boot, for A/B tests without reflashing;
+- first slice of the heap diet: the menu item table (9 KB), the two
+  directory listings (2 × 8 KB) and the FTP sessions (5.5 KB) moved from
+  `.bss` to PSRAM — ~31 KB of internal RAM back. Candidates left (DMA
+  buffers excluded): `s_rx` 12 KB, fpgastream/fpgaupdate header scans 2 ×
+  4 KB, fwupdate chunk 4 KB; task stacks (56 KB) can go to PSRAM for the
+  tasks that never hand stack buffers to SPI/USB DMA
+  (`CONFIG_SPIRAM_ALLOW_STACK_EXTERNAL_MEMORY=y`); WiFi dynamic buffers in
+  `wifi_init_config_t`;
+- telnet `meminfo` (free / largest block / minimum ever) and a top-level
+  **USB DEVICES** screen + `usb` command listing every enumerated device,
+  so the stick question is answered at a glance.
+
+Still owed: confirm the stick enumerates with that build, pair an actual
+device, WiFi-bridge throughput with BLE connected, passkey display for
+MITM-only keyboards.
 
 ## 1. Why
 

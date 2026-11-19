@@ -34,6 +34,7 @@
 #include <sys/stat.h>
 
 #include "esp_log.h"
+#include "esp_heap_caps.h"
 #include "esp_timer.h"    /* esp_timer_get_time — us since boot */
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h" /* quiesce handshake with the disk task */
@@ -134,7 +135,10 @@ static volatile bool          g_list_req;
 static volatile bool          g_list_done;
 static const char *const     *g_list_exts;
 static char                   g_list_path[PATH_MAX_LEN];
-static disk_list_ent_t        g_list_ents[DISK_LIST_MAX];
+static disk_list_ent_t       *g_list_ents;     /* DISK_LIST_MAX entries, PSRAM (disk_init) */
+static bool                   g_a2_released;
+
+bool disk_a2_released(void) { return g_a2_released; }
 static int                    g_list_count;
 
 /* Display form of a resolved path: strip the "/sdcard/" prefix. */
@@ -683,6 +687,12 @@ static void disk_remount(void)
 
 void disk_init(void)
 {
+    /* 8 KB directory listing: pure-CPU data, so it lives in PSRAM and
+     * leaves the internal heap to USB/WiFi/BLE (a2p25 heap diet 11-19) */
+    if (!g_list_ents) {
+        g_list_ents = (disk_list_ent_t *)heap_caps_calloc(DISK_LIST_MAX, sizeof(disk_list_ent_t), MALLOC_CAP_SPIRAM);
+        if (!g_list_ents) g_list_ents = (disk_list_ent_t *)calloc(DISK_LIST_MAX, sizeof(disk_list_ent_t));
+    }
     /* Nothing to bring up here: settings_init() and the SD/VFS mount are the
      * integrator's job; the first disk_poll() performs the initial mount. */
     g_remount_req = true;
@@ -1187,8 +1197,7 @@ void disk_poll(void)
      * volume, or after a deadline so a machine with no media still boots.
      * The FPGA has its own 15 s backstop should we never write. */
     {
-        static bool s_released = false;
-        if (!s_released) {
+        if (!g_a2_released) {
             bool any = false;
             for (int v = 0; v < NDRV; v++) any = any || g_mounted[v];
             for (int u = 0; u < NHDD; u++) any = any || g_hdd_mounted[u];
@@ -1208,7 +1217,7 @@ void disk_poll(void)
                 gs_socket_a2_release();              /* 0x2E.0, via the socket module (keeps its assert bit) */
                 /* boards where the ESP32 owns the /RES pin (a2p25 IO33) */
                 a2_reset_hold_release(any ? "media mounted" : "no media");
-                s_released = true;
+                g_a2_released = true;
                 DLOGI("A2: RESET RELEASED%s", any ? "" : " (NO MEDIA)");
             }
         }
