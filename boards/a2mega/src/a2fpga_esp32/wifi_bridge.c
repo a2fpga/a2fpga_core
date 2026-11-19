@@ -48,6 +48,7 @@ static uint8_t      s_cfg_ip[4], s_cfg_mask[4], s_cfg_gw[4];
 /* Diagnostics */
 static volatile uint32_t s_rx_drop_ring;   /* ingress dropped: SPSC ring full */
 static volatile uint32_t s_tx_err;         /* esp_wifi_internal_tx failures */
+static volatile uint32_t s_rx_apple, s_tx_apple;   /* frames bridged for the Apple II */
 
 /* ---- ingress SPSC ring (producer: WiFi task, consumer: main loop) ---- */
 #define BR_RX_SLOTS 8               /* power of two */
@@ -219,6 +220,7 @@ void wifi_bridge_poll(void)
             wifi_bridge_fixup_ingress(slot->buf, slot->len, apple, s_sta_mac);
 
         w5100_macraw_rx(slot->buf, slot->len);
+        s_rx_apple++;
 
         tail++;
         __atomic_store_n(&s_rx_tail, tail, __ATOMIC_RELEASE);
@@ -247,10 +249,17 @@ void wifi_bridge_tx(const uint8_t *frame, uint32_t len)
     wifi_bridge_fixup_egress(s_tx_buf, (uint16_t)len, inner, s_sta_mac);
 
     int r = esp_wifi_internal_tx(WIFI_IF_STA, s_tx_buf, (uint16_t)len);
+    if (r == 0) s_tx_apple++;
     if (r != 0) {
         if ((++s_tx_err & 0x3F) == 1)   /* rate-limited */
             ESP_LOGW(TAG, "raw tx failed (%d), %lu total", r, (unsigned long)s_tx_err);
     }
+}
+
+void wifi_bridge_apple_counts(uint32_t *rx, uint32_t *tx)
+{
+    if (rx) *rx = s_rx_apple;
+    if (tx) *tx = s_tx_apple;
 }
 
 bool wifi_bridge_uplink_mac(uint8_t mac[6])

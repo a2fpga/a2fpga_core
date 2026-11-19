@@ -90,6 +90,10 @@ void usbeth_set_bridging(bool on);
 /* Send one Ethernet frame on behalf of the Apple II (egress NAT applied). */
 void usbeth_tx(const uint8_t *frame, uint32_t len);
 
+/* Frames bridged for the Apple II over this adapter (rx = wire -> Apple II,
+ * tx = Apple II -> wire). For the NETWORK menu page. */
+void usbeth_apple_counts(uint32_t *rx, uint32_t *tx);
+
 /* One-line status for the CLI / OSD, e.g.
  * "USB ETH: 0BDA:8152 ECM mac .. link UP ip 192.168.1.20 rx 120 tx 44" */
 void usbeth_status(char *buf, size_t cap);

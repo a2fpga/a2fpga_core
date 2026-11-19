@@ -68,6 +68,8 @@ void wifi_bridge_set_apple_mac(const uint8_t mac[6]);
 void wifi_bridge_set_bridging(bool on);
 /* true once wifi_bridge_init() succeeded */
 bool wifi_bridge_started(void);
+/* Frames bridged for the Apple II over WiFi (rx = air -> Apple II, tx = Apple II -> air) */
+void wifi_bridge_apple_counts(uint32_t *rx, uint32_t *tx);
 
 /* ---- net status helpers (also declared in net_status.h) ---- */
 const char *net_ssid(void);      /* configured SSID ("" before init) */

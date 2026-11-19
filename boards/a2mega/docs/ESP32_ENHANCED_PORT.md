@@ -143,7 +143,14 @@ IN/OUT, NETWORK_CONNECTION notifications; NCM adds NTB16 framing in
 `net_uplink.c` owns the `w5100_bridge_*` hooks and routes them: USB when the
 adapter reports carrier, WiFi otherwise; only the active uplink delivers
 frames to the Apple II. The CLI's `net` shows the active uplink and the
-adapter's state.
+adapter's state; the OSD **NETWORK** page (also over the telnet menu mirror)
+shows `UTHERNET UPLINK`, the adapter's MAC/link/IP and the Apple II frame
+counters per uplink (`USB A2 FRAMES RX/TX`, `WIFI A2 FRAMES RX/TX`) with a
+REFRESH item, so "did that go over the wire?" is answerable on screen. The
+console logs `UTHERNET UPLINK: ...` whenever the choice changes. Caveat: on
+adapters without a usable notification pipe (Realtek, see below) a pulled
+cable is not detected, so the Apple II stays on the wire instead of falling
+back to WiFi; re-plugging the adapter does switch.
 
 Limits and the two 2026-11-18 hardware findings:
 

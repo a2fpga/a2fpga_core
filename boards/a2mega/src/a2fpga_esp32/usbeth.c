@@ -624,6 +624,12 @@ void usbeth_tx(const uint8_t *frame, uint32_t len)
     if (submit_out(buf, len) == ESP_OK) s_tx_apple++;
 }
 
+void usbeth_apple_counts(uint32_t *rx, uint32_t *tx)
+{
+    if (rx) *rx = s_rx_apple;
+    if (tx) *tx = s_tx_apple;
+}
+
 void usbeth_status(char *buf, size_t cap)
 {
     if (!s_present) { snprintf(buf, cap, "USB ETH: no adapter"); return; }
