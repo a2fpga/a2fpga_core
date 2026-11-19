@@ -42,7 +42,9 @@ typedef struct {
     uint16_t vid, pid;
     cdc_eth_fn_t fn;
     uint8_t  mac[6];
-    bool     ctrl_claimed, data_claimed;
+    uint8_t  host_intf[2];        /* interfaces claimed from the host library (active configuration) */
+    uint8_t  n_host;
+    uint8_t  alt_cfg;             /* != 0: device switched to this configuration (see usbeth_attach_alt) */
     usb_transfer_t *xin;          /* the one outstanding bulk IN */
     usb_transfer_t *xnotify;      /* the one outstanding interrupt IN (or NULL) */
     size_t   rx_size;             /* bulk IN transfer size (MPS multiple) */
@@ -333,34 +335,26 @@ static void release_all(void)
 {
     free_when_idle(&s_e.xin);
     free_when_idle(&s_e.xnotify);
-    if (s_e.data_claimed) { usb_host_interface_release(s_e.client, s_e.dev, s_e.fn.data_intf); s_e.data_claimed = false; }
-    if (s_e.ctrl_claimed) { usb_host_interface_release(s_e.client, s_e.dev, s_e.fn.ctrl_intf); s_e.ctrl_claimed = false; }
+    while (s_e.n_host) usb_host_interface_release(s_e.client, s_e.dev, s_e.host_intf[--s_e.n_host]);
 }
 
-bool usbeth_attach(void *client, void *dev, const uint8_t *cfg, size_t cfg_len,
-                   uint8_t ctrl_intf, uint16_t vid, uint16_t pid)
+static bool claim_host_intf(uint8_t intf, uint8_t alt)
 {
-    if (s_present || s_e.dev) { ESP_LOGW(TAG, "adapter already attached; ignoring %04X:%04X", vid, pid); return false; }
-    memset(&s_e, 0, sizeof(s_e));
-    s_e.client = (usb_host_client_handle_t)client;
-    s_e.dev    = (usb_device_handle_t)dev;
-    s_e.vid = vid; s_e.pid = pid;
-
-    if (!cdc_parse_eth_function(cfg, cfg_len, ctrl_intf, &s_e.fn) || !s_e.fn.data_found) {
-        ESP_LOGW(TAG, "%04X:%04X: CDC interface %u has no usable Ethernet function", vid, pid, ctrl_intf);
-        memset(&s_e, 0, sizeof(s_e));
+    if (s_e.n_host >= 2) return false;
+    if (usb_host_interface_claim(s_e.client, s_e.dev, intf, alt) != ESP_OK) {
+        ESP_LOGW(TAG, "claim interface %u alt %u failed", intf, alt);
         return false;
     }
+    s_e.host_intf[s_e.n_host++] = intf;
+    return true;
+}
+
+/* Everything after the host-side interface claims: MAC, NCM parameters,
+ * SET_INTERFACE + packet filter on the device, netif, armed transfers.
+ * s_e.fn describes the function in the configuration the DEVICE is in. */
+static bool start_function(void)
+{
     const cdc_eth_fn_t *fn = &s_e.fn;
-    ESP_LOGI(TAG, "%s ctrl %u data %u alt %u in %02X/%u out %02X/%u notify %02X imac %u",
-             fn->ncm ? "NCM" : "ECM", fn->ctrl_intf, fn->data_intf, fn->data_alt,
-             fn->ep_in, fn->mps_in, fn->ep_out, fn->mps_out, fn->ep_notify, fn->imac);
-
-    if (usb_host_interface_claim(s_e.client, s_e.dev, fn->ctrl_intf, 0) != ESP_OK) { ESP_LOGW(TAG, "claim ctrl failed"); goto fail; }
-    s_e.ctrl_claimed = true;
-    if (usb_host_interface_claim(s_e.client, s_e.dev, fn->data_intf, fn->data_alt) != ESP_OK) { ESP_LOGW(TAG, "claim data failed"); goto fail; }
-    s_e.data_claimed = true;
-
     /* MAC address: iMACAddress string; fall back to a locally administered
      * address derived from the ESP32's base MAC so the bridge still runs. */
     bool have_mac = false;
@@ -380,7 +374,7 @@ bool usbeth_attach(void *client, void *dev, const uint8_t *cfg, size_t cfg_len,
         uint8_t pb[28]; size_t got = 0;
         if (ctrl_xfer(0xA1, CDC_REQ_GET_NTB_PARAMETERS, 0, fn->ctrl_intf, sizeof(pb), pb, &got) != ESP_OK ||
             !ncm_parse_ntb_params(pb, got, &s_e.ntb)) {
-            ESP_LOGW(TAG, "GET_NTB_PARAMETERS failed"); goto fail;
+            ESP_LOGW(TAG, "GET_NTB_PARAMETERS failed"); return false;
         }
         /* Keep the IN NTB small (the spec minimum); frames arrive one per NTB anyway at FS */
         uint32_t in_size = 2048;
@@ -404,10 +398,10 @@ bool usbeth_attach(void *client, void *dev, const uint8_t *cfg, size_t cfg_len,
     ctrl_xfer(0x21, CDC_REQ_SET_ETHERNET_PACKET_FILTER,
               CDC_PKT_DIRECTED | CDC_PKT_BROADCAST | CDC_PKT_ALL_MULTICAST, fn->ctrl_intf, 0, NULL, NULL);
 
-    if (!netif_ensure(s_e.mac)) goto fail;
+    if (!netif_ensure(s_e.mac)) return false;
 
     /* Arm the receive transfers */
-    if (usb_host_transfer_alloc(s_e.rx_size, 0, &s_e.xin) != ESP_OK) goto fail;
+    if (usb_host_transfer_alloc(s_e.rx_size, 0, &s_e.xin) != ESP_OK) return false;
     s_e.xin->device_handle = s_e.dev; s_e.xin->bEndpointAddress = fn->ep_in;
     s_e.xin->num_bytes = (int)s_e.rx_size; s_e.xin->callback = in_done_cb; s_e.xin->timeout_ms = 0;
     if (fn->ep_notify) {
@@ -422,14 +416,125 @@ bool usbeth_attach(void *client, void *dev, const uint8_t *cfg, size_t cfg_len,
     s_e.attach_us = esp_timer_get_time();
     s_present = true;
     if (s_e.xnotify && usb_host_transfer_submit(s_e.xnotify) != ESP_OK) { usb_host_transfer_free(s_e.xnotify); s_e.xnotify = NULL; }
-    if (usb_host_transfer_submit(s_e.xin) != ESP_OK) { ESP_LOGW(TAG, "bulk IN submit failed"); s_present = false; goto fail; }
+    if (usb_host_transfer_submit(s_e.xin) != ESP_OK) { ESP_LOGW(TAG, "bulk IN submit failed"); s_present = false; return false; }
 
-    osd_log("USB ETH: %04X:%04X %s %02X:%02X:%02X:%02X:%02X:%02X", vid, pid, fn->ncm ? "NCM" : "ECM",
-            s_e.mac[0], s_e.mac[1], s_e.mac[2], s_e.mac[3], s_e.mac[4], s_e.mac[5]);
+    if (s_e.alt_cfg)
+        osd_log("USB ETH: %04X:%04X %s CFG %u %02X:%02X:%02X:%02X:%02X:%02X", s_e.vid, s_e.pid, fn->ncm ? "NCM" : "ECM",
+                s_e.alt_cfg, s_e.mac[0], s_e.mac[1], s_e.mac[2], s_e.mac[3], s_e.mac[4], s_e.mac[5]);
+    else
+        osd_log("USB ETH: %04X:%04X %s %02X:%02X:%02X:%02X:%02X:%02X", s_e.vid, s_e.pid, fn->ncm ? "NCM" : "ECM",
+                s_e.mac[0], s_e.mac[1], s_e.mac[2], s_e.mac[3], s_e.mac[4], s_e.mac[5]);
+    return true;
+}
+
+bool usbeth_attach(void *client, void *dev, const uint8_t *cfg, size_t cfg_len,
+                   uint8_t ctrl_intf, uint16_t vid, uint16_t pid)
+{
+    if (s_present || s_e.dev) { ESP_LOGW(TAG, "adapter already attached; ignoring %04X:%04X", vid, pid); return false; }
+    memset(&s_e, 0, sizeof(s_e));
+    s_e.client = (usb_host_client_handle_t)client;
+    s_e.dev    = (usb_device_handle_t)dev;
+    s_e.vid = vid; s_e.pid = pid;
+
+    if (!cdc_parse_eth_function(cfg, cfg_len, ctrl_intf, &s_e.fn) || !s_e.fn.data_found) {
+        ESP_LOGW(TAG, "%04X:%04X: CDC interface %u has no usable Ethernet function", vid, pid, ctrl_intf);
+        memset(&s_e, 0, sizeof(s_e));
+        return false;
+    }
+    const cdc_eth_fn_t *fn = &s_e.fn;
+    ESP_LOGI(TAG, "%s ctrl %u data %u alt %u in %02X/%u out %02X/%u notify %02X imac %u",
+             fn->ncm ? "NCM" : "ECM", fn->ctrl_intf, fn->data_intf, fn->data_alt,
+             fn->ep_in, fn->mps_in, fn->ep_out, fn->mps_out, fn->ep_notify, fn->imac);
+
+    /* Data interface first (two bulk pipes, essential). The control
+     * interface's notification pipe is a nicety: with the ESP32-S3's eight
+     * host channels shared by hub, stick and this adapter it may not fit, and
+     * the class requests reach the control interface through EP0 anyway. */
+    if (!claim_host_intf(fn->data_intf, fn->data_alt)) {
+        osd_log("USB ETH: %04X:%04X: NO HOST CHANNELS", vid, pid);
+        goto fail;
+    }
+    if (fn->ep_notify && !claim_host_intf(fn->ctrl_intf, 0)) {
+        ESP_LOGW(TAG, "no host channel for the notification pipe; link assumed up");
+        s_e.fn.ep_notify = 0;
+    }
+    if (!start_function()) goto fail;
     return true;
 
 fail:
     release_all();
+    memset(&s_e, 0, sizeof(s_e));
+    return false;
+}
+
+/* Dual-configuration adapters (Realtek RTL8152/RTL8153 and kin): the host
+ * library enumerated configuration 1 (vendor-specific, nothing we drive) and
+ * cannot be asked for another one (its enumeration filter is compiled out
+ * of the Arduino libraries, and usbh_dev_set_config_desc() only accepts a
+ * descriptor while the device is still in the addressed state). So:
+ *   1. read the other configurations ourselves and find an ECM/NCM function;
+ *   2. SET_CONFIGURATION on the device;
+ *   3. overwrite the library's cached copy of the active configuration (the
+ *      buffer usb_host_get_active_config_descriptor() points at, which the
+ *      library parses on every interface claim/release) with a 32-byte
+ *      configuration that lists only the function's data interface and its
+ *      two bulk endpoints -- it always fits, a vendor configuration with a
+ *      bulk pair is at least that long;
+ *   4. claim that data interface: exactly two pipes.
+ * Nothing else in the library reads that buffer afterwards (it is freed
+ * with the device). The CDC control requests go to the control interface
+ * through EP0 and need no claim. No notification pipe: the ESP32-S3 has
+ * eight host channels (one per pipe, for the life of the device), and with
+ * a hub (2) and a stick (3) the adapter gets EP0 + two bulk = 3; the link is
+ * assumed up after USBETH_LINK_ASSUME_MS. */
+bool usbeth_attach_alt(void *client, void *dev, const uint8_t *active, size_t active_len,
+                       uint8_t num_configs, uint16_t vid, uint16_t pid)
+{
+    if (s_present || s_e.dev) return false;
+    if (num_configs < 2 || active_len < CDC_MIN_CONFIG_LEN) return false;
+    memset(&s_e, 0, sizeof(s_e));
+    s_e.client = (usb_host_client_handle_t)client;
+    s_e.dev    = (usb_device_handle_t)dev;
+    s_e.vid = vid; s_e.pid = pid;
+
+    static uint8_t cfgbuf[512];
+    uint8_t saved[CDC_MIN_CONFIG_LEN], synth[CDC_MIN_CONFIG_LEN];
+    for (uint8_t cv = 2; cv <= num_configs && cv <= 4; cv++) {
+        size_t got = 0;
+        if (ctrl_xfer(0x80, 0x06, (uint16_t)(0x0200 | (cv - 1)), 0, 9, cfgbuf, &got) != ESP_OK || got < 9) continue;
+        size_t total = (size_t)(cfgbuf[2] | (cfgbuf[3] << 8));
+        if (total < 9 || total > sizeof(cfgbuf)) continue;
+        if (ctrl_xfer(0x80, 0x06, (uint16_t)(0x0200 | (cv - 1)), 0, (uint16_t)total, cfgbuf, &got) != ESP_OK || got < total) continue;
+        cdc_eth_fn_t fn;
+        if (!cdc_find_eth_function(cfgbuf, total, &fn)) continue;
+        if (!cdc_build_min_config(&fn, cv, synth, sizeof(synth))) continue;
+
+        if (ctrl_xfer(0x00, 0x09, cv, 0, 0, NULL, NULL) != ESP_OK) {         /* SET_CONFIGURATION */
+            ESP_LOGW(TAG, "SET_CONFIGURATION(%u) failed", cv);
+            continue;
+        }
+        vTaskDelay(pdMS_TO_TICKS(20));
+        memcpy(saved, active, CDC_MIN_CONFIG_LEN);
+        memcpy((void *)active, synth, CDC_MIN_CONFIG_LEN);                   /* see the comment above */
+        s_e.fn = fn;
+        s_e.fn.ep_notify = 0;
+        s_e.alt_cfg = cv;
+        ESP_LOGI(TAG, "%04X:%04X: switched to configuration %u (%s), data interface %u alt %u",
+                 vid, pid, cv, fn.ncm ? "NCM" : "ECM", fn.data_intf, fn.data_alt);
+        if (!claim_host_intf(fn.data_intf, fn.data_alt)) {
+            osd_log("USB ETH: %04X:%04X CFG %u: NO HOST CHANNELS", vid, pid, cv);
+            goto fail;
+        }
+        if (!start_function()) goto fail;
+        return true;
+
+fail:
+        release_all();
+        memcpy((void *)active, saved, CDC_MIN_CONFIG_LEN);
+        ctrl_xfer(0x00, 0x09, 1, 0, 0, NULL, NULL);  /* back to the configuration the library believes in */
+        memset(&s_e, 0, sizeof(s_e));
+        return false;
+    }
     memset(&s_e, 0, sizeof(s_e));
     return false;
 }

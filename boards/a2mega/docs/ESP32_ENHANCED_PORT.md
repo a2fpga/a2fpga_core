@@ -117,7 +117,14 @@ chaddr/broadcast-flag fixups included), ingress unicast is rewritten back to
 the Apple II's SHAR. This is required because 802.11 STA links only pass the
 station's own MAC.
 
-### USB-Ethernet uplink (2026-11-17, built, not yet run on hardware)
+### USB-Ethernet uplink (2026-11-17; RTL8152B running on the a2p25 2026-11-18)
+
+Hardware result 2026-11-18 (a2p25, fw 0c0bf6fb, dock with stick, no HID
+dongle): `USB ETH: 0BDA:8152 ECM CFG 2 F4:4D:AD:07:36:0A`, `LINK UP
+(ASSUMED)`, `UTHERNET UPLINK: USB ETHERNET`, `USB ETH: IP 192.168.232.176`;
+from the LAN the wired address answers ping (1.9 ms), telnet, FTP (full
+stick listing) and port 2323 while the WiFi address stays up too. Apple II
+side (IP65 over the wire) still to be run.
 
 A USB-Ethernet adapter on USB1 (through the same hub/dock as the gamepad and
 stick) is a second uplink. `usbeth.c` is a generic **CDC-ECM / CDC-NCM host
@@ -138,14 +145,38 @@ adapter reports carrier, WiFi otherwise; only the active uplink delivers
 frames to the Apple II. The CLI's `net` shows the active uplink and the
 adapter's state.
 
-Limits: the ESP32-S3 OTG is **Full Speed** (adapters run at 12 Mbit/s with
-64-byte bulk packets — fine for the Apple II). The IDF host library in the
-Arduino libs enumerates **configuration 1 only** (the enumeration-filter
-callback is compiled out), so dual-configuration Realtek parts whose ECM
-function sits on configuration 2 (RTL8153/8156 behind a vendor config 1)
-are not reached; adapters whose first configuration is ECM or NCM are the
-target. The wired netif always uses DHCP (the static-IP setting applies to
-WiFi). Why generic class drivers rather than the BL616's vendor drivers:
+Limits and the two 2026-11-18 hardware findings:
+
+- **Eight host channels.** The ESP32-S3 OTG core has 8 host channels and
+  the IDF host library pins one to every pipe for the life of the device:
+  each device's EP0, each claimed endpoint, each hub's EP0 + status
+  interrupt. On the a2p25 dock that is hub 2 + USB stick 3 + the 4842
+  keyboard/remote dongle 3 = 8, so a USB-Ethernet adapter could not even get
+  its EP0 pipe: enumeration failed inside the library with no event to the
+  firmware (`HCD DWC: No more HCD channels available`). An adapter needs
+  EP0 + bulk IN + bulk OUT = 3, so **stick + Ethernet + a HID dongle do not
+  fit together**; the driver claims the data interface first and takes the
+  notification pipe only if a channel is left (otherwise the link is
+  assumed up after 3 s). IDF error lines are now mirrored into the OSD /
+  telnet console by `idf_log_tee.c` (the serial console is USB1, i.e. the
+  host port, so it is unreadable exactly when a dock is attached).
+- **Dual-configuration Realtek parts.** RTL8152B 0BDA:8152 (measured): cfg 1
+  = vendor FF/FF with bulk 0x81/0x02 + interrupt 0x83; cfg 2 = CDC-ECM on
+  the same bulk pair, iMACAddress 3. The library enumerates configuration 1
+  only (its enumeration filter is compiled out of the Arduino libs, and the
+  internal `usbh_dev_set_config_desc()` only works in the addressed state).
+  `usbeth_attach_alt()` reads the other configurations itself, sends
+  SET_CONFIGURATION, then overwrites the library's cached copy of the
+  active configuration (the buffer `usb_host_get_active_config_descriptor()`
+  returns, parsed on every claim/release) with a 32-byte stand-in that lists
+  only the ECM data interface and its two bulk endpoints
+  (`cdc_build_min_config()`), and claims that: exactly two pipes, no
+  endpoint-coincidence requirement, no notification pipe. Host-tested with
+  the captured RTL8152 descriptors.
+
+The ESP32-S3 OTG is **Full Speed** (adapters run at 12 Mbit/s with 64-byte
+bulk packets — fine for the Apple II). The wired netif always uses DHCP (the
+static-IP setting applies to WiFi). Why generic class drivers rather than the BL616's vendor drivers:
 the Enhanced's CDC-ECM failure was a CherryUSB host-side bulk-IN problem,
 not an ECM one, and the IDF bulk-IN path is proven by mass storage.
 

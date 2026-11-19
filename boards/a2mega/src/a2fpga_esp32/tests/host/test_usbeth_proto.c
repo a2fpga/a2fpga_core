@@ -171,6 +171,56 @@ static void test_ntb_parse_robust(void)
     CHECK(ncm_ntb16_parse(ntb, 8, dgram_cb, NULL) == 0);
 }
 
+
+/* The RTL8152B (0BDA:8152, bcdDevice 0x2000) exactly as read from the part on
+ * 2026-11-18 at Full Speed (other-speed descriptors, MPS 64): configuration 1
+ * = vendor interface with bulk 0x81/0x02 + interrupt 0x83 (MPS 2);
+ * configuration 2 = CDC-ECM, iMACAddress 3, data alt 1 on the same bulk
+ * endpoints, interrupt 0x83 with MPS 16. */
+static const uint8_t rtl8152_cfg1[] = {
+    0x09,0x02,0x27,0x00,0x01,0x01,0x00,0xa0,0x32,
+    0x09,0x04,0x00,0x00,0x03,0xff,0xff,0x00,0x00,
+    0x07,0x05,0x81,0x02,0x40,0x00,0x00,
+    0x07,0x05,0x02,0x02,0x40,0x00,0x00,
+    0x07,0x05,0x83,0x03,0x02,0x00,0x08 };
+static const uint8_t rtl8152_cfg2[] = {
+    0x09,0x02,0x50,0x00,0x02,0x02,0x00,0xa0,0x32,
+    0x09,0x04,0x00,0x00,0x01,0x02,0x06,0x00,0x05,
+    0x05,0x24,0x00,0x10,0x01,
+    0x05,0x24,0x06,0x00,0x01,
+    0x0d,0x24,0x0f,0x03,0x00,0x00,0x00,0x00,0xea,0x05,0x00,0x00,0x00,
+    0x07,0x05,0x83,0x03,0x10,0x00,0x08,
+    0x09,0x04,0x01,0x00,0x00,0x0a,0x00,0x00,0x00,
+    0x09,0x04,0x01,0x01,0x02,0x0a,0x00,0x00,0x04,
+    0x07,0x05,0x81,0x02,0x40,0x00,0x00,
+    0x07,0x05,0x02,0x02,0x40,0x00,0x00 };
+
+static void test_rtl8152_alt_config(void)
+{
+    cdc_eth_fn_t fn;
+    /* configuration 1 has no CDC Ethernet function at all */
+    CHECK(!cdc_find_eth_function(rtl8152_cfg1, sizeof(rtl8152_cfg1), &fn));
+    /* configuration 2 has one: ECM on interface 0, data interface 1 alt 1 */
+    CHECK(cdc_find_eth_function(rtl8152_cfg2, sizeof(rtl8152_cfg2), &fn));
+    CHECK(!fn.ncm && fn.ctrl_intf == 0 && fn.data_intf == 1 && fn.data_alt == 1);
+    CHECK(fn.ep_in == 0x81 && fn.ep_out == 0x02 && fn.mps_in == 64 && fn.mps_out == 64);
+    CHECK(fn.ep_notify == 0x83 && fn.mps_notify == 16 && fn.imac == 3 && fn.max_seg == 1514);
+    /* the 32-byte stand-in configuration the driver writes over the host
+     * library's cached configuration 1: data interface 1 alt 1 with the bulk
+     * pair, nothing else; it fits in configuration 1 (39 bytes) */
+    uint8_t synth[CDC_MIN_CONFIG_LEN + 4];
+    CHECK(cdc_build_min_config(&fn, 2, synth, sizeof(synth)) == CDC_MIN_CONFIG_LEN);
+    CHECK(CDC_MIN_CONFIG_LEN <= sizeof(rtl8152_cfg1));
+    CHECK(synth[0] == 9 && synth[1] == 0x02 && synth[2] == 32 && synth[3] == 0 && synth[4] == 2 && synth[5] == 2);
+    CHECK(synth[9] == 9 && synth[10] == 0x04 && synth[11] == 1 && synth[12] == 1 && synth[13] == 2 && synth[14] == 0x0a);
+    CHECK(synth[18] == 7 && synth[19] == 0x05 && synth[20] == 0x81 && synth[21] == 0x02 && synth[22] == 64 && synth[23] == 0);
+    CHECK(synth[25] == 7 && synth[26] == 0x05 && synth[27] == 0x02 && synth[28] == 0x02 && synth[29] == 64 && synth[30] == 0);
+    /* the walker reads the stand-in back as a plain data interface */
+    cdc_eth_fn_t back;
+    CHECK(!cdc_find_eth_function(synth, CDC_MIN_CONFIG_LEN, &back));      /* no control interface in it, by design */
+    CHECK(cdc_build_min_config(&fn, 2, synth, 16) == 0);
+}
+
 int main(void)
 {
     test_ecm_descriptor();
@@ -179,6 +229,7 @@ int main(void)
     test_ntb_params();
     test_ntb_roundtrip();
     test_ntb_parse_robust();
+    test_rtl8152_alt_config();
     if (fails) { printf("%d FAILED\n", fails); return 1; }
     printf("usbeth_proto: all tests passed\n");
     return 0;

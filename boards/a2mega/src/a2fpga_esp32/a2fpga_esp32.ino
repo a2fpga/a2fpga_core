@@ -43,6 +43,7 @@
 #include "fpga_link.h"
 #include "fpga_screen.h"
 #include "osd_console.h"
+#include "idf_log_tee.h"
 #include "usbhost.h"
 #include "usbstorage.h"
 #include "fwupdate.h"
@@ -1248,6 +1249,7 @@ extern "C" void viddbg_log(void)
 }
 
 void setup() {
+    idf_log_tee_init();               // IDF error lines (usb_host enumeration failures) reach the telnet console
     // NOTE: do NOT route the USB JTAG bridge here. It was tried (early
     // rescue window for the MSPI-hang state, board #1 2026-08-11) and it
     // broke the bridge for the rest of the boot: Serial.begin()'s

@@ -549,6 +549,15 @@ static void attach_device(uint8_t addr)
         f->kind = k; d->nin++;
     }
     osd_log("USB HOST: %04X:%04X [%s]", dd ? dd->idVendor : 0, dd ? dd->idProduct : 0, ifs);
+    if (d->nin == 0 && dd && dd->bNumConfigurations > 1) {
+        /* Nothing we drive in the active configuration: a dual-configuration
+         * Ethernet adapter (Realtek) keeps its CDC-ECM function in another one */
+        hintf *f = &d->in[0]; memset(f, 0, sizeof(*f)); f->dev = d; f->intf = 0;
+        if (usbeth_attach_alt(s_client, d->dev, (const uint8_t *)cfg, cfg->wTotalLength,
+                              dd->bNumConfigurations, dd->idVendor, dd->idProduct)) {
+            f->kind = DK_ETH; d->eth = true; d->nin = 1;
+        }
+    }
     if (d->nin == 0) goto drop;
     for (uint8_t n = 0; n < d->nin; n++) {
         hintf *f = &d->in[n];

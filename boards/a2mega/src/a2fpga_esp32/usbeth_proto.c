@@ -95,6 +95,39 @@ static int hexval(uint16_t c)
     return -1;
 }
 
+bool cdc_find_eth_function(const uint8_t *cfg, size_t len, cdc_eth_fn_t *out)
+{
+    size_t i = 0;
+    while (i + 2 <= len) {
+        uint8_t bl = cfg[i], bt = cfg[i + 1];
+        if (bl < 2 || i + bl > len) break;
+        if (bt == USB_DT_INTERFACE && bl >= 9 && cfg[i + 3] == 0 && cfg[i + 5] == USB_CLASS_CDC &&
+            (cfg[i + 6] == CDC_SUBCLASS_ECM || cfg[i + 6] == CDC_SUBCLASS_NCM)) {
+            cdc_eth_fn_t fn;
+            if (cdc_parse_eth_function(cfg, len, cfg[i + 2], &fn) && fn.data_found) { *out = fn; return true; }
+        }
+        i += bl;
+    }
+    memset(out, 0, sizeof(*out));
+    return false;
+}
+
+size_t cdc_build_min_config(const cdc_eth_fn_t *fn, uint8_t cfg_value, uint8_t *out, size_t cap)
+{
+    if (cap < CDC_MIN_CONFIG_LEN || !fn->data_found) return 0;
+    uint8_t *d = out;
+    /* configuration: bNumInterfaces must exceed the data interface number
+     * (usb_parse_interface_descriptor range-checks against it) */
+    *d++ = 9; *d++ = USB_DT_CONFIG; *d++ = CDC_MIN_CONFIG_LEN; *d++ = 0;
+    *d++ = (uint8_t)(fn->data_intf + 1); *d++ = cfg_value; *d++ = 0; *d++ = 0x80; *d++ = 50;
+    /* data interface, the alternate setting that carries the bulk pair */
+    *d++ = 9; *d++ = USB_DT_INTERFACE; *d++ = fn->data_intf; *d++ = fn->data_alt; *d++ = 2;
+    *d++ = USB_CLASS_CDC_DATA; *d++ = 0; *d++ = 0; *d++ = 0;
+    *d++ = 7; *d++ = USB_DT_ENDPOINT; *d++ = fn->ep_in;  *d++ = 0x02; *d++ = (uint8_t)fn->mps_in;  *d++ = (uint8_t)(fn->mps_in >> 8);  *d++ = 0;
+    *d++ = 7; *d++ = USB_DT_ENDPOINT; *d++ = fn->ep_out; *d++ = 0x02; *d++ = (uint8_t)fn->mps_out; *d++ = (uint8_t)(fn->mps_out >> 8); *d++ = 0;
+    return (size_t)(d - out);
+}
+
 bool cdc_parse_mac_string(const uint8_t *desc, size_t len, uint8_t mac[6])
 {
     if (len < 2 || desc[1] != 0x03) return false;

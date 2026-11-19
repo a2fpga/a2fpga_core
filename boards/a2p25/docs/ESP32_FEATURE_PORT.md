@@ -41,7 +41,7 @@ first slice that was already ported.
 | WS2812 MCU-liveness LED | n/a (LED0 heartbeat, LED1 = HPD) | drop |
 | Standalone fallback (no MCU) | present in the connector | keep |
 | USB enumeration supervisor, SD tunnel | n/a (no SD) | drop |
-| RTL8152/CDC-ECM/ASIX USB-Ethernet uplink | **generic CDC-ECM/NCM host driver** (`usbeth.c`, 2026-11-17) on USB1 as a second Uthernet II uplink beside WiFi; built, hardware test pending | see `../../a2mega/docs/ESP32_ENHANCED_PORT.md` § USB-Ethernet uplink |
+| RTL8152/CDC-ECM/ASIX USB-Ethernet uplink | **generic CDC-ECM/NCM host driver** (`usbeth.c`, 2026-11-17) on USB1 as a second Uthernet II uplink beside WiFi; built 11-17, RTL8152B running on the a2p25 11-18 | see `../../a2mega/docs/ESP32_ENHANCED_PORT.md` § USB-Ethernet uplink **Hardware 2026-11-18: RTL8152B (0BDA:8152) runs as CDC-ECM on its configuration 2 (`usbeth_attach_alt`), wired DHCP lease, telnet/FTP over the wire; needs 3 of the ESP32-S3's 8 host channels, so stick + Ethernet leaves no room for a HID dongle.** |
 
 ## 3. Proposed order
 

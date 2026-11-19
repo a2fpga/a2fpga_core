@@ -17,6 +17,7 @@ extern "C" {
 #endif
 
 /* ---- descriptor constants -------------------------------------------- */
+#define USB_DT_CONFIG           0x02
 #define USB_DT_INTERFACE        0x04
 #define USB_DT_ENDPOINT         0x05
 #define USB_DT_CS_INTERFACE     0x24
@@ -68,6 +69,24 @@ typedef struct {
  * out->valid. Tolerates missing Union descriptors (data interface assumed
  * to be ctrl_intf + 1, as every real adapter does). */
 bool cdc_parse_eth_function(const uint8_t *cfg, size_t len, uint8_t ctrl_intf, cdc_eth_fn_t *out);
+
+/* Scan a whole configuration descriptor for its first CDC Ethernet (ECM or
+ * NCM) function with a usable bulk pair. Used on configurations other than
+ * the active one (dual-configuration adapters such as the Realtek RTL8152/
+ * RTL8153, whose configuration 1 is vendor-specific and configuration 2 is
+ * CDC-ECM). Returns false if the configuration has none. */
+bool cdc_find_eth_function(const uint8_t *cfg, size_t len, cdc_eth_fn_t *out);
+
+/* Build the smallest configuration descriptor that still describes the
+ * function's data interface: configuration header, the data interface's
+ * alternate setting with its bulk IN and bulk OUT endpoints, nothing else
+ * (32 bytes). usbeth.c writes it over the host library's cached copy of the
+ * active configuration (which it parses on every interface claim) so that a
+ * claim of (data_intf, data_alt) allocates exactly two pipes -- the ESP32-S3
+ * has eight host channels in all, one per pipe. Returns the length written
+ * (CDC_MIN_CONFIG_LEN), 0 if cap is too small. */
+#define CDC_MIN_CONFIG_LEN 32
+size_t cdc_build_min_config(const cdc_eth_fn_t *fn, uint8_t cfg_value, uint8_t *out, size_t cap);
 
 /* Decode an ECM iMACAddress string descriptor (bLength, 0x03, 12 UTF-16LE
  * hex digits) into 6 bytes. Returns false if malformed or all-zero. */

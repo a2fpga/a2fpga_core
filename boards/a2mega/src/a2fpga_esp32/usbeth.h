@@ -10,8 +10,15 @@
  * drivers are the compatibility play: any adapter whose configuration 1 is
  * ECM or NCM works without knowing the chip. The IDF host library only
  * enumerates configuration 1 (the enum-filter callback is compiled out of
- * the Arduino libs), so dual-configuration Realtek parts that put ECM on
- * configuration 2 are NOT reached by this driver -- see docs.
+ * the Arduino libs); dual-configuration Realtek parts that put ECM on
+ * configuration 2 are reached by usbeth_attach_alt(), which switches the
+ * device itself and hands the library a stand-in descriptor -- see usbeth.c.
+ *
+ * Channel budget: the ESP32-S3 has eight host channels, one per pipe for
+ * the life of a device (EP0 included). Hub 2 + USB stick 3 leave three: EP0
+ * and the two bulk pipes. The notification pipe is claimed only when a
+ * channel is left; a HID dongle (3) cannot share the dock with stick +
+ * Ethernet.
  *
  * Frame path (mirrors wifi_bridge.c so w5100.c sees the same contract):
  *   - Apple II -> wire: w5100 SEND -> net_uplink -> usbeth_tx(): egress MAC
@@ -51,6 +58,15 @@ extern "C" {
  * header C-clean). One adapter at a time; a second attach is refused. */
 bool usbeth_attach(void *client, void *dev, const uint8_t *cfg, size_t cfg_len,
                    uint8_t ctrl_intf, uint16_t vid, uint16_t pid);
+/* The active configuration has no CDC Ethernet function but the device has
+ * `num_configs` configurations: look for one in the others and switch the
+ * device to it (Realtek RTL8152/RTL8153: configuration 2 is CDC-ECM).
+ * `active` MUST be the pointer usb_host_get_active_config_descriptor()
+ * returned (the library's own buffer, rewritten in place; see usbeth.c).
+ * Call only when nothing else on the device was claimed. Returns true when
+ * the adapter is running. */
+bool usbeth_attach_alt(void *client, void *dev, const uint8_t *active, size_t active_len,
+                       uint8_t num_configs, uint16_t vid, uint16_t pid);
 /* Device gone (or being dropped): release interfaces, free transfers, take
  * the netif down. Safe to call for a device that was never attached. */
 void usbeth_detach(void *dev);
