@@ -659,14 +659,25 @@ int usbhost_list(usbhost_devinfo_t *out, int max)
         }
         const usb_config_desc_t *cfg = NULL;
         if (!o->kind[0] && usb_host_get_active_config_descriptor(h, &cfg) == ESP_OK && cfg) {
+            /* Composite devices (the remote dongle is audio + HID): name the
+             * device after the interface we would serve, not the first one. */
             char classes[14] = "";
-            for (uint8_t k = 0; k < cfg->bNumInterfaces && !o->kind[0]; k++) {
+            int best = 0;
+            for (uint8_t k = 0; k < cfg->bNumInterfaces; k++) {
                 int off = 0;
                 const usb_intf_desc_t *id = usb_parse_interface_descriptor(cfg, k, 0, &off);
                 if (!id) continue;
                 const char *kd = intf_kind(id->bInterfaceClass, id->bInterfaceSubClass, id->bInterfaceProtocol);
-                if (kd) snprintf(o->kind, sizeof(o->kind), "%s", kd);
-                else if (!classes[0]) snprintf(classes, sizeof(classes), "CLASS %02X", id->bInterfaceClass);
+                if (!kd) { if (!classes[0]) snprintf(classes, sizeof(classes), "CLASS %02X", id->bInterfaceClass); continue; }
+                int rank = 1;
+                switch (id->bInterfaceClass) {
+                case 0x08: rank = 5; break;                          /* storage */
+                case 0x03: rank = 4; break;                          /* HID */
+                case 0xFF: rank = (id->bInterfaceSubClass == 0x5D) ? 4 : 1; break; /* XInput */
+                case 0x02: rank = 3; break;                          /* CDC / Ethernet */
+                default:   rank = 2; break;
+                }
+                if (rank > best) { best = rank; snprintf(o->kind, sizeof(o->kind), "%s", kd); }
             }
             if (!o->kind[0]) snprintf(o->kind, sizeof(o->kind), "%s", classes[0] ? classes : "NO INTERFACE");
         }
