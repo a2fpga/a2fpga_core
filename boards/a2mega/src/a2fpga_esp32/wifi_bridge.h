@@ -75,6 +75,7 @@ void wifi_bridge_apple_counts(uint32_t *rx, uint32_t *tx);
 const char *net_ssid(void);      /* configured SSID ("" before init) */
 bool        net_connected(void); /* associated AND got a DHCP lease */
 uint32_t    net_ip(void);        /* ESP32's own IPv4, network byte order; 0 if none */
+int         net_rssi(void);      /* RSSI of the associated AP in dBm (negative); 0 if not associated */
 
 /* ---- pure frame-fixup helpers (unit-testable, no ESP dependencies) ----
  * Both rewrite in place and return true if anything changed. `len` is the

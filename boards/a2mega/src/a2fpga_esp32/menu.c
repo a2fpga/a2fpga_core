@@ -837,6 +837,20 @@ static void net_build(void)
         mi_add(MI_INFO, l, "");
     }
     {
+        /* signal strength: an Apple II case is a shielded box, and whether
+         * WiFi gets in (it does, via the back-panel openings) is worth seeing */
+        int rssi = net_rssi();
+        if (net_connected() && rssi) {
+            const char *q = rssi > -50 ? "EXCELLENT" : rssi > -60 ? "GOOD" :
+                            rssi > -70 ? "FAIR"      : rssi > -80 ? "WEAK" : "POOR";
+            char l[MENU_LABEL_LEN + 1];
+            snprintf(l, sizeof(l), "SIGNAL %d DBM (%s)", rssi, q);
+            mi_add(MI_INFO, l, "");
+        } else {
+            mi_add(MI_INFO, "SIGNAL -", "");
+        }
+    }
+    {
         /* in the label: a 15-character address does not fit the value column */
         uint32_t ip = net_ip();
         char l[MENU_LABEL_LEN + 1];

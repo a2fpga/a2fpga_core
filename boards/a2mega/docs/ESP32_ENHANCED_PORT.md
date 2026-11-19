@@ -151,6 +151,10 @@ adapter's state; the OSD **NETWORK** page (also over the telnet menu mirror)
 shows `UTHERNET UPLINK`, the adapter's MAC/link/IP and the Apple II frame
 counters per uplink (`USB A2 FRAMES RX/TX`, `WIFI A2 FRAMES RX/TX`) with a
 REFRESH item, so "did that go over the wire?" is answerable on screen. The
+page's WiFi block also shows `SIGNAL <rssi> DBM (EXCELLENT|GOOD|FAIR|WEAK|POOR)`
+for the associated AP (`net_rssi()`), since an Apple II case is a shielded
+box and how much WiFi gets in through the back-panel openings is worth
+seeing. The
 console logs `UTHERNET UPLINK: ...` whenever the choice changes. Caveat: on
 adapters without a usable notification pipe (Realtek, see below) a pulled
 cable is not detected, so the Apple II stays on the wire instead of falling

@@ -460,3 +460,10 @@ bool wifi_bridge_init(const char *ssid, const char *psk)
 const char *net_ssid(void)   { return s_ssid; }
 bool net_connected(void)     { return s_link_up && (s_got_ip || s_static_applied); }
 uint32_t net_ip(void)        { return s_ip; }
+int net_rssi(void)
+{
+    wifi_ap_record_t ap;
+    if (!s_started || !s_link_up) return 0;
+    if (esp_wifi_sta_get_ap_info(&ap) != ESP_OK) return 0;
+    return ap.rssi;                      /* dBm, negative; 0 = unknown */
+}
