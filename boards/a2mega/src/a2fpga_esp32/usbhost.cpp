@@ -637,8 +637,13 @@ int usbhost_list(usbhost_devinfo_t *out, int max)
     if (usb_host_device_addr_list_fill(8, addrs, &num) != ESP_OK) return 0;
     int n = 0;
     for (int i = 0; i < num && n < max; i++) {
+        /* A device our worker already serves is open on s_client, and the
+         * host library refuses a second open by the same client: reuse the
+         * worker's handle for those and only open (and later close) the rest. */
         usb_device_handle_t h = NULL;
-        if (usb_host_device_open(s_client, addrs[i], &h) != ESP_OK) continue;
+        bool ours = false;
+        for (auto &d : s_devs) if (d.dev && d.addr == addrs[i]) { h = d.dev; ours = true; break; }
+        if (!ours && usb_host_device_open(s_client, addrs[i], &h) != ESP_OK) continue;
         usbhost_devinfo_t *o = &out[n];
         memset(o, 0, sizeof(*o));
         o->addr = addrs[i];
@@ -667,7 +672,7 @@ int usbhost_list(usbhost_devinfo_t *out, int max)
         }
         if (!o->kind[0]) strcpy(o->kind, "UNKNOWN");
         for (auto &d : s_devs) if (d.dev && d.addr == o->addr && d.nin) o->served = true;
-        usb_host_device_close(s_client, h);
+        if (!ours) usb_host_device_close(s_client, h);
         n++;
     }
     return n;
