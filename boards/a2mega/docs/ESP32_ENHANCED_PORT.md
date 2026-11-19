@@ -124,7 +124,11 @@ dongle): `USB ETH: 0BDA:8152 ECM CFG 2 F4:4D:AD:07:36:0A`, `LINK UP
 (ASSUMED)`, `UTHERNET UPLINK: USB ETHERNET`, `USB ETH: IP 192.168.232.176`;
 from the LAN the wired address answers ping (1.9 ms), telnet, FTP (full
 stick listing) and port 2323 while the WiFi address stays up too. Apple II
-side (IP65 over the wire) still to be run.
+side confirmed the same evening: IP65 DATE65 on the IIgs got its DHCP lease
+and the time over the wire; the NETWORK page afterwards read `USB A2 FRAMES
+RX/TX 576/6`, `WIFI A2 FRAMES RX/TX 0/0` (the 576 are LAN broadcasts copied
+to the Apple II while MACRAW was open). The remote dongle has to be out of
+the dock for this (channel budget, above).
 
 A USB-Ethernet adapter on USB1 (through the same hub/dock as the gamepad and
 stick) is a second uplink. `usbeth.c` is a generic **CDC-ECM / CDC-NCM host
