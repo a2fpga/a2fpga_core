@@ -126,6 +126,7 @@ static int                   s_ds;                   /* discovery step */
 static int                   s_ds_idx;
 static uint8_t               s_rmap[RMAP_MAX];
 static uint16_t              s_rmap_len;
+static bool                  s_raw_log;     /* `ble raw on`: log every input report */
 static hid_report_map_t      s_map;
 static char                  s_live_name[NAME_LEN];  /* GAP device name read on the link */
 
@@ -691,12 +692,28 @@ static int gap_event(struct ble_gap_event *ev, void *arg)
         uint8_t d[32]; uint16_t n = OS_MBUF_PKTLEN(ev->notify_rx.om);
         if (n > sizeof(d)) n = sizeof(d);
         os_mbuf_copydata(ev->notify_rx.om, 0, n, d);
+        uint16_t prev_bits = c->bits;
         if (c->uuid16 == UUID_BOOT_KBD_IN || s_map.nf == 0) {
             /* boot keyboard layout, or no usable map: best effort */
             c->bits = (n >= 8) ? hid_decode_boot_kbd(d, n)
                     : (n >= 2) ? hid_map_consumer_usage((uint16_t)d[0] | ((uint16_t)d[1] << 8)) : 0;
         } else {
             c->bits = hid_decode_report(&s_map, c->rid, d, n);
+        }
+        if (s_raw_log) {
+            /* OSD lines are 40 columns: "RX4 0011223344556677 >123" fits. A
+             * pointer report (no key/usage array) streams continuously, so
+             * log it only when its decoded buttons change. */
+            bool arr = false;
+            for (int i = 0; i < s_map.nf; i++)
+                if (s_map.f[i].rid == c->rid && (s_map.f[i].kind == HF_KBD_ARRAY || s_map.f[i].kind == HF_CONSUMER_ARRAY))
+                    arr = true;
+            if (arr || c->bits != prev_bits || c->uuid16 == UUID_BOOT_KBD_IN) {
+                char hx[2 * 11 + 3] = "", *w = hx;
+                for (int i = 0; i < n && i < 11; i++) w += sprintf(w, "%02X", d[i]);
+                if (n > 11) strcpy(w, "..");
+                osd_log("RX%u %s >%03X", c->rid, hx, c->bits);
+            }
         }
         buttons_recompute();
         return 0;
@@ -979,7 +996,7 @@ void ble_hid_forget(void)
 /* ---- console ------------------------------------------------------------------------- */
 void ble_hid_console(int argc, const char *const *argv, void (*out)(void *ctx, const char *line), void *ctx)
 {
-    char b[96];
+    char b[128];
     const char *sub = argc >= 2 ? argv[1] : "status";
     if (!strcmp(sub, "status")) {
         char a[18]; ble_hid_peer_addr_str(a, sizeof(a));
@@ -1007,6 +1024,35 @@ void ble_hid_console(int argc, const char *const *argv, void (*out)(void *ctx, c
         out(ctx, b);
         return;
     }
+    if (!strcmp(sub, "raw")) {
+        const char *v = argc >= 3 ? argv[2] : "";
+        if (!strcmp(v, "on")) s_raw_log = true; else if (!strcmp(v, "off")) s_raw_log = false;
+        snprintf(b, sizeof(b), "ble: raw report log %s (OSD/telnet status lines)", s_raw_log ? "ON" : "OFF");
+        out(ctx, b);
+        return;
+    }
+    if (!strcmp(sub, "map")) {
+        static const char *const kn[] = { "KBD-ARRAY", "CONS-ARRAY", "CONS-BITS", "BUTTONS", "HAT", "AXIS-X", "AXIS-Y" };
+        snprintf(b, sizeof(b), "ble: report map %u B -> %u fields (kbd %d consumer %d pad %d)",
+                 s_rmap_len, s_map.nf, s_map.has_kbd, s_map.has_consumer, s_map.has_pad);
+        out(ctx, b);
+        for (int i = 0; i < s_map.nf; i++) {
+            const hid_field_t *f = &s_map.f[i];
+            int w = snprintf(b, sizeof(b), "  rid %u %-10s bit %3u x%u n%u", f->rid,
+                             f->kind < 7 ? kn[f->kind] : "?", f->bit_off, f->bit_size, f->count);
+            if (f->kind == HF_BUTTONS) snprintf(b + w, sizeof(b) - w, " from btn %u", f->usage_min);
+            if (f->kind == HF_CONSUMER_BITS)
+                for (int u = 0; u < f->nusages && w < (int)sizeof(b) - 6; u++)
+                    w += snprintf(b + w, sizeof(b) - w, " %X", f->usages[u]);
+            out(ctx, b);
+        }
+        for (int i = 0; i < s_nchr; i++) {
+            snprintf(b, sizeof(b), "  chr H%04X uuid %04X rid %u type %u cccd H%04X bits %03X", s_chr[i].val_handle,
+                     s_chr[i].uuid16, s_chr[i].rid, s_chr[i].rtype, s_chr[i].cccd_handle, s_chr[i].bits);
+            out(ctx, b);
+        }
+        return;
+    }
     if (!strcmp(sub, "pair"))   { ble_hid_pair_begin();  out(ctx, s_msg); return; }
     if (!strcmp(sub, "cancel")) { ble_hid_pair_cancel(); out(ctx, s_msg); return; }
     if (!strcmp(sub, "forget")) { ble_hid_forget();      out(ctx, s_msg); return; }
@@ -1031,7 +1077,7 @@ void ble_hid_console(int argc, const char *const *argv, void (*out)(void *ctx, c
         out(ctx, s_msg);
         return;
     }
-    out(ctx, "ble [status|pair|cancel|list|connect <n>|forget|radio on|off]");
+    out(ctx, "ble [status|pair|cancel|list|connect <n>|forget|radio on|off|map|raw on|off]");
 }
 
 #else  /* !A2MEGA_HAS_OSPI_LINK: dp_test builds carry no menu/pad path */

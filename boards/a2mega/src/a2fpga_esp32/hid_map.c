@@ -211,6 +211,7 @@ bool hid_parse_report_map(const uint8_t *d, uint32_t len, hid_report_map_t *out)
                 uint32_t total = (uint32_t)rsize * rcount;
                 bool is_const = (val & 0x01) != 0;
                 bool is_var   = (val & 0x02) != 0;
+                bool is_rel   = (val & 0x04) != 0;   /* mouse deltas, not stick positions */
                 if (!is_const && c && rsize && rcount) {
                     if (usage_page == 0x07 && !is_var && (rsize == 8 || rsize == 16)) {
                         if (field_new(out, rid, HF_KBD_ARRAY, bit_off, (uint8_t)rsize, (uint8_t)rcount))
@@ -237,8 +238,10 @@ bool hid_parse_report_map(const uint8_t *d, uint32_t len, hid_report_map_t *out)
                             if (nb > rcount) nb = rcount;
                             if (nb > out->nbuttons) out->nbuttons = (uint8_t)(nb > 255 ? 255 : nb);
                         }
-                    } else if (usage_page == 0x01 && is_var) {
-                        /* one field per element: X/Y/hat picked by usage order */
+                    } else if (usage_page == 0x01 && is_var && !is_rel) {
+                        /* one field per element: X/Y/hat picked by usage order.
+                         * Relative X/Y (air mouse, trackpad) carry no direction
+                         * the menu could use and would fire L/R/U/D on a flick. */
                         for (uint16_t e = 0; e < rcount; e++) {
                             uint16_t u = nus ? usages[e < nus ? e : nus - 1]
                                              : (have_min ? (uint16_t)(usage_min + e) : 0);
