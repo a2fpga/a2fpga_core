@@ -83,8 +83,18 @@ no media). Changes in the follow-up build the same evening:
 The follow-up build went onto the a2p25 over USB the same night (Mac on
 USB1): BLE host up after the disk release, internal free 64,268 B (total
 274,068 B, the PSRAM moves also shrank `.bss`), PSRAM 2,021,640 B free.
-Whether the stick behind the hub now enumerates is checked next, with the
-hub back on USB1.
+With the hub back on USB1 the stick enumerated, mounted and the Apple II
+booted from it (the regression is closed), the dongle remote was served
+too, and `BLE UP: INT HEAP 97532 -> 33320` followed once the disk task had
+released the reset. Steady state with stick + remote + BLE: 33 KB internal
+free, 24.5 KB largest block, 32.7 KB minimum ever. Tight but working; the
+heap-diet candidates above are the lever. The build after that (6f306f53,
+04b08ffc) fixed the USB DEVICES list: a device our own client already has
+open cannot be opened a second time (`usb_host_device_open` refuses), so
+served devices now reuse the worker's handle, and a composite device is
+named after the interface we serve rather than the first one (the remote
+dongle is audio + HID). That build went on over the air from the stick via
+FIRMWARE → UPDATE MCU, which also exercised the min_spiffs OTA path.
 
 Still owed: confirm the stick enumerates with that build, pair an actual
 device, WiFi-bridge throughput with BLE connected, passkey display for
