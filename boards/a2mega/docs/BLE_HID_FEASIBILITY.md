@@ -43,11 +43,27 @@ Phases 0–2 of §7 are written and build; **nothing has run on hardware yet**
 - Console: `ble [pair|cancel|list|connect <n>|forget]` on the serial CLI and
   in telnet line mode (`ESP32_CONSOLE.md`).
 
-First hardware pass (gate 0 of §6): `meminfo` before/after — `ble_hid_start()`
-logs `BLE: HOST UP, INTERNAL HEAP a -> b` to the OSD console — then pair the
-4842 remote's BLE equivalent / a BLE keyboard / an Xbox pad and watch
-`ble status`. Open items after that: passkey display for MITM-only keyboards
-(none seen yet), the WiFi-bridge throughput check with BLE connected.
+**First hardware pass, a2p25 (2026-11-19 evening, commit abff4cd3 + the OSD
+line fix):** one USB `make BOARD_REV=225 upload` rewrote the table; the card
+came back on `app0` with its WiFi credentials and slot map intact (NVS
+survived), FPGA link up, DDR3 calibrated, `BLE: READY, NO DEVICE PAIRED`.
+`ble pair` scanned and `ble cancel` returned to idle with no heap movement.
+Gate 0 numbers (`meminfo`, steady state after boot, Mac on USB1 so no stick):
+
+| | internal free | internal total |
+|---|---|---|
+| before (Nov 18 firmware) | 111,660 B | 256,684 B |
+| after (BLE host up) | 32,860 B | 242,628 B |
+
+So the BLE host costs ~79 KB of internal RAM: ~14 KB taken statically by the
+controller plus ~55 KB allocated at `ble_hid_start()` (OSD line `BLE UP: INT
+HEAP 109812 -> 5xxxx`). 32 KB free internal is **tight** and is the next
+thing to work on: the 2 MB PSRAM sits 98 % idle, so the firmware's own large
+buffers (disk track buffers, telnet tee, FTP, OSD text) can move to
+`heap_caps_malloc(MALLOC_CAP_SPIRAM)`, and the WiFi dynamic buffer counts in
+`wifi_init_config_t` can come down. Not yet done: pairing an actual device
+(needs one in pairing mode), the menu on the Apple II display, WiFi-bridge
+throughput with BLE connected, passkey display for MITM-only keyboards.
 
 ## 1. Why
 

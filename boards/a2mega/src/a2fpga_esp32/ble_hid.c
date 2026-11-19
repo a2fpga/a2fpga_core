@@ -790,7 +790,8 @@ void ble_hid_start(void)
 
     vTaskDelay(pdMS_TO_TICKS(50));     /* let the controller settle for the heap figure */
     size_t heap1 = heap_caps_get_free_size(MALLOC_CAP_INTERNAL);
-    osd_log("BLE: HOST UP, INTERNAL HEAP %u -> %u", (unsigned)heap0, (unsigned)heap1);
+    /* 40-column OSD: keep the line short or the second figure is clipped */
+    osd_log("BLE UP: INT HEAP %u -> %u", (unsigned)heap0, (unsigned)heap1);
     ESP_LOGI(TAG, "nimble up; internal heap %u -> %u (-%u)", (unsigned)heap0, (unsigned)heap1,
              (unsigned)(heap0 - heap1));
 }
