@@ -54,6 +54,7 @@ Gate 0 numbers (`meminfo`, steady state after boot, Mac on USB1 so no stick):
 |---|---|---|
 | before (Nov 18 firmware) | 111,660 B | 256,684 B |
 | after (BLE host up) | 32,860 B | 242,628 B |
+| follow-up build 820c11e3 (BLE up, ~31 KB moved to PSRAM) | 64,268 B | 274,068 B |
 
 So the BLE host costs ~79 KB of internal RAM: ~14 KB taken statically by the
 controller plus ~55 KB allocated at `ble_hid_start()` (OSD line `BLE UP: INT
@@ -78,6 +79,12 @@ no media). Changes in the follow-up build the same evening:
 - telnet `meminfo` (free / largest block / minimum ever) and a top-level
   **USB DEVICES** screen + `usb` command listing every enumerated device,
   so the stick question is answered at a glance.
+
+The follow-up build went onto the a2p25 over USB the same night (Mac on
+USB1): BLE host up after the disk release, internal free 64,268 B (total
+274,068 B, the PSRAM moves also shrank `.bss`), PSRAM 2,021,640 B free.
+Whether the stick behind the hub now enumerates is checked next, with the
+hub back on USB1.
 
 Still owed: confirm the stick enumerates with that build, pair an actual
 device, WiFi-bridge throughput with BLE connected, passkey display for
