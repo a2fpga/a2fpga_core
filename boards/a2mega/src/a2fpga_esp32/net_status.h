@@ -25,6 +25,11 @@ bool net_connected(void);
  * order, i.e. octets are ip&0xFF . ip>>8 . ip>>16 . ip>>24). 0 = none. */
 uint32_t net_ip(void);
 
+/* RSSI of the associated AP in dBm (negative, e.g. -62); 0 when not
+ * associated. Rough scale: > -50 excellent, > -60 good, > -70 fair,
+ * > -80 weak, below that poor. */
+int net_rssi(void);
+
 #ifdef __cplusplus
 }
 #endif

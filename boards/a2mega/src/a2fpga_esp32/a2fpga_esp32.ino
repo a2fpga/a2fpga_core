@@ -43,6 +43,7 @@
 #include "fpga_link.h"
 #include "fpga_screen.h"
 #include "osd_console.h"
+#include "idf_log_tee.h"
 #include "usbhost.h"
 #include "usbstorage.h"
 #include "fwupdate.h"
@@ -53,6 +54,8 @@
 #include "menu.h"
 #include "w5100.h"
 #include "wifi_bridge.h"
+#include "usbeth.h"
+#include "net_uplink.h"
 #include "fpga_jtag.h"
 #include "fpgaupdate.h"
 #include "fpgastream.h"
@@ -139,6 +142,21 @@ extern "C" void a2_reset_hold_release(const char *why) { (void)why; }
 bool usb_was_connected = false;
 static bool sd_mounted = false;
 static bool subsystems_up = false;
+
+// The TCP servers (FTP, telnet console, port-2323 bitstream streaming) bind
+// to every interface, so they start once, when the first uplink brings up
+// the IP stack: WiFi at init, or a USB-Ethernet adapter getting a lease
+// (loop() polls for that). lwIP must exist first — calling sockets before
+// the stack is up asserts in xQueueSemaphoreTake (found the hard way 08-18).
+static bool net_services_started = false;
+static void start_network_services() {
+    if (net_services_started)
+        return;
+    net_services_started = true;
+    ftpd_init();        /* FTP file drop for the image volume */
+    telnetd_init();     /* remote console/menu mirror on port 23 */
+    fpgastream_start(); /* network bitstream flashing (port 2323, bench) */
+}
 static bool network_up = false;
 static TaskHandle_t disk_task_h = NULL;
 static TaskHandle_t menu_task_h = NULL;
@@ -417,9 +435,7 @@ static void cmd_process(String cmd) {
                 if (wifi_bridge_init(s->wifi_ssid, s->wifi_psk)) {
                     osd_log("WIFI: JOINING %s (%s)", s->wifi_ssid,
                             s->dhcp_enable ? "DHCP" : "STATIC IP");
-                    ftpd_init();
-                    telnetd_init();
-                    fpgastream_start();  /* see start_network() note */
+                    start_network_services();
                 } else {
                     Serial.println("wifi: bridge init failed");
                 }
@@ -429,6 +445,12 @@ static void cmd_process(String cmd) {
         }
 
     } else if (cmd == "net") {
+        Serial.printf("Uthernet II uplink: %s\n", net_uplink_name());
+        {
+            char eb[200];
+            usbeth_status(eb, sizeof(eb));
+            Serial.println(eb);
+        }
         wifi_ap_record_t ap;
         if (esp_wifi_sta_get_ap_info(&ap) == ESP_OK)
             Serial.printf("WiFi: associated to %s  RSSI %d\n", (const char*)ap.ssid, ap.rssi);
@@ -834,7 +856,7 @@ static void cmd_process(String cmd) {
         Serial.println("  meminfo   - Show memory usage");
         Serial.println("  pins      - Show pin assignments");
         Serial.println("  wifi [<ssid> [psk]] - Show/set WiFi credentials (NVS)");
-        Serial.println("  net       - Show WiFi/IP status");
+        Serial.println("  net       - Show uplink (WiFi / USB-Ethernet) and IP status");
 #if A2MEGA_HAS_USBC_PD
         Serial.println("  pd        - Show USB-C PD / DP Alt Mode status");
         Serial.println("  i2cscan   - List devices on the DP I2C bus");
@@ -1099,15 +1121,9 @@ static void start_network() {
         if (wifi_bridge_init(s->wifi_ssid, s->wifi_psk)) {
             osd_log("WIFI: JOINING %s (%s)", s->wifi_ssid,
                     s->dhcp_enable ? "DHCP" : "STATIC IP");
-            ftpd_init();     /* FTP file drop for /sdcard once WiFi is up */
-            telnetd_init();  /* remote console/menu mirror on port 23 */
-            /* Network bitstream flashing (port 2323, bench). Must NOT
-             * be FPGA-link-gated (bring-up bitstreams have no OSPI
-             * link) but MUST be behind wifi_bridge_init: calling
-             * lwIP sockets before the stack exists asserts in
-             * xQueueSemaphoreTake (fresh unprovisioned board, found
-             * the hard way 08-18). */
-            fpgastream_start();
+            /* Must NOT be FPGA-link-gated (bring-up bitstreams have no
+             * OSPI link) but MUST be behind wifi_bridge_init (lwIP exists). */
+            start_network_services();
         } else {
             osd_log("WIFI: INIT FAILED");
         }
@@ -1233,6 +1249,7 @@ extern "C" void viddbg_log(void)
 }
 
 void setup() {
+    idf_log_tee_init();               // IDF error lines (usb_host enumeration failures) reach the telnet console
     // NOTE: do NOT route the USB JTAG bridge here. It was tried (early
     // rescue window for the MSPI-hang state, board #1 2026-08-11) and it
     // broke the bridge for the rest of the boot: Serial.begin()'s
@@ -1388,10 +1405,16 @@ void loop() {
             start_subsystems();
         }
     } else {
-        // Network servicing (W5100 doorbells + WiFi uplink), same task.
+        // Network servicing (W5100 doorbells + the WiFi / USB-Ethernet
+        // uplinks), same task.
         w5100_poll();
-        wifi_bridge_poll();
+        net_uplink_poll();
     }
+
+    // A USB-Ethernet adapter brought up the IP stack on its own (no WiFi
+    // configured, or WiFi not yet joined): start the servers now.
+    if (!net_services_started && usbeth_got_ip())
+        start_network_services();
 
     // USB JTAG bridge: routed permanently in setup() (see note there).
     // Track connection state for the 'status' display only.

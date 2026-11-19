@@ -37,6 +37,9 @@
 #include "usbhost.h"
 #include "fwupdate.h"
 #include "audio_ctl.h"
+#include "net_uplink.h"
+#include "usbeth.h"
+#include "wifi_bridge.h"
 
 static const char *TAG = "menu";
 
@@ -785,9 +788,44 @@ static void fmt_ip(char *out, int cap, const uint8_t ip[4])
     snprintf(out, cap, "%d.%d.%d.%d", ip[0], ip[1], ip[2], ip[3]);
 }
 
+static void status_refresh(int id);
+
 static void net_build(void)
 {
     a2_settings_t *st = settings();
+    char v[MENU_VALUE_LEN + 8];
+
+    /* Which uplink carries the Apple II's (Uthernet II) frames right now,
+     * and how many have gone each way: the on-screen answer to "did that
+     * go over the wire or over WiFi?" */
+    mi_add(MI_INFO, "UTHERNET UPLINK", net_uplink_name());
+    {
+        uint32_t rx = 0, tx = 0;
+        usbeth_apple_counts(&rx, &tx);
+        if (usbeth_present()) {
+            uint8_t mac[6] = {0};
+            usbeth_mac(mac);
+            char l[MENU_LABEL_LEN + 1];
+            snprintf(l, sizeof(l), "USB ETH %02X:%02X:%02X:%02X:%02X:%02X",
+                     mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+            mi_add(MI_INFO, l, usbeth_link_up() ? "LINK UP" : "NO LINK");
+            uint32_t ip = usbeth_ip();
+            snprintf(l, sizeof(l), "USB ETH IP %u.%u.%u.%u",
+                     (unsigned)(ip & 0xFF), (unsigned)((ip >> 8) & 0xFF),
+                     (unsigned)((ip >> 16) & 0xFF), (unsigned)((ip >> 24) & 0xFF));
+            mi_add(MI_INFO, ip ? l : "USB ETH IP -", "");
+        } else {
+            mi_add(MI_INFO, "USB ETH", "NO ADAPTER");
+        }
+        snprintf(v, sizeof(v), "%lu/%lu", (unsigned long)rx, (unsigned long)tx);
+        mi_add(MI_INFO, "USB A2 FRAMES RX/TX", v);
+        wifi_bridge_apple_counts(&rx, &tx);
+        snprintf(v, sizeof(v), "%lu/%lu", (unsigned long)rx, (unsigned long)tx);
+        mi_add(MI_INFO, "WIFI A2 FRAMES RX/TX", v);
+    }
+    menu_item_t *r = mi_add(MI_ACTION, "REFRESH", "");
+    r->action = status_refresh;
+    mi_add(MI_INFO, "", "");
 
     /* WiFi STA status (read-only; SSID/password come from wifi.txt / CLI) */
     mi_add(MI_INFO, "WIFI", net_connected() ? "CONNECTED" : "OFFLINE");
@@ -799,12 +837,27 @@ static void net_build(void)
         mi_add(MI_INFO, l, "");
     }
     {
+        /* signal strength: an Apple II case is a shielded box, and whether
+         * WiFi gets in (it does, via the back-panel openings) is worth seeing */
+        int rssi = net_rssi();
+        if (net_connected() && rssi) {
+            const char *q = rssi > -50 ? "EXCELLENT" : rssi > -60 ? "GOOD" :
+                            rssi > -70 ? "FAIR"      : rssi > -80 ? "WEAK" : "POOR";
+            char l[MENU_LABEL_LEN + 1];
+            snprintf(l, sizeof(l), "SIGNAL %d DBM (%s)", rssi, q);
+            mi_add(MI_INFO, l, "");
+        } else {
+            mi_add(MI_INFO, "SIGNAL -", "");
+        }
+    }
+    {
+        /* in the label: a 15-character address does not fit the value column */
         uint32_t ip = net_ip();
-        char v[MENU_VALUE_LEN + 4];
-        snprintf(v, sizeof(v), "%u.%u.%u.%u",
+        char l[MENU_LABEL_LEN + 1];
+        snprintf(l, sizeof(l), "IP ADDRESS %u.%u.%u.%u",
                  (unsigned)(ip & 0xFF), (unsigned)((ip >> 8) & 0xFF),
                  (unsigned)((ip >> 16) & 0xFF), (unsigned)((ip >> 24) & 0xFF));
-        mi_add(MI_INFO, "IP ADDRESS", (net_connected() && ip) ? v : "-");
+        mi_add(MI_INFO, (net_connected() && ip) ? l : "IP ADDRESS -", "");
     }
     mi_add(MI_INFO, "", "");
 
@@ -812,7 +865,6 @@ static void net_build(void)
     m->on_change = net_change;
 
     if (!st->dhcp_enable) {
-        char v[16];
         fmt_ip(v, sizeof(v), st->static_ip);
         m = mi_add(MI_SUBMENU, "STATIC IP", v);
         m->action = net_edit; m->id = 0;

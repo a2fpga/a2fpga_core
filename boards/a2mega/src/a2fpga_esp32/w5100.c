@@ -20,7 +20,8 @@
  * Wire frames arrive via w5100_macraw_rx() (called from wifi_bridge_poll), are
  * MAC-filtered, framed with the 2-byte length header, and pushed into the RX ring.
  *
- * The actual TX/MAC-NAT plumbing lives in wifi_bridge.c behind the weak hooks
+ * The actual TX/MAC-NAT plumbing lives in wifi_bridge.c / usbeth.c behind the
+ * weak hooks (routed by net_uplink.c)
  * below.
  */
 
@@ -31,7 +32,7 @@
 
 static const char *TAG = "w5100";
 
-/* ---- weak bridge hooks (overridden in wifi_bridge.c) ---- */
+/* ---- weak bridge hooks (overridden in net_uplink.c) ---- */
 __attribute__((weak)) void w5100_bridge_tx(const uint8_t *frame, uint32_t len) { (void)frame; (void)len; }
 __attribute__((weak)) bool w5100_bridge_uplink_mac(uint8_t mac[6]) { (void)mac; return false; }
 __attribute__((weak)) void w5100_bridge_set_uplink_mac(const uint8_t mac[6]) { (void)mac; }

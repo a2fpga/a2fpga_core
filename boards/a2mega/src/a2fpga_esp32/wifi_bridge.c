@@ -31,6 +31,7 @@ static const char *TAG = "wifi_br";
 static bool         s_started;          /* esp_wifi_start succeeded */
 static volatile bool s_link_up;         /* associated (L2 usable for raw TX) */
 static volatile bool s_got_ip;          /* ESP32's own DHCP lease obtained */
+static volatile bool s_bridging = true; /* copy frames towards the Apple II (net_uplink.c) */
 static volatile uint32_t s_ip;          /* ESP32's own IPv4, network byte order */
 static uint8_t      s_sta_mac[6];       /* ESP32 station MAC (NAT outer MAC) */
 static uint8_t      s_apple_mac[6];     /* Apple II SHAR (NAT inner MAC) */
@@ -47,6 +48,7 @@ static uint8_t      s_cfg_ip[4], s_cfg_mask[4], s_cfg_gw[4];
 /* Diagnostics */
 static volatile uint32_t s_rx_drop_ring;   /* ingress dropped: SPSC ring full */
 static volatile uint32_t s_tx_err;         /* esp_wifi_internal_tx failures */
+static volatile uint32_t s_rx_apple, s_tx_apple;   /* frames bridged for the Apple II */
 
 /* ---- ingress SPSC ring (producer: WiFi task, consumer: main loop) ---- */
 #define BR_RX_SLOTS 8               /* power of two */
@@ -179,7 +181,7 @@ static esp_err_t bridge_rxcb(void *buffer, uint16_t len, void *eb)
     if (len >= 14 && memcmp(f, s_sta_mac, 6) == 0)
         wifi_dbg_rx_ucast++;
 
-    if (len >= 14 && len <= W5100_MAX_FRAME && w5100_macraw_active()) {
+    if (s_bridging && len >= 14 && len <= W5100_MAX_FRAME && w5100_macraw_active()) {
         bool mcast = (f[0] & 0x01) != 0;                    /* covers broadcast */
         bool tous  = (memcmp(f, s_sta_mac, 6) == 0);
         if (mcast || tous) {
@@ -218,6 +220,7 @@ void wifi_bridge_poll(void)
             wifi_bridge_fixup_ingress(slot->buf, slot->len, apple, s_sta_mac);
 
         w5100_macraw_rx(slot->buf, slot->len);
+        s_rx_apple++;
 
         tail++;
         __atomic_store_n(&s_rx_tail, tail, __ATOMIC_RELEASE);
@@ -226,10 +229,10 @@ void wifi_bridge_poll(void)
 }
 
 /* =========================================================================
- * w5100.h bridge hooks (override the weak stubs in w5100.c)
+ * Uplink interface (routed to w5100.h's bridge hooks by net_uplink.c)
  * ========================================================================= */
 
-void w5100_bridge_tx(const uint8_t *frame, uint32_t len)
+void wifi_bridge_tx(const uint8_t *frame, uint32_t len)
 {
     if (!s_started || !s_link_up || len < 14 || len > W5100_MAX_FRAME)
         return;
@@ -246,20 +249,27 @@ void w5100_bridge_tx(const uint8_t *frame, uint32_t len)
     wifi_bridge_fixup_egress(s_tx_buf, (uint16_t)len, inner, s_sta_mac);
 
     int r = esp_wifi_internal_tx(WIFI_IF_STA, s_tx_buf, (uint16_t)len);
+    if (r == 0) s_tx_apple++;
     if (r != 0) {
         if ((++s_tx_err & 0x3F) == 1)   /* rate-limited */
             ESP_LOGW(TAG, "raw tx failed (%d), %lu total", r, (unsigned long)s_tx_err);
     }
 }
 
-bool w5100_bridge_uplink_mac(uint8_t mac[6])
+void wifi_bridge_apple_counts(uint32_t *rx, uint32_t *tx)
+{
+    if (rx) *rx = s_rx_apple;
+    if (tx) *tx = s_tx_apple;
+}
+
+bool wifi_bridge_uplink_mac(uint8_t mac[6])
 {
     if (!s_started) return false;
     memcpy(mac, s_sta_mac, 6);
     return true;
 }
 
-void w5100_bridge_set_uplink_mac(const uint8_t mac[6])
+void wifi_bridge_set_apple_mac(const uint8_t mac[6])
 {
     /* WiFi STA cannot impersonate the Apple II's MAC on air; record SHAR as
      * the MAC-NAT inner address instead. */
@@ -269,11 +279,8 @@ void w5100_bridge_set_uplink_mac(const uint8_t mac[6])
              mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
 }
 
-void w5100_bridge_set_promiscuous(void)
-{
-    /* Not applicable: STA MAC NAT replaces the promiscuous fallback. */
-    ESP_LOGW(TAG, "promiscuous mode not supported on the WiFi uplink");
-}
+bool wifi_bridge_started(void) { return s_started; }
+void wifi_bridge_set_bridging(bool on) { s_bridging = on; }
 
 /* =========================================================================
  * WiFi bring-up
@@ -453,3 +460,10 @@ bool wifi_bridge_init(const char *ssid, const char *psk)
 const char *net_ssid(void)   { return s_ssid; }
 bool net_connected(void)     { return s_link_up && (s_got_ip || s_static_applied); }
 uint32_t net_ip(void)        { return s_ip; }
+int net_rssi(void)
+{
+    wifi_ap_record_t ap;
+    if (!s_started || !s_link_up) return 0;
+    if (esp_wifi_sta_get_ap_info(&ap) != ESP_OK) return 0;
+    return ap.rssi;                      /* dBm, negative; 0 = unknown */
+}

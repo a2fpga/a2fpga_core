@@ -49,13 +49,15 @@ endif
 SKETCH = a2fpga_esp32.ino
 CPP_FILES = a2fpga_jtag.cpp usbc_glue.cpp usbhost.cpp usbstorage.cpp
 C_FILES = fwupdate.c a2fpga_ospi_link.c a2fpga_spi_service.c fpga_link.c fpga_screen.c wedge_watch.c \
-          osd_console.c menu.c settings.c disk.c gcr_dsk.c w5100.c \
-          wifi_bridge.c fpga_jtag.c fpgaupdate.c fpgastream.c ftpd.c telnetd.c \
+          osd_console.c idf_log_tee.c menu.c settings.c disk.c gcr_dsk.c w5100.c audio_ctl.c \
+          wifi_bridge.c usbeth.c usbeth_proto.c net_uplink.c \
+          fpga_jtag.c fpgaupdate.c fpgastream.c ftpd.c telnetd.c \
           fusb302.c usbc_port.c esp32s3_integration.c sn75dp130.c gs_socket.c
 HEADER_FILES = a2fpga_jtag.h a2fpga_ospi_link.h a2fpga_spi_service.h wedge_watch.h \
                a2fpga_regs.h fpga_link.h fpga_screen.h osd_console.h menu.h \
-               net_status.h settings.h disk.h gcr_dsk.h w5100.h \
-               wifi_bridge.h fpga_jtag.h fpgaupdate.h fpgastream.h ftpd.h telnetd.h \
+               net_status.h idf_log_tee.h settings.h disk.h gcr_dsk.h w5100.h audio_ctl.h \
+               wifi_bridge.h usbeth.h usbeth_proto.h net_uplink.h \
+               fpga_jtag.h fpgaupdate.h fpgastream.h ftpd.h telnetd.h \
                board_pins.h fusb302.h usb_pd.h usbc_port.h usbc_glue.h \
                esp32s3_integration.h sn75dp130.h usbhost.h usbstorage.h fwupdate.h gs_socket.h
 ALL_SOURCES = $(SKETCH) $(CPP_FILES) $(C_FILES) $(HEADER_FILES)
