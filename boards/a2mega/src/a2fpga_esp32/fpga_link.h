@@ -22,6 +22,21 @@ bool fpga_link_ok(void);
 uint8_t fpga_reg_read(uint8_t reg);
 void    fpga_reg_write(uint8_t reg, uint8_t val);
 uint32_t fpga_reg_read32(uint8_t reg_base);   // 4 consecutive regs, LE
+
+// Checked register reads: the response's status byte must carry a valid
+// frame (OK bit set, protocol version 1) or the read is reported as failed
+// and *val is 0. fpga_reg_read() returns whatever came back on the bus even
+// when the FPGA is unconfigured (JTAG reload, flash programming, power-up),
+// which is how the disk task once served a write request made of bus junk
+// (a2p25 stick corruption, 2026-11-17 — see
+// boards/a2p25/docs/STICK_CORRUPTION_2026-11-17.md). Use these wherever a
+// register value drives a file write or a seek.
+bool fpga_reg_read_checked(uint8_t reg, uint8_t *val);
+bool fpga_reg_read32_checked(uint8_t reg_base, uint32_t *val);
+// True when the FPGA answers with its "A2FP" device ID through valid frames:
+// a configured fabric with the OSPI connector running. False while the chip
+// is unconfigured or reloading.
+bool fpga_link_probe(void);
 void    fpga_reg_write16(uint8_t reg_base, uint16_t val);
 void    fpga_reg_write32(uint8_t reg_base, uint32_t val);
 

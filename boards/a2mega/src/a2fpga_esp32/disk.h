@@ -40,6 +40,22 @@ void disk_poll(void);
  * selection or the SD card is re-inserted). Safe to call from other tasks. */
 void disk_request_remount(void);
 
+/* Stop serving and close every image file; nothing is served again until
+ * disk_request_remount(). Call BEFORE the FPGA is taken down (JTAG flash
+ * entry, bitstream reload, RECONFIG_N): an unconfigured chip answers
+ * register reads with bus junk, and a junk write request once drove a seek
+ * 4 GB past the end of a .nib (a2p25 stick corruption, 2026-11-17). Safe
+ * from any task: from the disk task it closes inline, from another task it
+ * waits (<= ~500 ms) for the disk task to do it. */
+void disk_quiesce(void);
+bool disk_quiesced(void);
+
+/* disk_quiesce() plus unmount of the USB stick: call right before
+ * esp_restart() so no FAT or directory update can be in flight when the
+ * CPU resets. The restart paths (fpgastream, fpgaupdate, fwupdate, the CLI
+ * 'restart') use this. */
+void disk_release_storage(void);
+
 /* ---- menu accessors ------------------------------------------------------ */
 
 typedef struct {

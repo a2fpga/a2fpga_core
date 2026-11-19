@@ -14,6 +14,7 @@
 
 #include "fwupdate.h"
 #include "osd_console.h"
+#include "disk.h"
 
 static const char *TAG = "fwupdate";
 
@@ -144,6 +145,7 @@ void fwupdate_poll(void)
     case FWU_DONE:
         if (s_restart_at_us && esp_timer_get_time() >= s_restart_at_us) {
             s_restart_at_us = 0;
+            disk_release_storage();   /* close images, detach the stick's FAT first */
             esp_restart();
         }
         break;

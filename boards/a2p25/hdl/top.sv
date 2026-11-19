@@ -65,7 +65,7 @@ module top #(
     parameter bit ENSONIQ_MONO_MIX = 0, // If true, mono mix is used instead of stereo
 
     parameter int GS = 0,                       // IIgs mode is autodetected (apple_bus); forcing it did not change SHR/DOC (10-11)
-    parameter int ENABLE_FILTER = 0,            // Enable audio filtering
+    parameter int ENABLE_FILTER = 1,            // audio_out IIR low-pass + DC blocker on clk_logic ahead of the CDC
     parameter int ENABLE_DENOISE = 0,           // Enable denoise of clocks
     parameter bit CLEAR_APPLE_VIDEO_RAM = 1,    // Clear video ram on startup
     parameter bit HDMI_SLEEP_ENABLE = 0,        // Sleep video output on CPU stop
@@ -958,18 +958,91 @@ module top #(
         .speaker_o(speaker_audio_w)
     );
 
-    // Extend all the unsigned audio signals to 13 bits
-    wire [12:0] speaker_audio_ext_w = {speaker_audio_w, 12'b0};
-    wire [12:0] ssp_audio_ext_w = {ssp_audio_w, 3'b0};
-    wire [12:0] mb_audio_l_ext_w = {mb_audio_l, 3'b0};
-    wire [12:0] mb_audio_r_ext_w = {mb_audio_r, 3'b0};
 
     wire signed [15:0] core_audio_l_w;
     wire signed [15:0] core_audio_r_w;
-    // Combine all the audio sources into a single 16-bit signed audio signal
-    // This could theoretically overflow by 1 bit and clip, but unlikely
-    assign core_audio_l_w = sg_audio_l + ssp_audio_ext_w + mb_audio_l_ext_w + speaker_audio_ext_w;
-    assign core_audio_r_w = sg_audio_r + ssp_audio_ext_w + mb_audio_r_ext_w + speaker_audio_ext_w;
+    // Saturating mix (hdl/sound/core_audio_mix.sv): Mockingboard gain is a
+    // live select (shift 3 + gain; power-up 2 = << 5 since 2026-11-17, it was
+    // quiet beside the DOC), sum clamped.
+    core_audio_mix i_audio_mix_l (.sg_i(sg_audio_l), .ssp_i(ssp_audio_w), .mb_i(mb_audio_l), .mb_gain_i(aud_ctl_w[3:2]), .spk_i(speaker_audio_w), .out_o(core_audio_l_w));
+    core_audio_mix i_audio_mix_r (.sg_i(sg_audio_r), .ssp_i(ssp_audio_w), .mb_i(mb_audio_r), .mb_gain_i(aud_ctl_w[3:2]), .spk_i(speaker_audio_w), .out_o(core_audio_r_w));
+
+    // -----------------------------------------------------------------
+    // Audio output filter (clk_logic domain)
+    // -----------------------------------------------------------------
+    // The a2n20 tops run audio_out (Sorgelig's 3-tap IIR low-pass with a DC
+    // blocker at the sample rate) between the mix and the output; this top
+    // fed the mix straight into the CDC because the IIR's 16x40 and 37x24
+    // products did not map onto the GW5A DSP (MULT12X12 / MULT27X36 only,
+    // signed operands). hdl/support/iir_filter_gw5a.v is the same filter
+    // with every product written as a signed <= 27 x <= 36 piece, bit-exact
+    // with the GW2A file (sim/audio_out/run.sh); the project lists it in
+    // place of hdl/support/iir_filter.v.
+    //
+    // It runs here on clk_logic, AHEAD of the CDC, so the band-limiting sees
+    // the full-rate sources (the 1-bit speaker, the AY square waves, the DOC
+    // at ~26 kHz per oscillator) rather than the 48 kHz capture, where their
+    // aliases are already folded in. The DC blocker's sample strobe is
+    // 54 MHz / 1125 = 48.000 kHz exactly; the pixel-domain strobe below is
+    // the same frequency (every clock here descends from the one 50 MHz
+    // oscillator), so the mailbox CDC carries one new word per period.
+    //
+    // flt_rate: audio_out's accumulator drops its increment on the cycle it
+    // fires, so the filter ce runs at clk / (CLK_RATE / (2 flt_rate) + 1),
+    // not at 2 flt_rate. The Tang Nano tops (27 MHz, 7,056,000) therefore
+    // filter at a 9.268 MHz ce = 4.634 MHz per channel; 5,594,066 at 54 MHz
+    // gives the same ce rate and so the same cutoff with the same
+    // coefficients (the Tang Nano tuning, unchanged; the bench prints both
+    // responses). The ce fires at most every fifth clk54; every register in
+    // the IIR is ce-enabled, and a2p25.sdc gives their paths three cycles
+    // (set_multicycle_path) for the two cascaded MULT27X36 of a tap update.
+    localparam AUDIO_RATE = 48000;
+    localparam [31:0] aflt_rate = 5_594_066;
+    localparam [39:0] acx  = 4258969;
+    localparam  [7:0] acx0 = 3;
+    localparam  [7:0] acx1 = 3;
+    localparam  [7:0] acx2 = 1;
+    localparam [23:0] acy0 = -24'd6216759;
+    localparam [23:0] acy1 =  24'd6143386;
+    localparam [23:0] acy2 = -24'd2023767;
+    localparam int AUD_STROBE_DIV = CLOCK_SPEED_HZ / AUDIO_RATE;   // 1125
+
+    reg [$clog2(AUD_STROBE_DIV)-1:0] aud_strobe_cnt_r = '0;
+    reg clk_audio_logic_r = 1'b0;
+    always_ff @(posedge clk_logic_w) begin
+        clk_audio_logic_r <= 1'b0;
+        if (aud_strobe_cnt_r == AUD_STROBE_DIV - 1) begin
+            aud_strobe_cnt_r  <= '0;
+            clk_audio_logic_r <= 1'b1;
+        end else begin
+            aud_strobe_cnt_r <= aud_strobe_cnt_r + 1'b1;
+        end
+    end
+
+    wire [15:0] flt_audio_l_w;
+    wire [15:0] flt_audio_r_w;
+    audio_out #(
+        .CLK_RATE   (CLOCK_SPEED_HZ),
+        .AUDIO_RATE (AUDIO_RATE),
+        .ENABLE     (ENABLE_FILTER)
+    ) i_audio_out (
+        .reset     (~device_reset_n_w),
+        .clk       (clk_logic_w),
+        .flt_rate  (aflt_rate),
+        .cx        (acx),
+        .cx0       (acx0),
+        .cx1       (acx1),
+        .cx2       (acx2),
+        .cy0       (acy0),
+        .cy1       (acy1),
+        .cy2       (acy2),
+        .is_signed (1'b1),
+        .core_l    (core_audio_l_w),
+        .core_r    (core_audio_r_w),
+        .audio_clk (clk_audio_logic_r),
+        .audio_l   (flt_audio_l_w),
+        .audio_r   (flt_audio_r_w)
+    );
 
     // =========================================================================
     // DDR3 + Framebuffer + HDMI Output (480p)
@@ -1247,7 +1320,7 @@ module top #(
     // Audio clock generation (27 MHz pixel clock domain)
     // -----------------------------------------------------------------
 
-    localparam AUDIO_RATE = 48000;
+    // AUDIO_RATE is declared with the filter stage above (48 kHz).
     // 48 kHz strobe from the 148.5 MHz pixel clock via a sign-bit phase
     // accumulator (exact for any ratio; 148.5M/48k = 3093.75 is not an
     // integer, so the old divider+frac scheme no longer applies). The
@@ -1279,10 +1352,14 @@ module top #(
     wire [7:0]  aud_ctl_w;              // driven by esp32_ospi_connector below
     wire [63:0] aud_cdc_dbg_w;
     reg  [15:0] audio_sample_word [1:0];
-    audio_sample_cdc #(.W(16), .JUMP_THRESH(2048)) i_audio_cdc (
+    // RAW_PATH 0 since 2026-11-18: mailbox only (bit 0 of index 55 is read
+    // back but ignored, indices 48-51 read 0); the raw flops and the mixed
+    // detector went for logic budget once the filter stage took the core to
+    // 83 %. The consumed-stream jump / max-step counters (52-54) stay.
+    audio_sample_cdc #(.W(16), .JUMP_THRESH(2048), .RAW_PATH(0)) i_audio_cdc (
         .clk_src    (clk_logic_w),
-        .l_src      (core_audio_l_w),
-        .r_src      (core_audio_r_w),
+        .l_src      (flt_audio_l_w),
+        .r_src      (flt_audio_r_w),
         .clk_dst    (clk_pixel_w),
         .strobe_dst (clk_audio),
         .sel_safe   (aud_ctl_w[0]),

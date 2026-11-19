@@ -77,7 +77,7 @@
         <File path="hdl/gowin/138B/gowin_pll/pll_usb.v" type="file.verilog" enable="1"/>
         <File path="hdl/gowin/138B/gowin_pll/pll_usb_mod.v" type="file.verilog" enable="1"/>
         <File path="hdl/memory/apple_memory.sv" type="file.verilog" enable="1"/>
-        <File path="hdl/sound/iir_filter.v" type="file.verilog" enable="1"/>
+        <File path="../../hdl/support/iir_filter_gw5a.v" type="file.verilog" enable="1"/>
         <File path="hdl/top.sv" type="file.verilog" enable="1"/>
         <File path="hdl/usb_hid_host/usb_hid_host.v" type="file.verilog" enable="1"/>
         <File path="hdl/usb_hid_host/usb_hid_host_rom.v" type="file.verilog" enable="1"/>
@@ -103,6 +103,7 @@
         <File path="../../hdl/slots/slotmaker.sv" type="file.verilog" enable="1"/>
         <File path="../../hdl/slots/slotmaker_config_if.sv" type="file.verilog" enable="1"/>
         <File path="../../hdl/sound/apple_speaker.sv" type="file.verilog" enable="1"/>
+        <File path="../../hdl/sound/core_audio_mix.sv" type="file.verilog" enable="1"/>
         <File path="../../hdl/sound/audio_out.v" type="file.verilog" enable="1"/>
         <File path="../../hdl/sound/audio_timing.sv" type="file.verilog" enable="1"/>
         <File path="hdl/sound/ensoniq_bsram.sv" type="file.verilog" enable="1"/>

@@ -1055,18 +1055,14 @@ module top #(
         .speaker_o(speaker_audio_w)
     );
 
-    // Extend all the unsigned audio signals to 13 bits
-    wire [12:0] speaker_audio_ext_w = {speaker_audio_w, 12'b0};
-    wire [12:0] ssp_audio_ext_w = {ssp_audio_w, 3'b0};
-    wire [12:0] mb_audio_l_ext_w = {mb_audio_l, 3'b0};
-    wire [12:0] mb_audio_r_ext_w = {mb_audio_r, 3'b0};
 
     wire signed [15:0] core_audio_l_w;
     wire signed [15:0] core_audio_r_w;
-    // Combine all the audio sources into a single 16-bit signed audio signal
-    // This could theoretically overflow by 1 bit and clip, but unlikely
-    assign core_audio_l_w = sg_audio_l + ssp_audio_ext_w + mb_audio_l_ext_w + speaker_audio_ext_w;
-    assign core_audio_r_w = sg_audio_r + ssp_audio_ext_w + mb_audio_r_ext_w + speaker_audio_ext_w;
+    // Saturating mix (hdl/sound/core_audio_mix.sv): Mockingboard gain is a
+    // live select (shift 3 + gain; power-up 2 = << 5 since 2026-11-17, it was
+    // quiet beside the DOC), sum clamped.
+    core_audio_mix i_audio_mix_l (.sg_i(sg_audio_l), .ssp_i(ssp_audio_w), .mb_i(mb_audio_l), .mb_gain_i(aud_ctl_w[3:2]), .spk_i(speaker_audio_w), .out_o(core_audio_l_w));
+    core_audio_mix i_audio_mix_r (.sg_i(sg_audio_r), .ssp_i(ssp_audio_w), .mb_i(mb_audio_r), .mb_gain_i(aud_ctl_w[3:2]), .spk_i(speaker_audio_w), .out_o(core_audio_r_w));
 
     // =========================================================================
     // DDR3 + Framebuffer + HDMI Output (480p)

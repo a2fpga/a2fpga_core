@@ -29,11 +29,14 @@
 #include <stdio.h>
 #include <string.h>
 #include <unistd.h>       /* fsync */
+#include <errno.h>
 #include <dirent.h>
 #include <sys/stat.h>
 
 #include "esp_log.h"
 #include "esp_timer.h"    /* esp_timer_get_time — us since boot */
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h" /* quiesce handshake with the disk task */
 
 #include "a2fpga_regs.h"
 #include "fpga_link.h"
@@ -43,6 +46,7 @@
 void a2_reset_hold_release(const char *why);
 #include "usbstorage.h"   /* USB stick as the image volume (backend switch) */
 #include "settings.h"     /* persisted image overrides + slot map */
+#include "audio_ctl.h"    /* Mockingboard level, applied with the slot map */
 #include "disk.h"
 #include "gs_socket.h"
 
@@ -102,6 +106,9 @@ static bool        g_writable[NDRV];
 static disk_fmt_t  g_fmt[NDRV];
 static gcr_order_t g_order[NDRV];                /* sector order for FMT_DSK    */
 static uint32_t    g_base[NDRV];                 /* payload offset (.2mg header)*/
+static uint32_t    g_bytes[NDRV];                /* payload length at mount     */
+static uint32_t    g_fsize[NDRV];                /* whole file size at mount    */
+static uint32_t    g_wr_fail[NDRV];              /* write/sync failures so far  */
 static char        g_imgname[NDRV][PATH_MAX_LEN];/* resolved image path         */
 static uint8_t     g_trackbuf[MAX_TRACK_BYTES];  /* nibble track (FPGA window)  */
 static uint8_t     g_secbuf[DSK_TRACK_BYTES];    /* one sector track (16*256)   */
@@ -117,6 +124,8 @@ static bool     g_hdd_mounted[NHDD];
 static bool     g_hdd_writable[NHDD];
 static uint32_t g_hdd_base[NHDD];       /* payload offset (.2mg header)  */
 static uint32_t g_hdd_blocks[NHDD];     /* size in 512-byte blocks       */
+static uint32_t g_hdd_fsize[NHDD];      /* whole file size at mount      */
+static uint32_t g_hdd_wr_fail[NHDD];    /* write/sync failures so far    */
 static char     g_hdd_name[NHDD][PATH_MAX_LEN];
 static uint8_t  g_blockbuf[SECTOR_BYTES];
 
@@ -185,6 +194,36 @@ static uint32_t file_size(FILE *f)
     long sz = ftell(f);
     fseek(f, cur < 0 ? 0 : cur, SEEK_SET);
     return sz < 0 ? 0 : (uint32_t)sz;
+}
+
+/* ---- image size plausibility ----------------------------------------------
+ * A directory entry's size field is the one number the firmware takes on
+ * trust, and a failing stick can hand back a corrupt one (the 11-17 stick's
+ * disk1.nib entry read 4 GB). Every seek is bounded by the mounted size, so
+ * a corrupt size would let requests past the real data through: refuse to
+ * mount an image whose size is not one a real image has.
+ *   .nib            35 or 40 tracks x 6656 B
+ *   .dsk/.do/.po    35 or 40 tracks x 4096 B (16 x 256)
+ *   HDD .hdv/.po    a whole number of 512 B blocks, 1 block .. 32 MiB
+ *                   (hdd.sv addresses 16-bit block numbers; ProDOS stops at
+ *                   65535, so nothing beyond 32 MiB is reachable anyway)
+ *   .2mg            header payload length must also fit inside the file */
+#define NIB_TRACK_BYTES  MAX_TRACK_BYTES               /* 6656 */
+#define HDD_MAX_BYTES    (32u * 1024u * 1024u)
+
+static bool floppy_size_ok(disk_fmt_t fmt, uint32_t bytes)
+{
+    if (fmt == FMT_NIB)
+        return bytes == 35u * NIB_TRACK_BYTES || bytes == 40u * NIB_TRACK_BYTES;
+    if (fmt == FMT_DSK)
+        return bytes == 35u * DSK_TRACK_BYTES || bytes == 40u * DSK_TRACK_BYTES;
+    return false;
+}
+
+static bool hdd_size_ok(uint32_t bytes)
+{
+    return bytes >= SECTOR_BYTES && bytes <= HDD_MAX_BYTES &&
+           (bytes % SECTOR_BYTES) == 0;
 }
 
 /* Sniff the sector order of a bare .dsk (the extension nominally means DOS
@@ -284,6 +323,9 @@ static void mount_drive(int v)
     g_fmt[v]      = FMT_NONE;
     g_order[v]    = GCR_ORDER_DOS;
     g_base[v]     = 0;
+    g_bytes[v]    = 0;
+    g_fsize[v]    = 0;
+    g_wr_fail[v]  = 0;
     fpga_reg_write(A2REG_VOL_READY(v), 0);
     fpga_reg_write(A2REG_VOL_MOUNTED(v), 0);
 
@@ -318,18 +360,25 @@ static void mount_drive(int v)
         disk_fmt_t  fmt;
         gcr_order_t order = GCR_ORDER_DOS;
         uint32_t    base  = 0;
-        uint32_t    bytes = file_size(f);
+        uint32_t    fsize = file_size(f);
+        uint32_t    bytes = fsize;
 
         if (has_ext(name, "2mg")) {
             uint32_t paylen = 0;
             fmt = parse_2mg(f, &order, &base, &paylen);
+            if (fmt != FMT_NONE && (base > fsize || paylen > fsize - base)) {
+                DLOGW("DISK II: D%d %s 2MG HEADER EXCEEDS FILE (%lu+%lu > %lu) - skip",
+                      v + 1, disp(name), (unsigned long)base,
+                      (unsigned long)paylen, (unsigned long)fsize);
+                fmt = FMT_NONE;
+            }
             if (paylen)
                 bytes = paylen;
             else if (bytes > base)
                 bytes -= base;
             /* Only floppy-size payloads are Disk II volumes; larger 2mg images
              * are block devices and belong to the hard-disk path. */
-            if (fmt == FMT_DSK && bytes != DSK_TRACK_BYTES * 35u) {
+            if (fmt == FMT_DSK && !floppy_size_ok(FMT_DSK, bytes)) {
                 DLOGI("DISK II: D%d %s not a 5.25 floppy (%lu B) - skip",
                       v + 1, disp(name), (unsigned long)bytes);
                 fmt = FMT_NONE;
@@ -346,12 +395,24 @@ static void mount_drive(int v)
             fclose(f);
             continue;
         }
+        if (!floppy_size_ok(fmt, bytes)) {
+            /* Not a size a real image has: a corrupt directory entry (a
+             * failing stick) or a damaged file. Serving it would let requests
+             * past the real data through. Refuse, loudly. */
+            osd_console_show();
+            DLOGW("DISK II: D%d %s SIZE %lu B IMPLAUSIBLE - NOT MOUNTED",
+                  v + 1, disp(name), (unsigned long)bytes);
+            fclose(f);
+            continue;
+        }
 
         g_img[v]      = f;
         g_writable[v] = rw;
         g_fmt[v]      = fmt;
         g_order[v]    = order;
         g_base[v]     = base;
+        g_bytes[v]    = bytes;   /* every seek is bounded by this (see serve_drive) */
+        g_fsize[v]    = fsize;   /* re-checked after any write failure (see check_image) */
         strncpy(g_imgname[v], name, sizeof(g_imgname[v]) - 1);
         g_imgname[v][sizeof(g_imgname[v]) - 1] = '\0';
         opened = 1;
@@ -379,6 +440,8 @@ static void mount_hdd(int u)
     g_hdd_writable[u] = false;
     g_hdd_base[u]     = 0;
     g_hdd_blocks[u]   = 0;
+    g_hdd_fsize[u]    = 0;
+    g_hdd_wr_fail[u]  = 0;
     fpga_reg_write(A2REG_HDD_CTL(u), 0);
 
     strncpy(g_hdd_name[u], g_hdd_candidates[u][0], sizeof(g_hdd_name[u]) - 1);
@@ -405,7 +468,8 @@ static void mount_hdd(int u)
             continue;
 
         uint32_t base  = 0;
-        uint32_t bytes = file_size(f);
+        uint32_t fsize = file_size(f);
+        uint32_t bytes = fsize;
 
         if (has_ext(name, "2mg")) {
             /* Any ProDOS-order 2mg payload serves as a block device. */
@@ -419,6 +483,12 @@ static void mount_hdd(int u)
                     continue;
                 }
             }
+            if (base > fsize || paylen > fsize - base) {
+                DLOGW("HDD: UNIT %d %s 2MG HEADER EXCEEDS FILE - skip",
+                      u + 1, disp(name));
+                fclose(f);
+                continue;
+            }
             if (paylen)
                 bytes = paylen;
             else
@@ -426,11 +496,17 @@ static void mount_hdd(int u)
         }
         /* .hdv / .po: raw ProDOS blocks from byte 0 */
 
-        uint32_t blocks = bytes / SECTOR_BYTES;
-        if (blocks == 0) {
+        if (!hdd_size_ok(bytes)) {
+            /* Not a whole number of blocks, or past what a 16-bit block
+             * number can reach: a corrupt directory entry or a damaged file.
+             * Refuse rather than serve a size we cannot trust. */
+            osd_console_show();
+            DLOGW("HDD: UNIT %d %s SIZE %lu B IMPLAUSIBLE - NOT MOUNTED",
+                  u + 1, disp(name), (unsigned long)bytes);
             fclose(f);
             continue;
         }
+        uint32_t blocks = bytes / SECTOR_BYTES;
         if (blocks > 0xFFFFu)
             blocks = 0xFFFFu;   /* ProDOS volumes cap at 65535 blocks (32 MB) */
 
@@ -438,6 +514,7 @@ static void mount_hdd(int u)
         g_hdd_writable[u] = rw;
         g_hdd_base[u]     = base;
         g_hdd_blocks[u]   = blocks;
+        g_hdd_fsize[u]    = fsize;
         strncpy(g_hdd_name[u], name, sizeof(g_hdd_name[u]) - 1);
         g_hdd_name[u][sizeof(g_hdd_name[u]) - 1] = '\0';
 
@@ -466,6 +543,63 @@ static int64_t g_hide_console_at_us = 0;
 void disk_request_remount(void)
 {
     g_remount_req = true;
+}
+
+/* ---- quiesce: stop serving and close every image --------------------------
+ * The FPGA is about to go away (JTAG flash entry, bitstream reload, RECONFIG)
+ * or the ESP32 is about to restart. Either way no file may be open and no
+ * request may be serviced until a remount is asked for: an unconfigured
+ * FPGA answers register reads with bus junk, and on 2026-11-17 a junk "write
+ * pending" with a junk lba made this task seek 4 GB past the end of a .nib
+ * and FatFS extended the file into the stick's directory (see
+ * boards/a2p25/docs/STICK_CORRUPTION_2026-11-17.md). The files belong to
+ * the disk task, so another task asks and waits for the close to happen in
+ * disk_poll(); the disk task itself (fpgaupdate/fwupdate run in it) closes
+ * inline. */
+static volatile bool g_quiesce_req = false;
+static volatile bool g_quiesced    = false;
+static TaskHandle_t  g_owner_task  = NULL;   /* the task that runs disk_poll */
+static void disk_unmount_all(void);
+
+static void do_quiesce(void)
+{
+    disk_unmount_all();
+    g_hide_console_at_us = 0;
+    g_quiesced = true;
+}
+
+void disk_quiesce(void)
+{
+    g_remount_req = false;              /* a pending remount must not reopen */
+    if (g_quiesced)
+        return;
+    if (g_owner_task == NULL || xTaskGetCurrentTaskHandle() == g_owner_task) {
+        do_quiesce();
+        return;
+    }
+    g_quiesce_req = true;
+    for (int i = 0; i < 250 && !g_quiesced; i++)   /* ~500 ms; a serve is ms */
+        vTaskDelay(pdMS_TO_TICKS(2));
+    if (!g_quiesced) {
+        /* The disk task is not running (suspended, or wedged on the link):
+         * close from here rather than restart with the files open. */
+        DLOGW("DISK: QUIESCE TIMEOUT - CLOSING IMAGES FROM %s",
+              pcTaskGetName(NULL));
+        g_quiesce_req = false;
+        do_quiesce();
+    }
+}
+
+bool disk_quiesced(void)
+{
+    return g_quiesced;
+}
+
+void disk_release_storage(void)
+{
+    disk_quiesce();
+    usbstorage_unmount();   /* no-op when the stick is not the volume */
+    DLOGI("DISK: IMAGES CLOSED, STORAGE RELEASED");
 }
 
 /* ---- Disk II (re)mount, logged to the shared OSD console -------------------
@@ -554,24 +688,225 @@ void disk_init(void)
     g_remount_req = true;
 }
 
+/* ---- media errors -----------------------------------------------------------
+ * The volume protocol has no error channel back to the Apple: a failed
+ * fwrite/fflush/fsync used to be one DLOGW line and the block counted as
+ * written. The 11-17 stick failed as hardware (reads fell to 100 KB/s, then
+ * it would not reformat), so a write failure is now (1) counted per volume
+ * and shown on the OSD console the first time and every WR_FAIL_EVERY
+ * failures, and (2) followed by a re-check of the image: fstat() of the open
+ * file (FatFS's in-memory size) and stat() of the path (the directory entry
+ * re-read from the medium) against the size measured at mount. A size that
+ * moved, or a medium that cannot be read, turns the volume read-only — the
+ * FPGA is told (VOL_READONLY / HDD_CTL) so the Apple sees a write-protected
+ * disk from then on — and the OSD says so. */
+#define WR_FAIL_EVERY 10u
+
+/* True when the file still has its mount-time size on the medium and in the
+ * open handle; *why names the first discrepancy otherwise. */
+static bool image_size_intact(FILE *f, const char *path, uint32_t fsize,
+                              const char **why, uint32_t *seen)
+{
+    struct stat st;
+    *seen = 0;
+    if (fstat(fileno(f), &st) != 0) {
+        *why = "FSTAT FAILED";
+        return false;
+    }
+    if ((uint32_t)st.st_size != fsize) {
+        *why = "OPEN FILE SIZE CHANGED";
+        *seen = (uint32_t)st.st_size;
+        return false;
+    }
+    if (stat(path, &st) != 0) {
+        *why = "DIRECTORY ENTRY UNREADABLE";
+        return false;
+    }
+    if ((uint32_t)st.st_size != fsize) {
+        *why = "DIRECTORY SIZE CHANGED";
+        *seen = (uint32_t)st.st_size;
+        return false;
+    }
+    return true;
+}
+
+/* Disk II drive v: count a write/sync failure, report, re-check, demote. */
+static void drive_write_failed(int v, uint32_t track, const char *what)
+{
+    int err = errno;
+    uint32_t n = ++g_wr_fail[v];
+    if (n == 1 || (n % WR_FAIL_EVERY) == 0) {
+        osd_console_show();
+        DLOGW("DISK II: D%d TRK%lu %s FAILED (errno %d) - %lu FAILURES",
+              v + 1, (unsigned long)track, what, err, (unsigned long)n);
+    }
+    if (!g_writable[v])
+        return;
+    const char *why; uint32_t seen;
+    if (!image_size_intact(g_img[v], g_imgname[v], g_fsize[v], &why, &seen)) {
+        g_writable[v] = false;
+        fpga_reg_write(A2REG_VOL_READONLY(v), 1);
+        osd_console_show();
+        DLOGW("DISK II: D%d %s (%lu -> %lu) - NOW READ-ONLY", v + 1, why,
+              (unsigned long)g_fsize[v], (unsigned long)seen);
+    }
+}
+
+/* HDD unit u: the same for a block write. */
+static void hdd_write_failed(int u, uint32_t lba, const char *what)
+{
+    int err = errno;
+    uint32_t n = ++g_hdd_wr_fail[u];
+    if (n == 1 || (n % WR_FAIL_EVERY) == 0) {
+        osd_console_show();
+        DLOGW("HDD: UNIT %d BLK %lu %s FAILED (errno %d) - %lu FAILURES",
+              u + 1, (unsigned long)lba, what, err, (unsigned long)n);
+    }
+    if (!g_hdd_writable[u])
+        return;
+    const char *why; uint32_t seen;
+    if (!image_size_intact(g_hdd_img[u], g_hdd_name[u], g_hdd_fsize[u],
+                           &why, &seen)) {
+        g_hdd_writable[u] = false;
+        fpga_reg_write(A2REG_HDD_CTL(u), A2HDD_CTL_READY | A2HDD_CTL_MOUNTED |
+                                         A2HDD_CTL_READONLY);
+        osd_console_show();
+        DLOGW("HDD: UNIT %d %s (%lu -> %lu) - NOW READ-ONLY", u + 1, why,
+              (unsigned long)g_hdd_fsize[u], (unsigned long)seen);
+    }
+}
+
+/* ---- request validation ---------------------------------------------------
+ * A request is served only when (a) every register of it came back in a
+ * valid OSPI frame AND the FPGA still answers its device ID — an
+ * unconfigured or reloading chip returns bus junk, which read as "write
+ * pending, lba 0x7EFF0B" on 2026-11-17 — and (b) the file position it
+ * implies lies inside the image as measured at mount. A request that fails
+ * (a) is left pending (the fabric is gone; a remount follows the reload).
+ * One that fails (b) is logged, never seeked, and acknowledged so the drive
+ * is not stuck (the protocol has no error channel; a bad read returns a
+ * zero track, like a short image). */
+static bool s_link_down_noted;
+
+static void note_link_down(const char *who)
+{
+    if (!s_link_down_noted) {
+        s_link_down_noted = true;
+        DLOGW("%s: FPGA LINK INVALID - REQUEST IGNORED", who);
+    }
+}
+
+/* Read a pending request's registers with frame checks and a device-ID
+ * probe. Returns false (and leaves the request pending) if the link is not
+ * trustworthy. */
+static bool read_request_ok(const char *who, uint8_t cmd_reg, uint8_t *cmd)
+{
+    if (!fpga_reg_read_checked(cmd_reg, cmd)) {
+        note_link_down(who);
+        return false;
+    }
+    if (*cmd == 0)
+        return true;              /* nothing pending: no probe needed */
+    if (!fpga_link_probe()) {    /* a real request comes from a live fabric */
+        note_link_down(who);
+        *cmd = 0;
+        return false;
+    }
+    if (s_link_down_noted) {
+        s_link_down_noted = false;
+        DLOGI("%s: FPGA LINK BACK", who);
+    }
+    return true;
+}
+
 static void serve_drive(int v)
 {
     if (!g_mounted[v])
         return;
 
-    uint8_t cmd = fpga_reg_read(A2REG_VOL_CMD(v));
+    uint8_t cmd = 0;
+    if (!read_request_ok("DISK II", A2REG_VOL_CMD(v), &cmd))
+        return;
     bool rd = (cmd & A2VOL_CMD_RD) != 0;
     bool wr = (cmd & A2VOL_CMD_WR) != 0;
     if (!rd && !wr)
         return;   /* nothing pending */
 
-    uint32_t lba   = fpga_reg_read32(A2REG_VOL_LBA0(v));
-    uint32_t nblk  = (uint32_t)fpga_reg_read(A2REG_VOL_BLK_CNT(v)) + 1u;
+    uint32_t lba = 0;
+    uint8_t  blk = 0;
+    if (!fpga_reg_read32_checked(A2REG_VOL_LBA0(v), &lba) ||
+        !fpga_reg_read_checked(A2REG_VOL_BLK_CNT(v), &blk)) {
+        note_link_down("DISK II");
+        return;
+    }
+    /* The request is read as six separate OSPI transactions. On the FPGA the
+     * lba is combinational from the track registers and only moves on our
+     * ack — or on system_reset_n, which includes the Apple's /RES: a reset
+     * between the CMD read and the lba read drops the request (save_req_r,
+     * load_req_r, dirty_r clear; req_track_r = 0) and the lba we then read is
+     * 0 for a write we still believe in, i.e. the old dirty track's nibbles
+     * would land on track 0. Read the pair again and require agreement; a
+     * request that moved is left for the next poll. */
+    {
+        uint8_t  cmd2 = 0;
+        uint32_t lba2 = 0;
+        if (!fpga_reg_read_checked(A2REG_VOL_CMD(v), &cmd2) ||
+            !fpga_reg_read32_checked(A2REG_VOL_LBA0(v), &lba2)) {
+            note_link_down("DISK II");
+            return;
+        }
+        if (cmd2 != cmd || lba2 != lba) {
+            DLOGW("DISK II: D%d REQUEST CHANGED UNDER US (%02X/%lu -> %02X/%lu) - RETRY",
+                  v + 1, cmd, (unsigned long)lba, cmd2, (unsigned long)lba2);
+            return;
+        }
+    }
+    uint32_t nblk  = (uint32_t)blk + 1u;
     uint32_t nbyte = nblk * SECTOR_BYTES;
     if (nbyte > MAX_TRACK_BYTES)
         nbyte = MAX_TRACK_BYTES;
 
     uint32_t addr = A2DISK_WINDOW(v);
+
+    /* Bounds against the image as mounted. The FPGA asks for whole tracks
+     * (lba = track * 13, 13 blocks); the file position is computed in 64
+     * bits so a junk lba cannot wrap. A read may start inside the image and
+     * run short (a truncated .nib keeps its zero-fill behaviour); a write
+     * must fit entirely, so the file is never extended. */
+    const uint64_t img_end = (uint64_t)g_base[v] + g_bytes[v];
+    uint64_t fpos;
+    uint64_t flen;
+    if (g_fmt[v] == FMT_DSK) {
+        fpos = (uint64_t)g_base[v] + (uint64_t)(lba / 13u) * DSK_TRACK_BYTES;
+        flen = DSK_TRACK_BYTES;
+    } else {
+        fpos = (uint64_t)g_base[v] + (uint64_t)lba * SECTOR_BYTES;
+        flen = nbyte;
+    }
+    bool in_range = (lba % 13u == 0) &&
+                    (wr ? (fpos + flen <= img_end) : (fpos < img_end));
+    if (!in_range) {
+        static uint32_t s_last_bad[NDRV] = { 0xFFFFFFFFu, 0xFFFFFFFFu };
+        if (lba != s_last_bad[v]) {
+            s_last_bad[v] = lba;
+            DLOGW("DISK II: D%d %s LBA %lu OUT OF RANGE (IMG %lu B) - %s",
+                  v + 1, wr ? "WR" : "RD", (unsigned long)lba,
+                  (unsigned long)g_bytes[v],
+                  wr ? "NOT WRITTEN" : "ZERO TRACK");
+        }
+        if (!wr) {
+            memset(g_trackbuf, 0, nbyte);
+            for (uint32_t off = 0; off < nbyte; off += SECTOR_BYTES) {
+                uint32_t chunk = nbyte - off;
+                if (chunk > SECTOR_BYTES)
+                    chunk = SECTOR_BYTES;
+                fpga_mem_write(A2SPACE_DISK, addr + off,
+                               g_trackbuf + off, (uint16_t)chunk);
+            }
+        }
+        fpga_reg_write(A2REG_VOL_ACK(v), 1);   /* release the head */
+        return;
+    }
 
     /* Log disk activity to the console BUFFER on track change (a boot re-polling
      * the same track must not spam). Does NOT force the console visible — the
@@ -605,40 +940,49 @@ static void serve_drive(int v)
                  * write on the found-mask so a bad decode never corrupts the
                  * image. */
                 uint32_t track = lba / 13u;
-                long     fpos  = (long)g_base[v] +
-                                 (long)track * (long)DSK_TRACK_BYTES;
+                long     tpos  = (long)fpos;   /* in range: checked above */
                 size_t br = 0;
-                if (fseek(g_img[v], fpos, SEEK_SET) == 0)
+                if (fseek(g_img[v], tpos, SEEK_SET) == 0)
                     br = fread(g_secbuf, 1, DSK_TRACK_BYTES, g_img[v]);
-                if (br < DSK_TRACK_BYTES)
+                bool preload_ok = (br == DSK_TRACK_BYTES);   /* in range, so short = medium */
+                if (!preload_ok) {
                     memset(g_secbuf + br, 0, DSK_TRACK_BYTES - br);
+                    drive_write_failed(v, track, "PRELOAD READ");
+                }
                 uint16_t mask = gcr_decode_dos_track(g_trackbuf, MAX_TRACK_BYTES,
                                                      g_order[v], g_secbuf);
-                if (mask != 0) {
-                    bool ok = false;
-                    if (fseek(g_img[v], fpos, SEEK_SET) == 0)
-                        ok = fwrite(g_secbuf, 1, DSK_TRACK_BYTES, g_img[v]) ==
-                             DSK_TRACK_BYTES;
-                    if (!image_sync(g_img[v]))
+                /* A partial decode keeps the preloaded bytes for the missing
+                 * sectors; without a good preload those bytes are zeros, so
+                 * only an all-sectors decode may be written. */
+                bool may_write = (mask == 0xFFFF) || (mask != 0 && preload_ok);
+                if (may_write && g_writable[v]) {
+                    const char *what = "WRITE";
+                    bool ok = (fseek(g_img[v], tpos, SEEK_SET) == 0) &&
+                              fwrite(g_secbuf, 1, DSK_TRACK_BYTES, g_img[v]) ==
+                              DSK_TRACK_BYTES;
+                    if (ok && !image_sync(g_img[v])) {
                         ok = false;
+                        what = "SYNC";
+                    }
                     if (!ok)
-                        DLOGW("DISK II: D%d TRK%lu WRITE FAILED",
-                              v + 1, (unsigned long)track);
+                        drive_write_failed(v, track, what);
+                } else if (mask != 0 && !may_write) {
+                    DLOGW("DISK II: D%d TRK%lu NOT WRITTEN (PRELOAD FAILED, mask=%04X)",
+                          v + 1, (unsigned long)track, (unsigned)mask);
                 }
                 if (mask != 0xFFFF)
                     DLOGW("DISK II: D%d TRK%lu wr partial mask=%04X",
                           v + 1, (unsigned long)track, (unsigned)mask);
             } else {
-                bool ok = false;
-                if (fseek(g_img[v], (long)g_base[v] +
-                                    (long)lba * (long)SECTOR_BYTES,
-                          SEEK_SET) == 0)
-                    ok = fwrite(g_trackbuf, 1, nbyte, g_img[v]) == nbyte;
-                if (!image_sync(g_img[v]))
+                const char *what = "WRITE";
+                bool ok = (fseek(g_img[v], (long)fpos, SEEK_SET) == 0) &&   /* in range: checked above */
+                          fwrite(g_trackbuf, 1, nbyte, g_img[v]) == nbyte;
+                if (ok && !image_sync(g_img[v])) {
                     ok = false;
+                    what = "SYNC";
+                }
                 if (!ok)
-                    DLOGW("DISK II: D%d TRK%lu WRITE FAILED",
-                          v + 1, (unsigned long)(lba / 13u));
+                    drive_write_failed(v, lba / 13u, what);
             }
         }
     } else {
@@ -648,9 +992,7 @@ static void serve_drive(int v)
             /* Read this track's 16*256 file-order sectors and nibblize them
              * into the 6-and-2 GCR stream the window expects. */
             size_t br = 0;
-            if (fseek(g_img[v], (long)g_base[v] +
-                                (long)track * (long)DSK_TRACK_BYTES,
-                      SEEK_SET) == 0)
+            if (fseek(g_img[v], (long)fpos, SEEK_SET) == 0)   /* in range: checked above */
                 br = fread(g_secbuf, 1, DSK_TRACK_BYTES, g_img[v]);
             if (br < DSK_TRACK_BYTES)
                 memset(g_secbuf + br, 0, DSK_TRACK_BYTES - br);
@@ -659,9 +1001,7 @@ static void serve_drive(int v)
         } else {
             /* .nib: raw nibble stream, streamed as-is. */
             size_t br = 0;
-            if (fseek(g_img[v], (long)g_base[v] +
-                                (long)lba * (long)SECTOR_BYTES,
-                      SEEK_SET) == 0)
+            if (fseek(g_img[v], (long)fpos, SEEK_SET) == 0)   /* in range: checked above */
                 br = fread(g_trackbuf, 1, nbyte, g_img[v]);
             if (br < nbyte) {
                 /* EOF: a zero-filled track has no sync/prologue nibbles, so RWTS
@@ -694,30 +1034,69 @@ static void serve_hdd(int u)
     if (!g_hdd_mounted[u])
         return;
 
-    uint8_t req = fpga_reg_read(A2REG_HDD_REQ(u)) &
-                  (A2HDD_REQ_RD | A2HDD_REQ_WR);
+    uint8_t req = 0;
+    if (!read_request_ok("HDD", A2REG_HDD_REQ(u), &req))
+        return;
+    req &= (A2HDD_REQ_RD | A2HDD_REQ_WR);
     if (!req)
         return;   /* nothing pending */
 
-    uint32_t lba = (uint32_t)fpga_reg_read(A2REG_HDD_LBA_L(u)) |
-                   ((uint32_t)fpga_reg_read(A2REG_HDD_LBA_H(u)) << 8);
+    uint8_t lba_l = 0, lba_h = 0;
+    if (!fpga_reg_read_checked(A2REG_HDD_LBA_L(u), &lba_l) ||
+        !fpga_reg_read_checked(A2REG_HDD_LBA_H(u), &lba_h)) {
+        note_link_down("HDD");
+        return;
+    }
+    uint32_t lba = (uint32_t)lba_l | ((uint32_t)lba_h << 8);
+    {   /* same read-twice rule as serve_drive (hdd.sv resets on /RES too) */
+        uint8_t req2 = 0, l2 = 0, h2 = 0;
+        if (!fpga_reg_read_checked(A2REG_HDD_REQ(u), &req2) ||
+            !fpga_reg_read_checked(A2REG_HDD_LBA_L(u), &l2) ||
+            !fpga_reg_read_checked(A2REG_HDD_LBA_H(u), &h2)) {
+            note_link_down("HDD");
+            return;
+        }
+        req2 &= (A2HDD_REQ_RD | A2HDD_REQ_WR);
+        if (req2 != req || l2 != lba_l || h2 != lba_h) {
+            DLOGW("HDD: UNIT %d REQUEST CHANGED UNDER US - RETRY", u + 1);
+            return;
+        }
+    }
     uint32_t addr = A2HDD_WINDOW(u);
     long     fpos = (long)g_hdd_base[u] + (long)lba * (long)SECTOR_BYTES;
+
+    /* Bounds: g_hdd_blocks is the payload length at mount (<= 65535), so a
+     * block inside it is inside the file; anything else is never seeked. */
+    if (lba >= g_hdd_blocks[u]) {
+        static uint32_t s_last_bad[NHDD] = { 0xFFFFFFFFu, 0xFFFFFFFFu };
+        if (lba != s_last_bad[u]) {
+            s_last_bad[u] = lba;
+            DLOGW("HDD: UNIT %d %s BLK %lu OUT OF RANGE (%lu BLK) - %s", u + 1,
+                  (req & A2HDD_REQ_WR) ? "WR" : "RD", (unsigned long)lba,
+                  (unsigned long)g_hdd_blocks[u],
+                  (req & A2HDD_REQ_WR) ? "NOT WRITTEN" : "ZERO BLOCK");
+        }
+    }
 
     if (req & A2HDD_REQ_WR) {
         /* write: block window -> image file */
         if (g_hdd_writable[u] && lba < g_hdd_blocks[u]) {
-            bool ok = fpga_mem_read(A2SPACE_HDD, addr, g_blockbuf, SECTOR_BYTES);
-            if (ok && fseek(g_hdd_img[u], fpos, SEEK_SET) == 0)
-                ok = fwrite(g_blockbuf, 1, SECTOR_BYTES, g_hdd_img[u]) ==
-                     SECTOR_BYTES;
-            else
-                ok = false;
-            if (!image_sync(g_hdd_img[u]))
-                ok = false;
-            if (!ok)
-                DLOGW("HDD: UNIT %d BLK %lu WRITE FAILED", u + 1,
-                      (unsigned long)lba);
+            if (!fpga_mem_read(A2SPACE_HDD, addr, g_blockbuf, SECTOR_BYTES)) {
+                /* link, not medium: the block never left the FPGA window */
+                DLOGW("HDD: UNIT %d BLK %lu WINDOW READ FAILED - NOT WRITTEN",
+                      u + 1, (unsigned long)lba);
+            } else {
+                const char *what = "WRITE";
+                bool ok = (fseek(g_hdd_img[u], fpos, SEEK_SET) == 0) &&
+                          fwrite(g_blockbuf, 1, SECTOR_BYTES, g_hdd_img[u]) ==
+                          SECTOR_BYTES;
+                if (ok && !image_sync(g_hdd_img[u])) {
+                    ok = false;
+                    what = "SYNC";
+                }
+                if (!ok)
+                    hdd_write_failed(u, lba, what);
+            }
         }
     } else {
         /* read: image file -> block window */
@@ -761,6 +1140,21 @@ static void apply_slot_map(void)
 
 void disk_poll(void)
 {
+    if (g_owner_task == NULL)
+        g_owner_task = xTaskGetCurrentTaskHandle();
+
+    /* Quiesce (see disk_quiesce): close everything and serve nothing until
+     * a remount is requested. */
+    if (g_quiesce_req) {
+        g_quiesce_req = false;
+        do_quiesce();
+    }
+    if (g_quiesced) {
+        if (!g_remount_req)
+            return;
+        g_quiesced = false;
+    }
+
     /* Storage backend change (USB stick attached/removed, reported by
      * usbhost): close the images first — they live on the volume about to
      * be swapped — then let the integrator swap /sdcard, then remount. */
@@ -809,6 +1203,7 @@ void disk_poll(void)
                  * and the Apple II is still held in reset so the reconfig is
                  * race-free. */
                 apply_slot_map();
+                audio_ctl_apply();                   /* Mockingboard level (window index 55) */
 
                 gs_socket_a2_release();              /* 0x2E.0, via the socket module (keeps its assert bit) */
                 /* boards where the ESP32 owns the /RES pin (a2p25 IO33) */

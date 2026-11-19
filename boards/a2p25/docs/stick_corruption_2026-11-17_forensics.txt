@@ -1,0 +1,99 @@
+a2p25 USB stick FAT32 directory corruption, 2026-11-17: forensic dump
+source image: first 2 GiB of /dev/rdisk4 (31.6 GB 'Flash Disk'), kept as /Users/edanuff/a2p25_stick_2026-11-17.img and *_KEEP_forensic.img
+sha256 of the 2 GiB image: a63f903537570f1ca958e546ce5c226ec57abf473feb3e65f02ac892f04c74e2
+partition 0: type 0x0C start LBA 8192; BPB: 512 B/sector, 64 sectors/cluster (32 KiB), reserved 1316, 2 FATs x 7534 sectors, root cluster 2
+FAT0 LBA 9508, FAT1 LBA 17042, data/root LBA 24576 (byte 12582912)
+
+FAT0 vs FAT1 disagreements (cluster, FAT0, FAT1):
+   (46692, 268435455, 46693)
+   (46693, 0, 46694)
+   (46694, 0, 46695)
+   (46695, 0, 46696)
+   (46696, 0, 46697)
+   (46697, 0, 46698)
+   (46698, 0, 46699)
+   (46699, 0, 46700)
+   (46700, 0, 46701)
+   (46701, 0, 46702)
+   (46702, 0, 46703)
+   (46703, 0, 46704)
+   (46704, 0, 46705)
+   (46705, 0, 46706)
+   (46706, 0, 46707)
+   (46707, 0, 46900)
+   (46900, 0, 46901)
+   (46901, 0, 46904)
+   (46903, 46904, 268435455)
+   (46904, 268435455, 46905)
+   (46905, 0, 46906)
+   (46906, 0, 46907)
+   (46907, 0, 46908)
+   (46908, 0, 46909)
+   (46909, 0, 46917)
+   (46917, 0, 46918)
+   (46918, 0, 268435455)
+
+root directory (cluster 2), raw entries:
+    0: name=b'DISK_IMG   ' attr=0x28 cl=0 size=0 raw=4449534b5f494d4720202028000000000000e95c00005caa715d000000000000
+   32: LFN 2L '00'
+   64: LFN 1 '.Spotlight-V1'
+   96: name=b'SPOTLI~1   ' attr=0x12 cl=3 size=0 raw=53504f544c497e312020201200394089de5cde5c00004089de5c030000000000
+  128: LFN 1L '.fseventsd'
+  160: name=b'FSEVEN~4   ' attr=0x12 cl=5 size=0 raw=46534556454e7e3420202012004e5caa715d715d00005caa715d050000000000
+  192: name=b'DOS33   NIB' attr=0x20 cl=157 size=232960 raw=444f5333332020204e49422018005d4b2b58de5c00005d4b2b589d00008e0300
+  224: LFN 1L '4soniq_v2.po'
+  256: name=b'4SONIQ~7PO ' attr=0x20 cl=137 size=819200 raw=34534f4e49517e37504f2020000368833d58e95c000068833d58890000800c00
+  288: name=b'4SONIQ  2MG' attr=0x20 cl=182 size=819272 raw=34534f4e49512020324d472018be15843d58e95c000016843d58b60048800c00
+  320: name=b'DISK1   NIB' attr=0x20 cl=183 size=4261287424 raw=4449534b312020204e49422018005d4b2b580000000079052100b7000016fefd
+  352: LFN 2L 'o'
+  384: LFN 1 '._4soniq_v2.p'
+  416: name=b'_4SONI~7PO ' attr=0x22 cl=105 size=4096 raw=5f34534f4e497e37504f2022005aca96e95ce95c0000cb96e95c690000100000
+  448: LFN 1L '._4soniq.2mg'
+  480: name=b'_4SONI~82MG' attr=0x22 cl=106 size=4096 raw=5f34534f4e497e38324d47220061ca96e95ce95c0000cb96e95c6a0000100000
+  512: LFN 1L '816 Paint.2mg'
+  544: name=b'816PAI~92MG' attr=0x20 cl=217 size=819264 raw=3831365041497e39324d47200000e07c2636e95c0000da695d58d90040800c00
+  576: LFN 2L 'mg'
+  608: LFN 1 '._816 Paint.2'
+  640: name=b'_816P~102MG' attr=0x22 cl=111 size=4096 raw=5f383136507e3130324d47220068ca96e95ce95c0000cb96e95c6f0000100000
+  672: LFN 2L 'PO'
+  704: name=b'\x08l{\xb0\xaa\x10\x0c\x8b\xb0\xaa ' attr=0xC0 cl=2970135216 size=2146320 raw=086c7bb0aa100c8bb0aa20c02000a908c02000a808b1bffe0c4db0aa10c02000
+  736: name=b'\xa9\x08\xb1\xbe\xfe\xa1\xbc\xfe\xc0 \x00' attr=0xB9 cl=3222321793 size=4273644030 raw=a908b1befea1bcfec02000b90ac02000a808c0aa10c02000a90881bafea1bafe
+  768: name=b'\xc0 \x00\xb9\x08\xc0 \x00\x88\n|' attr=0xFB cl=2298523570 size=2146527 raw=c02000b908c02000880a7cfb10bb01b08820c02000890aa1b5feb2afdfc02000
+  800: name=b'\x88\n\x0c|\x8a\x88\x80\x81A\xc0 ' attr=0x00 cl=145227808 size=549456041 raw=880a0c7c8a88808141c02000890a81b0fec02000a808b0aa10c02000a908c020
+  832: 00 end-of-directory marker; remaining bytes to 1023 are: 00a8087cfbb2dbf0b0aa10c02000a908a1a9feb1a9fec02000880ab088100cdbd0bb01b08820c02000890ac02000880ab1a3feb088100cdb20bb11b08820c02000890ac0200088090c1a50aa11a08820c020008909c0200088090c1a80aa01a08820c0200089090c1ba2a0698195fee008000c1f0c2e0c2d0c7cb2a001a2a0698190fee008000c0f0c3e0c3d0c7c0c1ba2a069818bfee008000c0f0c0e0c1d0c7c0c1ba2a0698186fee008001df000003641008184fe722800250b03a2670090
+
+clusters allocated in FAT0: 297216 (9288.0 MiB); reachable from surviving entries: 130135 (4066.7 MiB); orphaned: 167081 (5221.3 MiB)
+
+reading: DISK1.NIB entry size 0xFDFE1600 = 4,261,287,424 = lba 8,322,827 x 512, mtime/mdate 0x0579/0x0021 (1980-01-01, FatFS no-clock default) -> rewritten by the firmware's sync after a seek 4 GB past EOF on a garbage write lba; FAT1 chain 46692.. absent from FAT0 = interrupted extension; root-dir bytes 704-831 = Apple-side data, 832-1023 zero = the remaining entries gone.
+
+REVISED READING (same night, after the stick failed to reformat on a Mac and a Windows machine):
+the stick is failing hardware. Sequence that fits all of the above: (1) the stick returned a
+wrong page for the root-directory sector (bytes 704-831 of cluster 2 = a disk-image page
+mapped onto the directory's address by the failing flash controller) and a corrupt size in
+DISK1.NIB's entry; (2) the firmware mounted DISK1.NIB believing the 4 GB size, so a track
+request past the real 230 KB end was not refused, FatFS extended the file by 26 clusters
+(the FAT1-only chain 46692..46918, ~832 KB, i.e. a request near lba 2000, not 8 million),
+and the sync wrote the entry back with the corrupt size and the firmware's 1980 timestamp.
+The ESP32 restarts in the stream path are exonerated for the damage itself; one may have
+interrupted the small extension (FAT0/FAT1 disagreement). Firmware hardening still owed:
+sanity-check image sizes at mount, bound every lba against the checked size, report media
+errors, close images and unmount before esp_restart().
+
+FINAL READING (later the same night; the "revised reading" above is withdrawn after the
+disk-serving session re-parsed the image and this session confirmed it):
+DISK1.NIB's cluster chain from cluster 183 is 130,045 clusters long in BOTH FAT copies
+(183-190, then one contiguous run 67168-197204, end-of-chain mark), = 4,261,314,560 B,
+the smallest chain that holds the recorded size 4,261,287,424 B, and the run begins right
+after the FSInfo next-free hint (67161). A corrupt size field cannot allocate clusters;
+only FatFS extending the file to a 4 GB seek does. So the firmware DID receive a junk
+block number (lba 8,322,827) for a track write and seeked there. The largest orphan run,
+197205-297429 (3.1 GiB), starts exactly where that chain ends: a second extension of the
+same kind, never attached to an entry. The FAT1-only chain 46692-46918 is a third,
+smaller, interrupted allocation. The 128 B of Apple-side data in the directory sector
+still fits a failing stick (wrong page served) better than anything the firmware writes,
+and the stick is confirmed bad (two machines cannot reformat it). Both are true: junk
+lbas from the request path AND a failing stick. Firmware hardening (session
+disk-write-bounds, branch claude/strange-heisenberg-ca020e, commits 1dfc0419 + 31616ad9,
+firmware fc9649c6 built, not flashed): size plausibility at mount, lba bounds, media-error
+reporting and read-only fallback, unmount before esp_restart(). Still open: WHERE the
+junk lba came from (OSPI request-register read race, FPGA latch, or a reload mid-request).

@@ -9,6 +9,8 @@
 //      held, and both are > 0 (the instrument sees what the ear hears).
 //   3. RAW path without skew: both counts are 0 (no false positives from the
 //      one-cycle-value criterion while T_src >= 2 T_dst).
+//   4. RAW_PATH = 0 build (a2p25): a second DUT on the same bus delivers only
+//      source words in every phase, whatever sel_safe says; dbg[31:0] = 0.
 //
 // Run: sim/audio_cdc/run.sh [seed]
 `timescale 1ps/1ps
@@ -88,6 +90,20 @@ module tb_audio_sample_cdc;
         .l_dst(l_dst), .r_dst(r_dst), .dbg(dbg)
     );
 
+    // ---- second DUT: RAW_PATH = 0 (the a2p25 build), same bus, sel ignored ----
+    logic [W-1:0] l_dst_n, r_dst_n;
+    logic [63:0] dbg_n;
+    audio_sample_cdc #(.W(W), .RAW_PATH(0)) dut_noraw (
+        .clk_src(clk_src), .l_src(bus_skewed[W-1:0]), .r_src(bus_skewed[2*W-1:W]),
+        .clk_dst(clk_dst), .strobe_dst(strobe), .sel_safe(sel_safe), .clear(clear),
+        .l_dst(l_dst_n), .r_dst(r_dst_n), .dbg(dbg_n)
+    );
+    int noraw_bad = 0;
+    always @(posedge clk_dst) if (strobe && !in_hist({r_dst_n, l_dst_n})) begin
+        noraw_bad++;
+        $display("FAIL t=%0t RAW_PATH=0 consumed %h not a source value", $time, {r_dst_n, l_dst_n});
+    end
+
     // ---- checkers ----
     int consumed = 0, bad_consumed = 0, safe_bad = 0;
     always @(posedge clk_dst) begin
@@ -141,6 +157,11 @@ module tb_audio_sample_cdc;
         phase("safe, skewed, 100% change", 1, 1, 100, 3000, m, b);
         if (safe_bad != 0) begin fails++; $display("FAIL: safe path (100%%) delivered %0d non-source words", safe_bad); end
 
+        // 4. RAW_PATH = 0 across all phases (sel 0 and 1, skew on and off): only source words,
+        //    mixed counters absent, step counters alive
+        if (noraw_bad != 0) begin fails++; $display("FAIL: RAW_PATH=0 delivered %0d non-source words", noraw_bad); end
+        if (dbg_n[31:0] != 0) begin fails++; $display("FAIL: RAW_PATH=0 mixed counters not zero (%h)", dbg_n[31:0]); end
+        $display("RAW_PATH=0: bad=%0d mixed=%0d jumps=%0d (RAW_PATH=1 jumps %0d)", noraw_bad, dbg_n[31:0], dbg_n[47:32], dbg[47:32]);
         if (fails == 0) $display("PASS"); else $display("FAIL (%0d)", fails);
         $finish;
     end

@@ -1220,6 +1220,16 @@ time, diff against the good copy: random blocks / boot blocks / FAT chain).
 Still-open suspects: the telnet `g` reload and `fpgastream` paths DO leave
 `disk_poll` running while the fabric reconfigures (garbage `HDD_REQ` reads
 → garbage block writes) — a quiesce is warranted there regardless.
+**Resolved 2026-11-17:** that suspect was the mechanism. A `fpga_stream.py`
+reload left `disk_poll` reading bus junk from the unconfigured FPGA; a junk
+write request with lba 0x7EFF0B made `disk.c` seek 4 GB past the end of
+`disk1.nib`, FatFS extended the file, and the stick's root directory went
+with it. Evidence, firmware fix (checked request reads, image-bounded seeks,
+quiesce + unmount before every reload/restart, image sizes checked at mount,
+write failures counted and demoting the volume to read-only) and the
+unflashed build: [STICK_CORRUPTION_2026-11-17.md](STICK_CORRUPTION_2026-11-17.md).
+The stick itself was failing as hardware the same evening (reads down to
+100 KB/s, will not reformat on two machines); retire it.
 
 **Update 3 (ed, 2026-10-15 late): `a2p25_oldcache.bin` (`add13bfb…`,
 cache + whole-cache flush) pops too** (identified on the wire by its
@@ -1594,6 +1604,205 @@ GLU queue re-slice and the slot-table registers apply there too).
    Mockingboard title do not play at once, and the sum still fits 16 bits
    unless the DOC is near full scale at the same instant. Shared-HDL change
    across all tops, so a decision for its own pass, not this merge.
+   **Taken as its own pass 2026-11-17 evening (ed: "yes, next pass"), branch
+   `claude/mockingboard-level-6db` off the merged main, commit 8907a509:**
+   `hdl/sound/core_audio_mix.sv` replaces the inline add on the a2p25,
+   a2mega, a2n20v2 and a2n20v2-Enhanced tops (deprecated GS top untouched):
+   Mockingboard << 4 (peak 12,240, +6 dB), 19-bit sum clamped to 16 bits so
+   a full-scale DOC under a speaker click or a Mockingboard chord clips
+   instead of wrapping. Bench `sim/audio_mix/run.sh` (reference model,
+   200k random cases + clamp corners) PASS. a2p25 rolls of that source: 1
+   `4b761551` 0/0 worst +0.013 clk_pix (framebuffer `v_border_px_r ->
+   h_trigger_r`, a pre-existing cone, placement noise: rolls 2/3 put it at
+   +1.56 / +0.92), 2 `64ab7913` 0/0 worst +0.85 clk_tx, 3 `bb7b63fa` 0/0
+   worst +0.046 clk_mem. Roll 1 streamed (stamp 20261117204243).
+   **Measured (ed's HDMI capture of Nox Archaist at << 4,
+   `tests/sound/nox.m4a`): peak -31.3 dBFS, RMS -36.9 dBFS, waveform
+   unipolar (min -0.0015, max +0.027 FS), L and R identical.** "A bit louder,
+   still somewhat quiet." Reference through the same chain: the February
+   DOC captures `game_1/game_2.m4a` peak at +1.3 / -1.9 dBFS, so the chain
+   passes full scale. The DP packetizer places the 16-bit sample in the top
+   16 of the 24-bit sub-frame field (`{sl, 8'h00}`, channel status word
+   length 16-in-20): correct, no packing attenuation. The AY core (YM2149.sv,
+   MODE 0) indexes its 32-step logarithmic YM table with the full 5 bits and
+   reaches 255 at volume 15: correct. So the shortfall is the real chip's
+   log DAC: ordinary music at volumes 8-12 sits 8-20 dB under the channel
+   peak, and a real card's amplifier makes it up; emulators apply gain.
+   At << 4 Nox's actual peak was ~885 counts (10-bit AY sum ~55 of 765).
+   **Done (commit 29c62fa7): the Mockingboard gain is a live 2-bit select,
+   bits 3:2 of the audio control byte at window index 55 (shift = 3 + value;
+   write 0x01/0x05/0x09/0x0D for << 3/4/5/6 with the mailbox bit kept),
+   power-up 2 = << 5 (full chord 24,480, 75 % FS, clip-free; << 6 clips full
+   chords, the sum saturates). Index 55 reads back {0, gain, clear, sel}.**
+   The level is picked by ear on one bitstream; the chosen value becomes the
+   reset default. Note for the pick: at << 5 Nox should peak near -25 dBFS;
+   matching DOC titles' loudness (RMS -15 to -20 dBFS) would need ~+15 dB
+   over << 4, which is past << 6 and clips chords, so the honest ceiling is
+   << 5 or << 6 with saturation doing the rest.
+   **Next, after the level (ed): audio quality.** The a2n20 tops run
+   `audio_out` (the IIR filter stage) between the mix and the output; the
+   a2p25 feeds the mix straight into the DP crossing because the filter's
+   DSP multipliers did not port from GW2A to GW5A at the time. Ed hears the
+   difference on the Mac playback. Separate item.
+   **Gain-select build (commit 29c62fa7), three rolls of the final source,
+   all 0/0: roll 1 `aca89216` (stamp 20261117210112) worst +0.56 clk100 =
+   BUILD OF RECORD, on the card; roll 2 `13149278` worst +0.029 clk_tx /
+   +0.033 clk_pix; roll 3 `658551cf` worst +0.67 clk_tx. Position: logic
+   73 %, BSRAM 50/56, +28 LUT per mixer channel. Power-up Mockingboard gain
+   << 5. **Ear pick DONE 2026-11-18** (Nox Archaist title music vs the
+   startup beep, stepped live through index 55 = 0x05 / 0x09 / 0x0D): Ed:
+   << 5 and << 6 both sound fine, << 6 obviously louder, no audible clipping,
+   lean << 6; and the level should be a user setting. So the HDL default
+   stays << 5 and the ESP32 firmware owns the byte: SETTINGS → MOCKINGBOARD
+   VOLUME (LOW / MEDIUM / HIGH / MAX = << 3..6, default MAX), persisted in the
+   settings blob (`mb_volume`, one reserved byte, 0 = default), written at
+   boot with the slot map and live on change (`audio_ctl.c`). Firmware
+   `1c303a4c` (1,130,272 B, +384 B) built and INSTALLED 2026-11-18 08:14 via
+   FTP + menu mirror into slot APP0: boot log `AUDIO: MOCKINGBOARD << 6
+   (MAX)`, index 55 reads 0x0D; LEFT/RIGHT on the item gives HIGH/0x09 and
+   MAX/0x0D with SETTINGS SAVED. Setting left at MAX.
+   **Audio output filter stage DONE 2026-11-18 (the a2n20 parity item above).**
+   `audio_out` (Sorgelig's 3-tap IIR low-pass + DC blocker) now runs on the a2p25
+   too, on `clk_logic` AHEAD of the CDC so the band-limiting sees the full-rate
+   sources (speaker bit, AY squares, DOC steps) and not the 48 kHz capture; the
+   DC blocker's strobe is 54 MHz / 1125 = 48.000 kHz, frequency-locked to the
+   pixel-domain strobe (one oscillator), so the mailbox carries one word per
+   period. `flt_rate` 5,594,066: audio_out's accumulator drops its increment on
+   the fire cycle, so the Tang Nano tops (27 MHz, 7,056,000) really filter at a
+   9.268 MHz ce, and that value reproduces it at 54 MHz; the bench shows both
+   configurations within 0.02 dB at every frequency (flat to 8 kHz, −0.7 dB at
+   10 kHz, −4.9 dB at 15 kHz, −11.2 dB at 20 kHz, −34 dB at 50 kHz). The IIR's
+   registers are all ce-enabled (ce at most every fifth clk54) and the SDC gives
+   them 3 cycles; two lessons there: a `*` in get_regs did not cross hierarchy
+   (the taps' `intreg` needed `*/*` patterns — first build was −0.050 ns
+   single-cycle on exactly those), and synthesis absorbs the ce-enabled `inp`
+   register into the DSP's AREG, so the exception must name the DSP DOUT pins.
+   **The GW5A multiplier finding (ed's 2025-09 "primitives" warning, confirmed):**
+   `hdl/support/iir_filter_gw5a.v` first wrote the 16×40 and 37×24 products as
+   signed ≤27×≤36 pieces; bit-exact against the GW2A file in Verilator (15 M
+   cycles, random coefficients, DC-blocker un-mute), netlist wiring checked by
+   hand (operands, constants, AREG+CE, MULTALU static mode = A·B, no sign pins on
+   Arora V — all operands signed), PnR clean — and on the card the consumed
+   stream swung full scale every sample: jump counter (window 52-53) saturating
+   in < 3 s and max step 0xFF at Mockingboard gain << 3, where the sources cannot
+   exceed ~3,000 counts (builds `8b449d4f`, `00c69b77` = MULT27X36 kept, MULTALU
+   replaced). With EVERY product a signed ≤12×≤12 piece (`fcde464a`, 33
+   MULT12X12 incl. the DOC's 5) the stream is clean: jumps 0, max step 0 at
+   << 3, 1,280 at << 6 with the game's music. So the MULT27X36 and MULTALU27X18
+   cells GowinSynthesis 1.9.12.03 infers compute wrong results on the GW5A-25;
+   MULT12X12 (the DOC's) is the only DSP cell this repo has hardware proof for.
+   Cost: 14 DSP blocks (16.5/28 with the DOC) and ≈ 1,350 LUT/ALU → logic 83 %
+   (was 75 %), vs 11 blocks / 275 LUT for the wrong version. Memory note
+   `gw5a-wide-dsp-multipliers-wrong`. GW5A projects (a2p25, legacy rev-0,
+   a2mega, a2mega_138B) list the shared file; the two board copies from 2025-09
+   (which also sign-extended the low ten bits of y) are gone.
+   **Rolls of the final source (commit 8122adb6 + sdc), 2026-11-18:** roll 1
+   `19dfb878` 0/0, worst +0.129 clk100 (+0.648 clk_pix, +1.097 clk_mem; streamed
+   first, counters clean: jumps 0 / max step 0 at << 3, 1,792 at << 6); roll 2
+   `536ec2a4` ONE violation, −0.192 clk_mem_90 (`i_hr_ctrl/u_phy/ck_en_n90 →
+   u_ck/D0`, the HyperRAM PHY's 90° clock-enable, 4.6 ns budget); roll 3
+   `3c863693` 0/0, worst +0.118 clk_pix (+0.198 clk100, +1.305 clk_mem) =
+   **BUILD OF RECORD** (the last build, so impl/pnr is one consistent set),
+   committed and on the card. The earlier all-12x12 probe `fcde464a` missed the same
+   clk_mem_90 path by −0.164, so 2 of 4 placements of this source fail there:
+   at 83 % logic that PHY path has become placement-sensitive, where the 27x36
+   version (79 %) closed 3 of 3 with +0.5 or better. Not the ≥ +0.5-on-every-
+   clock bar; honest status = closes 2 of 3, knife-edge on clk100/clk_pix. The
+   lever if ed wants it durable: trim ≈ 400-800 LUT — the audio CDC's RAW path
+   and its counters (≈ 390 LUT, the mailbox is proven) or the DebugOverlay
+   residue (B6) — or constrain the PHY ck_en flop next to its DDR cell.
+   **Trim tried 2026-11-18 (ed: "trim the CDC raw path"), commit b88a0c10 on
+   `claude/a2p25-audio-filter`, NOT merged:** `audio_sample_cdc` got a
+   `RAW_PATH` parameter and the a2p25 passes 0 (mailbox only, no mixed-capture
+   detector; bit 0 of index 55 ignored, 48-51 read 0; the jump / max-step
+   counters stay; bench extended, 3 seeds PASS). It saved only ≈ 280 LUT
+   (19,094 → 18,806, 83 → 82 %) and the rolls did not improve: `ebfeeb74` 4
+   violations (clk100 −0.151), `a31fa48e` 0/0 but +0.039 clk100 / +0.046
+   clk_pix, `efc9bb67` −0.317 clk_mem_90. So the knife-edge is the placement at
+   82-83 %, not the CDC. Where the filter's cost really is: the module table
+   shows the IIR at ≈ 160 LUT; the +1,000 are **ALU carry chains** — eight
+   24-bit partial products summed into a 61-bit word per tap ≈ 300 ALU per tap
+   plus ≈ 200 for the input product, inherent to doing the exact 37×24 in
+   12×12 pieces. Ways down, all ed's call: a 2-tap filter (coeff_x2 = cy2 = 0,
+   −1/3 of the adders, second-order response); dropping the lowest partial
+   products (sub-LSB error, breaks the bit-exact bench); or a logic diet
+   elsewhere (sdp_engine 1,119 LUT, AUX channel + interface 1,153, second
+   PSG/6522 pair 690). Card still runs `3c863693`; main unchanged at 3a05b59e.
+   **Ed's diagnosis, confirmed and FIXED 2026-11-18 afternoon: not density, the
+   DSP positions.** Every DSP block on the GW5A-25 is in ONE row, `DSP_R19[0..27]`;
+   the filter's 28 MULT12X12 were scattered along it and its adder chains settled
+   in rows 2-20, columns 21-51 — the band where the DP channel-management
+   cluster lived before (R15-20 C20-27, next to the DSP row). In every filter
+   build the AUX logic was displaced; in the failing rolls it was scattered
+   (R11C27 ↔ R31C2, 1.5-2 ns nets) and the HyperRAM PHY's ck_en flop sat 10-20
+   rows from its top-edge IO (R31C79 → IOT1, a 4.26 ns net = the whole clk_mem_90
+   budget). The filter's own paths have a 3-cycle budget, so its cells may live
+   anywhere: `a2p25.cst` now pins the 28 cells to `DSP_R19[11..24]` (input
+   products 11-12, taps 13-16 / 17-20 / 21-24), nothing else constrained. Three
+   rolls, THREE clean: `eb87e606` worst +0.079 clk100 (clk_mem_90 +6.60),
+   `d4a0e7d3` worst +0.118 clk_tx (+0.362 clk100, +6.43), `edb57cec` worst +0.109
+   clk100 (+0.216 clk_tx, +6.08) = **BUILD OF RECORD**, committed, on the card
+   (stamp 20261118133449; counters at << 3: jumps 0, max step 0, raw-path counters read 0). clk_mem_90 went from failing in 2 of 4 placements to
+   +6 ns in all three; what remains at +0.1 is the chronic DP AUX (clk100) /
+   D-PHY FIFO (clk_tx) knife-edge that predates the filter (pre-filter rolls
+   +0.029 .. +0.56). Logic 81-83 % with the CDC raw path off (b88a0c10 kept).
+   **Listening test PASSED 2026-11-18 (ed, build `edb57cec`): "sounds much better
+   than without the filter." The a2n20 parity audio item is closed.**
+   Listening pick NOT done:** the session stopped when the USB stick's FAT32 directory turned
+   out destroyed (picker empty). Forensics from a 37 MB image of the stick:
+   the firmware's Disk II track write-back (`disk.c`) received a garbage
+   block number (lba 8,322,827 on a 230 KB .nib), seeked 4 GB past the end,
+   and FatFS extended `disk1.nib` (entry rewritten: size 0xFDFE1600,
+   1980-01-01 timestamp); the allocation was interrupted (FAT copy 2 holds a
+   chain copy 1 lacks), 5.2 GB of clusters are orphaned, and the root
+   directory's last 320 bytes hold Apple-side data + zeros (the other
+   entries are gone). A restart alone cannot produce field-precise damage.
+   Not an HDL defect of this pass. Final reading (after a wrong revision the
+   same night): BOTH a junk block number and a failing stick. `disk1.nib`'s
+   cluster chain is 130,045 clusters in both FAT copies, exactly what the
+   recorded 4 GB size needs, contiguous from the FSInfo next-free hint, so
+   FatFS really did extend the file to a 4 GB seek on a junk lba
+   (8,322,827); a second 3.1 GiB orphan run starts where that chain ends.
+   The stick is confirmed bad on two machines and best explains the
+   Apple-side bytes in the directory sector. Firmware hardening done in
+   session `disk-write-bounds` (branch `claude/strange-heisenberg-ca020e`,
+   three commits 1dfc0419 / 31616ad9 / 98e7de84, fw `38f0e5b4` built, not
+   flashed): checked register reads + device-ID probe before serving,
+   image-bounded seeks, mount-time size plausibility, write-failure counters
+   with read-only fallback, CMD+lba read twice (an Apple /RES between the
+   two reads otherwise yields lba 0), quiesce + unmount before every FPGA
+   reload and ESP32 restart. Junk-lba origin per that session: floating OSPI
+   reads while the fabric is dark (reload window; IIgs power cycle with a
+   Mac back-powering the ESP32 over USB1). Write-up
+   `STICK_CORRUPTION_2026-11-17.md` (on main since the merge). **Decision 2026-11-18
+   (Ed): merge the firmware branch AFTER a flash test on the card.**
+   **FLASH TEST PASSED 2026-11-18 07:52, branch MERGED (f5ea6a34):**
+   replacement stick in (76 root entries incl. the Mac's copies of the
+   4 GB `disk1.nib`/`disk2.nib`), `.bin` FTP'd to the stick in 6 s,
+   installed from the telnet menu mirror (FIRMWARE → UPDATE MCU → file →
+   check "1103K -> APP1" → INSTALL; ~70 s), board back in 17 s, menu header
+   MCU NOV 17 2026 22:13:35, stick + D1/D2 (RW) + HDD remounted, core stamp
+   20261117210112 unchanged. Regression test: `fpga_stream.py` of the same
+   aca89216 image with both drives mounted RW → directory listing before and
+   after IDENTICAL (names + sizes), images remount, no OUT OF RANGE or write
+   failures logged. Owed to Ed at the machine: a Disk II write-back (game
+   save) under the new firmware. Telnet notes: the line mode has NO
+   `fwupdate` (serial CLI only); the menu mirror's state persists between
+   telnet sessions, arrows need ~0.8 s gaps, the cursor line is the
+   `ESC[7m` inverse line. The recipe as planned:
+   (a) copy `a2fpga_esp32_225_ospi_diskguard_38f0e5b4.bin` (sha256
+   38f0e5b4…1d83cb, 1,129,888 B) to the new stick, FIRMWARE menu → UPDATE
+   MCU (.BIN ON VOLUME) → INSTALL, or telnet `fwupdate <file>` then
+   `fwupdate go`; or (b) `make BOARD_REV=225 DP_TEST=0 PORT=/dev/cu.usbmodemXXXX
+   upload` over USB1 with the Apple II off (download-mode and back-power
+   traps in `ESP32_FW_A2P25.md`). Then: images mount and list, a Disk II
+   boot + a game save writes back, `fpga_stream.py` reload with a writable
+   image mounted leaves the directory intact (OSD shows no OUT OF RANGE or
+   write-failure counts), FIRMWARE page shows the new slot. Details:
+   `stick_corruption_2026-11-17_forensics.txt`.
+   An earlier stream this evening also went out with a stale file (a save
+   directory collided with yesterday's read-only `rolls/g1`), caught by the
+   stamp read-back: name every roll directory uniquely.
    **Uthernet II, 2026-11-17, FAULT FOUND AND FIXED (retest on hardware
    pending the build).** IP65 DATE65 on 6f24025d, slot 3 on Your Card:
    `Initializing - No device found`. Bridge side healthy (ESP32 scratch 0x0C =
