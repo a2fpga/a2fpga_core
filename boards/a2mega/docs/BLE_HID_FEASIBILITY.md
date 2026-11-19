@@ -1,6 +1,9 @@
 # BLE HID (HOGP) on the a2mega / a2p25 ESP32-S3 — feasibility and plan
 
 > Date: 2026-11-18. Research only: no firmware source changed, nothing flashed.
+> Decision (Ed, 2026-11-18 evening): assume the `min_spiffs` partition scheme
+> and assume a USB stick is present; the shrunken LittleFS fallback volume
+> (§3.1) is accepted, not a trade-off to weigh.
 > Firmware tree: `boards/a2mega/src/a2fpga_esp32/` (shared by the a2mega 1.0a3
 > and the a2p25 displayport1). Build measurements below are from throwaway
 > variants that were built and discarded; the exact sources are described in
@@ -19,8 +22,9 @@ so it is the obvious way to keep "remote + stick + Ethernet" without an FPGA
 side USB port (rejected) or a firmware time-share of HID vs storage pipes
 (accepted as the other path).
 
-**Verdict:** feasible, with one prerequisite: the firmware has to move to a
-partition scheme with bigger OTA slots (one-time USB flash per card). The
+**Verdict:** feasible, with one prerequisite: the firmware has to move to the
+`min_spiffs` partition scheme for bigger OTA slots (one-time USB flash per
+card; decided 2026-11-18, stick assumed present). The
 BLE stack adds about 180 KB of flash, and the a2p25 build is already at 86 %
 of the 1.25 MB `default` slot. Everything else (host stack, HID-over-GATT,
 bonding, menu pairing without text input) is ordinary work on APIs that are
@@ -167,7 +171,7 @@ code, all in use.
 | scheme | nvs | otadata | app0 | app1 | spiffs | coredump |
 |---|---|---|---|---|---|---|
 | `default` (today) | 0x9000 / 20 KB | 0xE000 / 8 KB | 0x10000 / 1,310,720 | 0x150000 / 1,310,720 | 0x290000 / 1,441,792 | 0x3F0000 / 64 KB |
-| **`min_spiffs`** (recommended) | same | same | 0x10000 / 1,966,080 | 0x1F0000 / 1,966,080 | 0x3D0000 / 131,072 | same |
+| **`min_spiffs`** (decided) | same | same | 0x10000 / 1,966,080 | 0x1F0000 / 1,966,080 | 0x3D0000 / 131,072 | same |
 | `no_fs` | same | same | 0x10000 / 2,031,616 | 0x200000 / 2,031,616 | none | same |
 
 `nvs`, `otadata` and `coredump` are at the same offsets and sizes in all
@@ -177,14 +181,14 @@ change**, and `CONFIG_ESP_COREDUMP_ENABLE_TO_FLASH` keeps its partition.
 What lives in `spiffs` today: the LittleFS "local volume" that `mount_sd()`
 in the sketch mounts at `/sdcard` when no USB stick is present (both boards
 have `A2MEGA_HAS_SD` off). With `min_spiffs` it shrinks to 128 KB: still
-mountable, but it cannot hold a 140 KB `.dsk`, and an FTP'd firmware `.bin`
-(1.3 MB) will not fit on it either, so **FTP + FIRMWARE-menu OTA needs the
-stick mounted** after the change. In practice both cards already boot from
-the stick (a2mega dock gate 2026-11-02, a2p25 stick path), and today's 1.1 MB
-firmware on a 1.4 MB LittleFS was already a tight fit. `min_spiffs` is
-preferred over `no_fs` because `LittleFS.begin(..., "spiffs")` keeps working
-unchanged; `no_fs` would need a code path for "no local volume at all" and
-buys only 64 KB more per slot.
+mountable, but it cannot hold a 140 KB `.dsk` or an FTP'd firmware `.bin`
+(1.3 MB). **Decision: the USB stick is assumed present**, so the stick is the
+file store for disk images and for FTP + FIRMWARE-menu OTA, and the 128 KB
+LittleFS is only what keeps the stickless boot path from failing. Both cards
+already boot from the stick (a2mega dock gate 2026-11-02, a2p25 stick path).
+`min_spiffs` is chosen over `no_fs` because `LittleFS.begin(..., "spiffs")`
+keeps working unchanged; `no_fs` would need a code path for "no local volume
+at all" and buys only 64 KB more per slot.
 
 ### 3.2 Migration (one-time, per card)
 
