@@ -78,6 +78,25 @@ spireg <reg 0..126> [val]    read or write an FPGA OSPI register (hex ok: 0x75)
 gs | gs set <idx> <val> | gs arm|listen|off|auto|mode <0-3>|hold <ms>
    |autotrig on|off|clear|freeze|run|trig|untrig | gs trace | gs events|evclear
                              IIgs CPU-socket module (a2mega 138B only)
+ble [pair|cancel|list|connect <n>|forget|radio on|off|map|raw on|off]
+                             Bluetooth HID device (ble_hid.c): status, start
+                             the 60 s pairing scan, list what it found, connect
+                             to entry n (-1/none = strongest), drop the bond;
+                             `radio off` keeps the BLE host from starting at
+                             the next boot (`radio on` starts it at once).
+                             `map` dumps the parsed report map (fields + input
+                             characteristics); `raw on` logs every input report
+                             as `RX<rid> <bytes> ><bits>` (pointer reports only
+                             when their decoded bits change) — the way to find
+                             out what a new remote's keys send.
+                             Works without the FPGA link (2026-11-19).
+usb                          every device the USB host has enumerated on USB1
+                             (address, VID:PID, kind, speed, product string,
+                             [in use] when this firmware claimed it); hubs and
+                             unclaimed devices included. Device mode = nothing.
+meminfo                      internal and PSRAM heap: free, largest block,
+                             minimum ever (internal). The BLE host costs ~79 KB
+                             internal; watch this after plugging things in.
 ```
 
 Anything else in key mode is dispatched as hotkeys: a pasted `spireg 0x75`
@@ -121,6 +140,8 @@ leave it. Line commands, from `help`:
 | `spir <space> <addr> <len> [inc]`, `spiw <space> <addr> <inc> <b0> …` | raw OSPI space read/write |
 | `meminfo`, `pins` | ESP32 heap, pin map |
 | `wifi [<ssid> [psk]]`, `net` | WiFi credentials in NVS; `net` = Uthernet uplink (WiFi / USB-Ethernet), adapter state, IP status |
+| `ble [pair\|cancel\|list\|connect <n>\|forget\|radio on\|off\|map\|raw on\|off]` | Bluetooth HID remote/keyboard/gamepad: status, pairing scan, candidates, connect, forget, radio on/off; `map` = parsed report map, `raw on` = log every input report with its decoded bits (2026-11-19) |
+| `usb` | enumerated USB devices on USB1 (host mode only; in device mode the Mac is on that port, so there is nothing to list) |
 | `pd`, `i2cscan` | PD status, DP I2C scan (PD boards) |
 | `dp130 r <reg> [n] \| w <reg> <val> \| probe` | SN75DP130 registers (a2p25) |
 | `a2reset` | pulse the Apple II /RES line 200 ms (boards with the reset pin) |

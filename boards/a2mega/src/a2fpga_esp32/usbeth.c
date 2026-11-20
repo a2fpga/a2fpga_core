@@ -24,6 +24,7 @@
 
 #include "esp_log.h"
 #include "esp_err.h"
+#include "esp_heap_caps.h"
 #include "esp_timer.h"
 #include "esp_event.h"
 #include "esp_netif.h"
@@ -79,7 +80,9 @@ static volatile uint32_t s_rx_drop_ring, s_tx_err, s_tx_inflight;
 #define ER_SLOTS 8
 #define ER_MASK  (ER_SLOTS - 1)
 typedef struct { uint16_t len; uint8_t buf[W5100_MAX_FRAME]; } rx_slot_t;
-static rx_slot_t s_rx[ER_SLOTS];
+/* 12 KB ring, memcpy-filled from the USB transfer buffer and drained to the
+ * FPGA over SPI (bounced), so it lives in PSRAM (heap diet 11-19) */
+static rx_slot_t *s_rx;
 static uint32_t  s_rx_head, s_rx_tail;
 
 /* main-loop log requests (set in callbacks, printed from usbeth_poll) */
@@ -264,7 +267,7 @@ static void deliver_frame(const uint8_t *f, uint16_t len)
         if (mcast || tous) {
             uint32_t head = __atomic_load_n(&s_rx_head, __ATOMIC_RELAXED);
             uint32_t tail = __atomic_load_n(&s_rx_tail, __ATOMIC_ACQUIRE);
-            if (head - tail < ER_SLOTS) {
+            if (s_rx && head - tail < ER_SLOTS) {
                 rx_slot_t *slot = &s_rx[head & ER_MASK];
                 memcpy(slot->buf, f, len); slot->len = len;
                 __atomic_store_n(&s_rx_head, head + 1, __ATOMIC_RELEASE);
@@ -399,6 +402,12 @@ static bool start_function(void)
               CDC_PKT_DIRECTED | CDC_PKT_BROADCAST | CDC_PKT_ALL_MULTICAST, fn->ctrl_intf, 0, NULL, NULL);
 
     if (!netif_ensure(s_e.mac)) return false;
+
+    if (!s_rx) {
+        s_rx = (rx_slot_t *)heap_caps_calloc(ER_SLOTS, sizeof(rx_slot_t), MALLOC_CAP_SPIRAM);
+        if (!s_rx) s_rx = (rx_slot_t *)calloc(ER_SLOTS, sizeof(rx_slot_t));
+        if (!s_rx) { ESP_LOGE(TAG, "no memory for the ingress ring"); return false; }
+    }
 
     /* Arm the receive transfers */
     if (usb_host_transfer_alloc(s_e.rx_size, 0, &s_e.xin) != ESP_OK) return false;

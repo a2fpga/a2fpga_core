@@ -1,7 +1,8 @@
 /*
  * menu.c — see menu.h for the model. 40x24 Apple II text overlay renderer,
  * gamepad navigation, screens for status / disk images / slots / network /
- * firmware / settings, and a generic file picker (no text input anywhere).
+ * bluetooth / firmware / settings, and a generic file picker (no text input
+ * anywhere).
  *
  * a2mega ESP32 port of the a2n20v2-Enhanced firmware_host/menu.c:
  *   - input comes from the FPGA pad readback regs (fpga_pad_poll) instead of
@@ -24,6 +25,7 @@
 #include "esp_log.h"
 #include "esp_timer.h"
 #include "esp_system.h"
+#include "esp_heap_caps.h"
 
 #include "fpga_link.h"
 #include "fpga_screen.h"
@@ -35,6 +37,7 @@
 #include "net_status.h"
 #include "menu.h"
 #include "usbhost.h"
+#include "ble_hid.h"
 #include "fwupdate.h"
 #include "audio_ctl.h"
 #include "net_uplink.h"
@@ -94,7 +97,7 @@ typedef struct menu_screen {
     bool (*on_back)(void);             /* optional: B pressed; true = stay */
 } menu_screen_t;
 
-static menu_item_t s_items[MENU_MAX_ITEMS];
+static menu_item_t *s_items;           /* MENU_MAX_ITEMS, PSRAM (menu_init) */
 static int         s_nitems;
 
 /* navigation stack */
@@ -514,7 +517,7 @@ static void slots_enter(void)
 
 /* ======================= SCREEN: FILE PICKER ============================== */
 /* Generic list-of-files picker: fills a target settings name field. */
-static disk_list_ent_t s_pick_ents[DISK_LIST_MAX];
+static disk_list_ent_t *s_pick_ents;   /* DISK_LIST_MAX, PSRAM (menu_init) */
 static int   s_pick_count;
 static bool  s_pick_fpga;                      /* FPGA bitstream picker mode */
 static bool  s_pick_mcu;                       /* MCU firmware (.bin) picker mode */
@@ -907,8 +910,10 @@ static void status_build(void)
         mi_add(MI_INFO, "GAMEPAD",
                usbhost_pad_present() ? "USB HOST PAD" :
                usbhost_hid_present() ? "USB HOST HID" :
+               ble_hid_connected()   ? "BLUETOOTH" :
                !pad.present ? "NONE" : pad.is_pad ? "PRESENT" : "OTHER HID");
         mi_add(MI_INFO, "USB PORT", usbhost_status_str());
+        mi_add(MI_INFO, "BLUETOOTH", ble_hid_state_str());
     }
     mi_add(MI_INFO, "WIFI", net_connected() ? "CONNECTED" : "OFFLINE");
     mi_add(MI_INFO, "", "");
@@ -1172,16 +1177,215 @@ static void settings_build(void)
 
 static const menu_screen_t SCR_SETTINGS = { "SETTINGS", settings_build };
 
+/* ======================= SCREEN: BLUETOOTH ================================ */
+/* BLE HID host (ble_hid.c): one paired remote / keyboard / gamepad. The
+ * PAIR screen lists HID advertisers while a 60 s scan runs; A on an entry
+ * connects + bonds, or the strongest is taken automatically after a
+ * countdown (a BLE-only user has no other way to pick). Both screens
+ * repaint on ble_hid_take_dirty() from menu_input(). */
+static const menu_screen_t SCR_BLE_PAIR;
+
+static void blepair_pick(int id)
+{
+    ble_hid_pair_select(id);           /* -1 = strongest */
+    screen_refresh();
+}
+
+static void blepair_again(int id)
+{
+    (void)id;
+    ble_hid_pair_begin();
+    screen_refresh();
+}
+
+static void blepair_build(void)
+{
+    menu_item_t *m;
+    bool scanning = ble_hid_pairing() && ble_hid_state() == BLEH_PAIR_SCAN;
+    if (scanning) {
+        mi_add(MI_INFO, "SCANNING - PUT THE DEVICE IN ITS", "");
+        mi_add(MI_INFO, "PAIRING MODE NOW", "");
+    } else {
+        mi_add(MI_INFO, ble_hid_message(), "");
+    }
+    mi_add(MI_INFO, "", "");
+    if (scanning) {
+        int n = ble_hid_candidates();
+        if (n) {
+            char b[MENU_LABEL_LEN + 1];
+            int secs = ble_hid_pair_auto_seconds();
+            if (secs >= 0)
+                snprintf(b, sizeof(b), "CONNECT STRONGEST (AUTO IN %2d S)", secs);
+            else
+                snprintf(b, sizeof(b), "CONNECT STRONGEST");
+            m = mi_add(MI_ACTION, b, "");
+            m->action = blepair_pick;
+            m->id = -1;
+            mi_add(MI_INFO, "", "");
+            for (int i = 0; i < n; i++) {
+                char name[MENU_LABEL_LEN + 1], rssi[MENU_VALUE_LEN + 1];
+                int r = 0;
+                if (!ble_hid_candidate(i, name, sizeof(name), NULL, 0, &r))
+                    continue;
+                snprintf(rssi, sizeof(rssi), "%d DBM", r);
+                m = mi_add(MI_ACTION, name, rssi);
+                m->action = blepair_pick;
+                m->id = i;
+            }
+        } else {
+            mi_add(MI_INFO, "(NO DEVICES FOUND YET)", "");
+        }
+    } else if (!ble_hid_pairing()) {
+        m = mi_add(MI_ACTION, "SCAN AGAIN", "");
+        m->action = blepair_again;
+    }
+    mi_add(MI_INFO, "", "");
+    mi_add(MI_INFO, ble_hid_pairing() ? "B: CANCEL" : "B: BACK", "");
+}
+
+static bool blepair_back(void)
+{
+    if (ble_hid_pairing())
+        ble_hid_pair_cancel();
+    return false;                      /* and leave the screen */
+}
+
+static const menu_screen_t SCR_BLE_PAIR = { "PAIR BLUETOOTH DEVICE", blepair_build, blepair_back };
+
+static void blepair_enter(int id)
+{
+    (void)id;
+    if (!ble_hid_available()) {
+        set_status(" BLUETOOTH HOST IS NOT RUNNING");
+        return;
+    }
+    ble_hid_pair_begin();
+    screen_push(&SCR_BLE_PAIR);
+}
+
+static void ble_forget(int id)
+{
+    (void)id;
+    ble_hid_forget();
+    set_status(" DEVICE FORGOTTEN");
+    screen_refresh();
+}
+
+static void ble_radio_change(int id, int dir)
+{
+    (void)id; (void)dir;
+    settings()->ble_off = !settings()->ble_off;
+    save_settings_status();
+    if (!settings()->ble_off && !ble_hid_available()) {
+        ble_hid_start();                  /* late start is fine */
+        set_status(" BLUETOOTH STARTING");
+    } else if (settings()->ble_off) {
+        set_status(" RADIO STAYS UP UNTIL THE NEXT BOOT");
+    }
+    screen_refresh();
+}
+
+static void ble_build(void)
+{
+    menu_item_t *m;
+    char b[MENU_LABEL_LEN + 1];
+    m = mi_add(MI_TOGGLE, "BLUETOOTH RADIO", settings()->ble_off ? "OFF" : "ON");
+    m->on_change = ble_radio_change;
+    mi_add(MI_INFO, "STATUS", ble_hid_state_str());
+    if (ble_hid_peer_known()) {
+        const char *nm = ble_hid_peer_name();
+        snprintf(b, sizeof(b), "DEVICE  %s", nm[0] ? nm : "(UNNAMED)");
+        mi_add(MI_INFO, b, "");
+        char a[18];
+        ble_hid_peer_addr_str(a, sizeof(a));
+        snprintf(b, sizeof(b), "ADDRESS %s", a);
+        mi_add(MI_INFO, b, "");
+    } else {
+        mi_add(MI_INFO, "DEVICE  (NONE PAIRED)", "");
+    }
+    mi_add(MI_INFO, "", "");
+    m = mi_add(MI_SUBMENU, "PAIR NEW DEVICE", "");
+    m->action = blepair_enter;
+    if (ble_hid_peer_known()) {
+        m = mi_add(MI_ACTION, "FORGET DEVICE", "");
+        m->action = ble_forget;
+    }
+    mi_add(MI_INFO, "", "");
+    if (ble_hid_message()[0]) {
+        mi_add(MI_INFO, ble_hid_message(), "");
+        mi_add(MI_INFO, "", "");
+    }
+    mi_add(MI_INFO, "BLE REMOTES, KEYBOARDS AND GAMEPADS", "");
+    mi_add(MI_INFO, "DRIVE THIS MENU LIKE THE USB ONES.", "");
+    mi_add(MI_INFO, "ONE DEVICE IS KEPT; IT RECONNECTS BY", "");
+    mi_add(MI_INFO, "ITSELF AFTER A BOOT. PAIRING A NEW", "");
+    mi_add(MI_INFO, "DEVICE REPLACES THE OLD ONE.", "");
+    if (!ble_hid_available()) {
+        mi_add(MI_INFO, "", "");
+        mi_add(MI_INFO, "BLUETOOTH HOST IS NOT RUNNING", "");
+    }
+}
+
+static const menu_screen_t SCR_BLUETOOTH = { "BLUETOOTH", ble_build };
+
+/* ======================= SCREEN: USB DEVICES ============================== */
+/* What the ESP32's USB host (usbhost.cpp) has enumerated on USB1: hubs and
+ * unclaimed devices included, so a stick that did not come up behind a hub
+ * is visible as absent (the a2n20v2-Enhanced menu had the same page). */
+static void usb_refresh(int id)
+{
+    (void)id;
+    screen_refresh();
+}
+
+static void usb_build(void)
+{
+    menu_item_t *m;
+    mi_add(MI_INFO, "USB1 PORT", usbhost_status_str());
+    mi_add(MI_INFO, "", "");
+    if (!usbhost_active()) {
+        mi_add(MI_INFO, "PORT IS IN DEVICE MODE (A COMPUTER", "");
+        mi_add(MI_INFO, "WAS ATTACHED AT BOOT): NO HOST", "");
+    } else {
+        usbhost_devinfo_t devs[8];
+        int n = usbhost_list(devs, 8);
+        if (!n)
+            mi_add(MI_INFO, "(NO DEVICES ENUMERATED)", "");
+        for (int i = 0; i < n; i++) {
+            char b[MENU_LABEL_LEN + 1];
+            snprintf(b, sizeof(b), "%u  %04X:%04X  %s%s", devs[i].addr, devs[i].vid, devs[i].pid,
+                     devs[i].kind, devs[i].served ? " *" : "");
+            mi_add(MI_INFO, b, "");
+            if (devs[i].product[0]) {
+                snprintf(b, sizeof(b), "   %s", devs[i].product);
+                mi_add(MI_INFO, b, "");
+            }
+        }
+    }
+    mi_add(MI_INFO, "", "");
+    m = mi_add(MI_ACTION, "REFRESH", "");
+    m->action = usb_refresh;
+    mi_add(MI_INFO, "", "");
+    mi_add(MI_INFO, "* = IN USE BY THIS FIRMWARE", "");
+    mi_add(MI_INFO, "THE HOST HAS 8 CHANNELS: A HUB TAKES", "");
+    mi_add(MI_INFO, "2, A STICK 3, A HID DONGLE 3 - USE", "");
+    mi_add(MI_INFO, "BLUETOOTH FOR REMOTES AND PADS.", "");
+}
+
+static const menu_screen_t SCR_USB = { "USB DEVICES", usb_build };
+
 /* ======================= SCREEN: ROOT ===================================== */
 static void root_enter(int id)
 {
     switch (id) {
-    case 0: screen_push(&SCR_STATUS);   break;
-    case 1: screen_push(&SCR_DISKS);    break;
-    case 2: slots_enter();             break;
-    case 3: screen_push(&SCR_NETWORK);  break;
-    case 4: screen_push(&SCR_FIRMWARE); break;
-    case 5: screen_push(&SCR_SETTINGS); break;
+    case 0: screen_push(&SCR_STATUS);    break;
+    case 1: screen_push(&SCR_DISKS);     break;
+    case 2: slots_enter();              break;
+    case 3: screen_push(&SCR_USB);       break;
+    case 4: screen_push(&SCR_NETWORK);   break;
+    case 5: screen_push(&SCR_BLUETOOTH); break;
+    case 6: screen_push(&SCR_FIRMWARE);  break;
+    case 7: screen_push(&SCR_SETTINGS);  break;
     }
 }
 
@@ -1202,10 +1406,10 @@ static void root_restart_mcu(int id)
 static void root_build(void)
 {
     static const char *const entries[] = {
-        "SYSTEM STATUS", "DISK IMAGES", "SLOT ASSIGNMENTS", "NETWORK",
-        "FIRMWARE", "SETTINGS"
+        "SYSTEM STATUS", "DISK IMAGES", "SLOT ASSIGNMENTS", "USB DEVICES",
+        "NETWORK", "BLUETOOTH", "FIRMWARE", "SETTINGS"
     };
-    for (int i = 0; i < 6; i++) {
+    for (int i = 0; i < 8; i++) {
         menu_item_t *m = mi_add(MI_SUBMENU, entries[i], "");
         m->action = root_enter;
         m->id = i;
@@ -1377,6 +1581,31 @@ void menu_input(uint16_t buttons)
         paint();
     }
 
+    /* Bluetooth screens: repaint on host events, once a second while the
+     * pairing countdown runs, and leave the PAIR screen once bonded (the
+     * BLUETOOTH screen then shows SETTING UP -> CONNECTED live). */
+    if (s_view == VIEW_MENU &&
+        (s_stack[s_depth] == &SCR_BLUETOOTH || s_stack[s_depth] == &SCR_BLE_PAIR)) {
+        static int64_t s_ble_tick_us;
+        int64_t now = esp_timer_get_time();
+        bool dirty = ble_hid_take_dirty();
+        if (s_stack[s_depth] == &SCR_BLE_PAIR && ble_hid_pair_auto_seconds() >= 0 &&
+            now - s_ble_tick_us >= 1000000) {
+            s_ble_tick_us = now;
+            dirty = true;
+        }
+        if (dirty) {
+            if (s_stack[s_depth] == &SCR_BLE_PAIR && !ble_hid_pairing() &&
+                ble_hid_pair_result() == 1 && s_depth > 0) {
+                screen_pop();
+                set_status(" PAIRED");
+            } else {
+                screen_refresh();
+            }
+            paint();
+        }
+    }
+
     /* a requested rescan finished: refresh the visible screen */
     if (s_wait_remount && !disk_remount_pending()) {
         s_wait_remount = false;
@@ -1405,13 +1634,25 @@ void menu_tick(void)
     fpga_pad_poll(&pad);
     /* Feed 0 when no gamepad is attached so releases are seen and held
      * state clears; edge detection makes an unchanged word a no-op.
-     * The ESP32's own USB host (usbhost.c: XInput pads, HID keyboards and
-     * remotes on the module's USB-C) is OR-ed in, same A2PAD layout. */
-    menu_input(((pad.present && pad.is_pad) ? pad.buttons : 0) | usbhost_buttons());
+     * The ESP32's own USB host (usbhost.cpp: XInput pads, HID keyboards and
+     * remotes on the module's USB-C) and the BLE HID host (ble_hid.c) are
+     * OR-ed in, same A2PAD layout. */
+    ble_hid_poll();                    /* pairing countdown / auto-connect */
+    menu_input(((pad.present && pad.is_pad) ? pad.buttons : 0) | usbhost_buttons() | ble_hid_buttons());
 }
 
 void menu_init(void)
 {
+    /* item table (9 KB) + picker listing (8 KB): CPU-only data -> PSRAM,
+     * keeping the internal heap for USB/WiFi/BLE (heap diet 2026-11-19) */
+    if (!s_items) {
+        s_items = (menu_item_t *)heap_caps_calloc(MENU_MAX_ITEMS, sizeof(menu_item_t), MALLOC_CAP_SPIRAM);
+        if (!s_items) s_items = (menu_item_t *)calloc(MENU_MAX_ITEMS, sizeof(menu_item_t));
+    }
+    if (!s_pick_ents) {
+        s_pick_ents = (disk_list_ent_t *)heap_caps_calloc(DISK_LIST_MAX, sizeof(disk_list_ent_t), MALLOC_CAP_SPIRAM);
+        if (!s_pick_ents) s_pick_ents = (disk_list_ent_t *)calloc(DISK_LIST_MAX, sizeof(disk_list_ent_t));
+    }
     s_depth = 0;
     s_stack[0]  = &SCR_ROOT;
     s_cursor[0] = 0;

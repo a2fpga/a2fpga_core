@@ -34,6 +34,7 @@
 #include <sys/stat.h>
 
 #include "esp_log.h"
+#include "esp_heap_caps.h"
 #include "esp_timer.h"    /* esp_timer_get_time — us since boot */
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h" /* quiesce handshake with the disk task */
@@ -110,8 +111,12 @@ static uint32_t    g_bytes[NDRV];                /* payload length at mount     
 static uint32_t    g_fsize[NDRV];                /* whole file size at mount    */
 static uint32_t    g_wr_fail[NDRV];              /* write/sync failures so far  */
 static char        g_imgname[NDRV][PATH_MAX_LEN];/* resolved image path         */
-static uint8_t     g_trackbuf[MAX_TRACK_BYTES];  /* nibble track (FPGA window)  */
-static uint8_t     g_secbuf[DSK_TRACK_BYTES];    /* one sector track (16*256)   */
+/* 6.5 KB nibble track + 4 KB sector track: filled by fread (the USB MSC path
+ * copies out of its own transfer buffers) and the GCR code, written to the
+ * FPGA in 512-byte SPI chunks (the SPI master bounces non-DMA sources through
+ * a temporary internal buffer) -> PSRAM, allocated in disk_init (heap diet). */
+static uint8_t    *g_trackbuf;                   /* nibble track (FPGA window)  */
+static uint8_t    *g_secbuf;                     /* one sector track (16*256)   */
 
 /* ProDOS HDD units: raw 512-byte block volumes (.hdv/.po/.2mg), served one
  * block at a time, LBA 1:1 into the image payload. */
@@ -134,7 +139,10 @@ static volatile bool          g_list_req;
 static volatile bool          g_list_done;
 static const char *const     *g_list_exts;
 static char                   g_list_path[PATH_MAX_LEN];
-static disk_list_ent_t        g_list_ents[DISK_LIST_MAX];
+static disk_list_ent_t       *g_list_ents;     /* DISK_LIST_MAX entries, PSRAM (disk_init) */
+static bool                   g_a2_released;
+
+bool disk_a2_released(void) { return g_a2_released; }
 static int                    g_list_count;
 
 /* Display form of a resolved path: strip the "/sdcard/" prefix. */
@@ -683,6 +691,20 @@ static void disk_remount(void)
 
 void disk_init(void)
 {
+    /* 8 KB directory listing: pure-CPU data, so it lives in PSRAM and
+     * leaves the internal heap to USB/WiFi/BLE (a2p25 heap diet 11-19) */
+    if (!g_list_ents) {
+        g_list_ents = (disk_list_ent_t *)heap_caps_calloc(DISK_LIST_MAX, sizeof(disk_list_ent_t), MALLOC_CAP_SPIRAM);
+        if (!g_list_ents) g_list_ents = (disk_list_ent_t *)calloc(DISK_LIST_MAX, sizeof(disk_list_ent_t));
+    }
+    if (!g_trackbuf) {
+        g_trackbuf = (uint8_t *)heap_caps_malloc(MAX_TRACK_BYTES, MALLOC_CAP_SPIRAM);
+        if (!g_trackbuf) g_trackbuf = (uint8_t *)malloc(MAX_TRACK_BYTES);
+    }
+    if (!g_secbuf) {
+        g_secbuf = (uint8_t *)heap_caps_malloc(DSK_TRACK_BYTES, MALLOC_CAP_SPIRAM);
+        if (!g_secbuf) g_secbuf = (uint8_t *)malloc(DSK_TRACK_BYTES);
+    }
     /* Nothing to bring up here: settings_init() and the SD/VFS mount are the
      * integrator's job; the first disk_poll() performs the initial mount. */
     g_remount_req = true;
@@ -1187,8 +1209,7 @@ void disk_poll(void)
      * volume, or after a deadline so a machine with no media still boots.
      * The FPGA has its own 15 s backstop should we never write. */
     {
-        static bool s_released = false;
-        if (!s_released) {
+        if (!g_a2_released) {
             bool any = false;
             for (int v = 0; v < NDRV; v++) any = any || g_mounted[v];
             for (int u = 0; u < NHDD; u++) any = any || g_hdd_mounted[u];
@@ -1208,7 +1229,7 @@ void disk_poll(void)
                 gs_socket_a2_release();              /* 0x2E.0, via the socket module (keeps its assert bit) */
                 /* boards where the ESP32 owns the /RES pin (a2p25 IO33) */
                 a2_reset_hold_release(any ? "media mounted" : "no media");
-                s_released = true;
+                g_a2_released = true;
                 DLOGI("A2: RESET RELEASED%s", any ? "" : " (NO MEDIA)");
             }
         }

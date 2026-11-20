@@ -85,7 +85,13 @@ typedef struct {
      * load unchanged (0 = default). Applied at boot before the Apple II
      * reset release and live from SETTINGS. */
     uint8_t  mb_volume;
-    uint8_t  reserved[13];               /* future fields (shrink as used) */
+
+    /* BLE HID host (ble_hid.c): 0 = radio on (default), 1 = never start it.
+     * Took one reserved byte (0 = on) so saved v4 blobs load unchanged.
+     * Turning it on from the menu starts the host at once; turning it off
+     * takes effect at the next boot. */
+    uint8_t  ble_off;
+    uint8_t  reserved[12];               /* future fields (shrink as used) */
 
     uint32_t crc;                        /* CRC-32 of everything above */
 } a2_settings_t;

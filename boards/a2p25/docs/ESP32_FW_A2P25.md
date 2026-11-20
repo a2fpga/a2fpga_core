@@ -22,7 +22,9 @@ make BOARD_REV=225 PORT=/dev/cu.usbmodemXXXX upload
 
 - **Module:** ESP32-S3-MINI-1-N4R2, the same as the a2mega 1.0a3. The
   Makefile uses the same FQBN: `FlashSize=4M, PSRAM=enabled,
-  PartitionScheme=no_ota, USBMode=hwcdc, CDCOnBoot=cdc`.
+  PartitionScheme=min_spiffs, USBMode=hwcdc, CDCOnBoot=cdc` (was `default`
+  until 2026-11-19, `no_ota` before 2026-10-12 — see the partition note
+  under "Updating the firmware" below).
 - **Upload port:** use **USB1**, the ESP32's own USB-C port (native USB on
   IO19/IO20). It is a separate connector from the video port (USB2), so the
   CDC console (`+++` then `help`) stays available while a monitor is
@@ -357,8 +359,10 @@ build. That failure was already there before these changes.
 
 ## Updating the firmware without the download-mode dance (10-12)
 
-Builds on the OTA partition scheme (`PartitionScheme=default`, two app
-slots). Put `build/a2fpga_esp32.ino.bin` on the image volume — copy it to
+Builds on an OTA partition scheme with two app slots (`PartitionScheme=
+min_spiffs` since 2026-11-19: 1,966,080-byte slots and a 128 KB LittleFS;
+`default` before that: 1,310,720-byte slots and a 1.25 MB LittleFS). Put
+`build/a2fpga_esp32.ino.bin` on the image volume — copy it to
 the USB stick, or FTP it to the board (`curl -T build/a2fpga_esp32.ino.bin
 ftp://<board-ip>/`, which lands on whatever is mounted at /sdcard) — then
 FIRMWARE menu → `UPDATE MCU (.BIN ON VOLUME)` → pick the file → `INSTALL
@@ -366,3 +370,15 @@ MCU FIRMWARE NOW`; or over the serial/telnet CLI `fwupdate <file>` then
 `fwupdate go`. The board restarts into the other slot (`MCU SLOT: ota_x`
 on the FIRMWARE screen). `make upload` over USB1 still works for the
 bench and is required once to install the OTA partition table.
+
+**Partition change 2026-11-19 (`default` → `min_spiffs`):** the BLE HID host
+(`ble_hid.c`, [BLE_HID_FEASIBILITY.md](../../a2mega/docs/BLE_HID_FEASIBILITY.md))
+adds ~180 KB and no longer fits the 1,310,720-byte `default` slots. A card
+still on the `default` table refuses the new image over OTA ("FILE LARGER
+THAN OTA SLOT" from `fwupdate.c`), so each card gets **one USB `make
+BOARD_REV=225 upload`** with the Apple II off; that rewrites the partition
+table and boots `ota_0`. `nvs`, `otadata` and `coredump` sit at the same
+offsets in both tables, so WiFi credentials, settings and Bluetooth bonds
+survive. The LittleFS "local volume" shrinks to 128 KB: it is only the
+stickless fallback now — disk images, FTP drops and OTA `.bin` files live on
+the USB stick, which is assumed present (Ed, 2026-11-18).

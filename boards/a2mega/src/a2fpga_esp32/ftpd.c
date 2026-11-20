@@ -34,6 +34,7 @@
 #include "disk.h"
 #include "osd_console.h"
 #include "ftpd.h"
+#include "esp_heap_caps.h"
 
 #define FTP_PORT    21
 #define CWD_MAX     192
@@ -51,7 +52,7 @@ typedef struct {
     volatile bool in_use;
 } ftps_t;
 
-static ftps_t s_sess[MAX_SESSIONS];
+static ftps_t *s_sess;                   /* MAX_SESSIONS, PSRAM (ftpd_init) */
 static SemaphoreHandle_t s_fslock;
 
 static void reply(ftps_t *fs, const char *s)
@@ -550,7 +551,11 @@ static void ftpd_thread(void *arg)
         fs->ctl = fd;
         fs->pasv = -1;
         osd_log("FTP: CLIENT CONNECTED");
-        xTaskCreatePinnedToCore(session_thread, "ftps", 4096, fs, 2, NULL, 1);
+        /* FTP only touches lwIP and the stick (FatFS -> USB), never ESP flash,
+         * so its stacks may live in PSRAM (heap diet 11-19) */
+        if (xTaskCreatePinnedToCoreWithCaps(session_thread, "ftps", 4096, fs, 2, NULL, 1,
+                                            MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT) != pdPASS)
+            xTaskCreatePinnedToCore(session_thread, "ftps", 4096, fs, 2, NULL, 1);
     }
 }
 
@@ -558,6 +563,15 @@ void ftpd_init(void)
 {
     if (s_fslock)
         return;                            /* already running */
+    /* 5.5 KB of session state + transfer chunks: lwIP copies on send/recv
+     * and the stick path copies into USB transfer buffers, so PSRAM is fine */
+    if (!s_sess) {
+        s_sess = (ftps_t *)heap_caps_calloc(MAX_SESSIONS, sizeof(ftps_t), MALLOC_CAP_SPIRAM);
+        if (!s_sess) s_sess = (ftps_t *)calloc(MAX_SESSIONS, sizeof(ftps_t));
+        if (!s_sess) return;
+    }
     s_fslock = xSemaphoreCreateMutex();
-    xTaskCreatePinnedToCore(ftpd_thread, "ftpd", 4096, NULL, 2, NULL, 1);
+    if (xTaskCreatePinnedToCoreWithCaps(ftpd_thread, "ftpd", 4096, NULL, 2, NULL, 1,
+                                        MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT) != pdPASS)
+        xTaskCreatePinnedToCore(ftpd_thread, "ftpd", 4096, NULL, 2, NULL, 1);
 }
