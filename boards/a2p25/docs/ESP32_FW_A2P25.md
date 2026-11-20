@@ -68,6 +68,20 @@ make BOARD_REV=225 PORT=/dev/cu.usbmodemXXXX upload
   `reconfig` the core reports DONE, link UP, HyperRAM calibrated, and register
   0x7E reads the stamp back. Before this the card ran firmware Oct 15 2026
   09:21 and a core with no version register.
+- **Build + flash (2026-11-20, hub-port enumeration retry):** `make
+  BOARD_REV=225 DP_TEST=0 compile` at 3ffd5108 (clean tree), arduino-cli
+  1.2.2 / esp32 core 3.3.5 → `build/a2fpga_esp32.ino.bin`, 1,338,352 B
+  (sketch 1,338,207 B = 68 % of the min_spiffs slot), no new warnings under
+  `--warnings all`, sha256
+  `ced8953a33f7de427a7525adeb21883f50900981bff2ba4dc0db2123ddd60639`.
+  **Flashed over the air** onto the card at 192.168.232.66 with the K&ZZ
+  USB 2.0 stick on the hub as the volume: `curl -T` to FTP, renamed on the
+  stick to `a2fpga_esp32_225_hubretry_3ffd5108.bin`, then the telnet menu
+  mirror (FIRMWARE → UPDATE MCU → file → INSTALL MCU FIRMWARE NOW; the
+  picker shows `1306K -> APP1`). Rebooted into `MCU NOV 20 2026 08:32:37`,
+  slot APP1; stick remounted, DOS33.NIB served, USB DEVICES lists hub
+  05E3:0610 + dongle 1915:1025 + stick 090C:1000 all in use. The PNY /
+  Verbatim retry test (ESP32_FEATURE_PORT.md P3) is the next step.
 
 ## Pin map (ESP32-S3-MINI-1 U5)
 
