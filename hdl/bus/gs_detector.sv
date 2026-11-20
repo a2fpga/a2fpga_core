@@ -82,7 +82,8 @@
 // $C029 or bank $E1, which is why $C036 is in the comparator.
 //
 // Detection is sticky until FPGA reset (the host machine cannot change
-// while powered). Sampling follows the soft-switch capture idiom in
+// while powered) — reset_n_i must be the board's device_reset_n, never a
+// reset that folds in the Apple /RES line (see apple_bus). Sampling follows the soft-switch capture idiom in
 // apple_memory.sv: at phi1_posedge, addr/rw_n describe the bus cycle that
 // just completed. The detector must see the bus unqualified by M2SEL
 // (m2sel_n gating is itself enabled by the sw_gs this module helps derive),

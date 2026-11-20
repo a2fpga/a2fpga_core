@@ -115,6 +115,22 @@ module apple_memory #(
     reg [2:0] SLOTROM;
     assign a2mem_if.SLOTROM = SLOTROM;
 
+    // GS auto-detection state wipe (same scheme as apple_memory_sdram):
+    // until detection latches, sw_gs=0 keeps m2sel_n forced valid, so on a
+    // real GS the Mega II side's junk cycles can scribble the captured soft
+    // switches. When sw_gs rises, discard everything captured so far. On
+    // device_reset_n, not system_reset_n: sw_gs is sticky across Apple
+    // /RES, and a clear here would fake a rise (and a wipe) on every warm
+    // reset. This declaration was missing since the auto-detect commit —
+    // the uses below referenced an undeclared net, so the wipe never fired
+    // on the boards built from this file.
+    reg sw_gs_d_r;
+    always @(posedge a2bus_if.clk_logic or negedge a2bus_if.device_reset_n) begin
+        if (!a2bus_if.device_reset_n) sw_gs_d_r <= 1'b0;
+        else sw_gs_d_r <= a2bus_if.sw_gs;
+    end
+    wire sw_gs_rise_w = a2bus_if.sw_gs && !sw_gs_d_r;
+
     // capture the soft switches
     always @(posedge a2bus_if.clk_logic or negedge a2bus_if.system_reset_n) begin
         if (!a2bus_if.system_reset_n) begin

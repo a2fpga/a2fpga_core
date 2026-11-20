@@ -125,10 +125,13 @@ module apple_memory_sdram #(
     // before the first legitimate video write on both stock-GS and
     // TransWarp boot paths), discard everything captured so far. On
     // DIP-forced boards the single rise at FPGA init wipes power-on
-    // defaults — a no-op.
+    // defaults — a no-op. The edge register lives on device_reset_n like
+    // the detector itself: sw_gs is sticky across Apple /RES, so a
+    // system_reset_n clear here would fake a rise (and a wipe) on every
+    // warm reset.
     reg sw_gs_d_r;
-    always @(posedge a2bus_if.clk_logic or negedge a2bus_if.system_reset_n) begin
-        if (!a2bus_if.system_reset_n) sw_gs_d_r <= 1'b0;
+    always @(posedge a2bus_if.clk_logic or negedge a2bus_if.device_reset_n) begin
+        if (!a2bus_if.device_reset_n) sw_gs_d_r <= 1'b0;
         else sw_gs_d_r <= a2bus_if.sw_gs;
     end
     wire sw_gs_rise_w = a2bus_if.sw_gs && !sw_gs_d_r;

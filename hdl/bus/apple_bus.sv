@@ -155,6 +155,13 @@ module apple_bus #(
     // IIgs firmware's reset-time TSB $C029 R-M-W signature (see gs_detector).
     // The detector watches the raw latched bus lines because m2sel_n
     // qualification is only meaningful once sw_gs is known.
+    // Detection is sticky for as long as the FPGA is powered: it sits on
+    // device_reset_n, NOT system_reset_n, because the latter folds in the
+    // Apple /RES line and the host machine cannot change across a warm
+    // reset. Clearing it on /RES dropped sw_gs until the ROM's next $C029
+    // access, which flipped the text screen to the 8-bit palette row for
+    // the duration (the GS blue $C022 index rendered as the paler Apple II
+    // blue) and then re-ran the wipe-on-detect against legitimate state.
     wire gs_autodetect_w;
     wire iie_detected_w;
     wire gs_event_w;
@@ -164,7 +171,7 @@ module apple_bus #(
         if (GS_AUTODETECT) begin : gen_gs_detect
             gs_detector gs_detector_inst (
                 .clk_i(clk_logic_i),
-                .reset_n_i(system_reset_n_i),
+                .reset_n_i(device_reset_n_i),
                 // Unconditional sampling — a TransWarp GS emits its
                 // detectable $C036 pairs while /RES is still asserted.
                 .phi1_posedge_i(a2bus_if.phi1_posedge),
@@ -182,8 +189,8 @@ module apple_bus #(
         end
     endgenerate
 
-    always @(posedge clk_logic_i or negedge system_reset_n_i) begin
-        if (!system_reset_n_i) gs_event_cnt_r <= 4'd0;
+    always @(posedge clk_logic_i or negedge device_reset_n_i) begin
+        if (!device_reset_n_i) gs_event_cnt_r <= 4'd0;
         else if (gs_event_w && gs_event_cnt_r != 4'hF) gs_event_cnt_r <= gs_event_cnt_r + 1'b1;
     end
 

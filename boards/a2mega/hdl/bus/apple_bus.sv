@@ -136,6 +136,9 @@ module apple_bus #(
     // firmware's reset-time TSB $C029 R-M-W signature (see gs_detector).
     // The detector watches the raw latched bus lines because m2sel_n
     // qualification is only meaningful once GS mode is known.
+    // Reset by device_reset_n only (sticky across Apple /RES): the host
+    // cannot change while powered, and clearing it on /RES flipped the
+    // text palette to the 8-bit row until the ROM touched $C029 again.
     wire gs_autodetect_w;
     wire iie_detected_w, gs_event_w;
 
@@ -143,7 +146,7 @@ module apple_bus #(
         if (GS_AUTODETECT) begin : gen_gs_detect
             gs_detector gs_detector_inst (
                 .clk_i(clk_logic_i),
-                .reset_n_i(system_reset_n_i),
+                .reset_n_i(device_reset_n_i),
                 // Unconditional sampling — a TransWarp GS emits its
                 // detectable $C036 pairs while /RES is still asserted.
                 .phi1_posedge_i(a2bus_if.phi1_posedge),

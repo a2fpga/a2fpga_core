@@ -1,6 +1,7 @@
 # Apple II Bus Interface
 
-> Status (2026-10-25): data-mux example and `apple_bus` sharing re-read from the tops; IIgs
+> Status (2026-11-19): IIgs autodetect now sticky across Apple /RES (device reset only);
+> 2026-10-25: data-mux example and `apple_bus` sharing re-read from the tops; IIgs
 > autodetect and the a2mega socket mode added.
 
 How the core snoops the Apple II bus, the slot/card system, and **how to build a new virtual
@@ -89,7 +90,11 @@ watches the raw latched bus lines, unconditionally (a TransWarp GS emits its sig
 `/RES` is still asserted), for the IIgs firmware's reset-time `$C029` / `$C036` read-modify-write
 pairs and a blind `$C029` write, plus a ROM fingerprint at `$FA62` that tells a IIgs from a //e;
 on detection the shadow memory is wiped of junk captured before the mode was known. Verified on
-hardware with a TransWarp GS installed.
+hardware with a TransWarp GS installed. The latch (and the wipe's edge register) sit on
+`device_reset_n`, not `system_reset_n`: the host machine cannot change while the FPGA is
+powered, and clearing the latch on the Apple `/RES` line dropped `sw_gs` until the ROM's next
+`$C029` access — visible on a IIgs as the text screen flipping to the 8-bit palette row (the GS
+blue `$C022` index rendered as the paler Apple II blue) for the length of a warm reset.
 
 **Timing pattern:** address is latched mid-`phi1`; the data byte is sampled in `phi0` and flagged
 by a one-cycle `data_in_strobe`. So a card detects an access to its register with something like
