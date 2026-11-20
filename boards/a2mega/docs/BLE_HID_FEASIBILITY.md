@@ -161,6 +161,12 @@ the remote reconnected, OTA from the stick still works (that is how the build
 went on). The `fwupdate` 4 KB chunk stays internal on purpose (the recovery
 path should not depend on the flash driver's PSRAM bounce).
 
+**Dongle retired (2026-11-19).** Ed pulled the 4842:0001 2.4G dongle from the
+hub and uses the BOXPUT BPR1S Plus in BLE mode as the daily remote. USB
+channels on the a2p25 are now hub 2 + stick 3 = 5 of 8, leaving the 3 the
+RTL8152B Ethernet adapter needs once `claude/usb-ethernet-a2p25-a2mega-d6e130`
+merges in.
+
 Still owed: WiFi-bridge throughput with BLE connected and during PAIR,
 passkey display for MITM-only keyboards, a gamepad (Xbox BLE) through the
 pad-button table, the a2mega 1.0a3 card's one-time USB table switch, and the
@@ -515,3 +521,4 @@ controller, 8BitDo = BR/EDR, Xbox fw ≥5.15 = BLE); Bluetooth SIG HOGP
 (bonding requirement); arduino-esp32 3.3.5 `libraries/BLE/src` (NimBLE
 backend behaviour); the Arduino core's `tools/partitions/*.csv` and
 `boards.txt` (slot sizes).
+
