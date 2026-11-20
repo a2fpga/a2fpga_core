@@ -11,8 +11,9 @@
 
 ## Status (2026-11-19)
 
-Phases 0–2 of §7 are written and build; **nothing has run on hardware yet**
-(no card flashed from this branch). What landed, all in
+Phases 0–2 of §7 are written, built and **running on the a2p25**: a BLE
+remote paired, reconnects across reboots and drives the OSD menu (details at
+the end of this section). What landed, all in
 `boards/a2mega/src/a2fpga_esp32/`:
 
 - `Makefile`: `PartitionScheme=min_spiffs` for BOARD_REV 225 and 103
@@ -96,9 +97,47 @@ named after the interface we serve rather than the first one (the remote
 dongle is audio + HID). That build went on over the air from the stick via
 FIRMWARE → UPDATE MCU, which also exercised the min_spiffs OTA path.
 
-Still owed: confirm the stick enumerates with that build, pair an actual
-device, WiFi-bridge throughput with BLE connected, passkey display for
-MITM-only keyboards.
+**Pairing pass (2026-11-19 afternoon, builds 75762466 and after, OTA from the
+stick):** the device at hand was a BOXPUT "BPR1S" air-mouse remote
+(`9B:01:D8:C6:C3:5B`, BLE keyboard + consumer + mouse composite). From
+BLUETOOTH → PAIR NEW DEVICE it appeared in the scan at −69 dBm within 5 s,
+CONNECT STRONGEST fired at 15 s, Just Works bonding and discovery completed
+(196-byte Report Map, 13 input characteristics, 3 usable fields after the
+parser fix below) and the menu answered the remote. After every OTA reboot
+since, the card reconnected the moment the remote woke up, with no user
+action (bond in NVS, `ble_gap_connect` FOREVER). With the link up: 37 KB
+internal free, 26.6 KB largest block, 36.2 KB minimum ever since boot.
+Every key decoded as intended, captured with `ble raw on` over telnet:
+
+| remote key | report | usage | A2PAD |
+|---|---|---|---|
+| Up / Down / Left / Right | RID 2 consumer array | 0x042 / 0x043 / 0x044 / 0x045 (Menu Up/Down/Left/Right) | U / D / L / R |
+| OK | RID 4 mouse buttons | button 1 (left click) | A |
+| Back | RID 1 keyboard array | 0x2A Backspace | B |
+| Back (long) | RID 2 consumer | 0x224 AC Back | B |
+| Menu | RID 1 keyboard array | 0x65 Application | SELECT |
+| Home | RID 2 consumer | 0x223 AC Home | SELECT |
+| Search, Mute, Vol+/− | RID 2 consumer | 0x221, 0xE2, 0xE9, 0xEA | — (unmapped, same as on the USB dongles) |
+
+Two things came out of it:
+
+- **Relative axes are not a D-pad.** The report-map parser took the air
+  mouse's relative X/Y (Input item flag bit 2) as pad axes, so a flick past
+  a quarter of the range would have fired U/D/L/R into the menu. `hid_map.c`
+  now skips relative X/Y; only absolute axes (gamepad sticks) count.
+- **Diagnostics.** `ble map` dumps the parsed fields (kind, report ID, bit
+  offset, size, count) and every input characteristic (handle, UUID, RID,
+  CCCD, last decoded bits); `ble raw on|off` logs each input report as
+  `RX<rid> <bytes> ><bits>` on the OSD/telnet status line. Keyboard and
+  consumer array reports always log; pointer reports (mouse at 40 Hz) log
+  only when their decoded bits change, so the stream stays readable at the
+  OSD's 40 columns.
+
+Still owed: WiFi-bridge throughput with BLE connected and during PAIR,
+passkey display for MITM-only keyboards, a gamepad (Xbox BLE) through the
+pad-button table, the a2mega 1.0a3 card's one-time USB table switch, and the
+merge with the USB-Ethernet branch (`claude/usb-ethernet-a2p25-a2mega-d6e130`,
+which edits `usbhost.cpp` and the sketch too).
 
 ## 1. Why
 
