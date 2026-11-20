@@ -79,6 +79,22 @@ first slice that was already ported.
    disk1/disk2.dsk + hdd1.hdv mounted RW, `/RES RELEASED (MEDIA MOUNTED)`,
    Apple boots from the stick. Not ported: the BL616 hub supervisor
    (stalled-hub adopt / VBUS cycle), `boot_pref`.
+   **Stick compatibility (bench 2026-11-19, Ed, firmware 62153cbf, hub
+   05E3:0610 + remote dongle 1915:1025):** USB 3.x sticks fail before the
+   firmware sees them — PNY 64 GB Elite-X Fit USB 3.0 and Verbatim 32 GB
+   Store 'n' Stay Nano USB 3.2 Gen 1 both die at enumeration (`ENUM: BAD
+   TRANSFER STATUS 1: CHECK_SHORT_DEV_DESC`, the IDF's transaction-error
+   status on the first 8-byte device-descriptor read, then `EXT_PORT: [1:3]
+   PORT DISABLED, RESET ATTEMPTS=1`; replugging repeats it). A K&ZZ 32 GB
+   USB 2.0 stick enumerates (090C:1000), mounts and serves. The S3 host is
+   full-speed only and a hub whose upstream runs at full speed holds the
+   stick at full speed too; some USB 3.x controllers answer that with
+   errors. The single reset attempt is the Arduino core's prebuilt ESP-IDF
+   setting and cannot be raised from this tree. **Recommend USB 2.0 sticks.**
+   With no stick the disk task falls back to the empty flash volume,
+   releases /RES with `(NO MEDIA)` and leaves the OSD console on screen by
+   design (`disk.c`), which reads as a hang although the Apple is running
+   (status register 0x07 = 0x87: clock alive, reset released).
 4. **P4 MCU self-update** — DONE (code): `fwupdate.c` on ESP-IDF OTA
    (`esp_ota_begin/write/end`, boot partition switch, restart in 2 s);
    the image is any `*.bin` on the volume (stick, or FTP-dropped onto

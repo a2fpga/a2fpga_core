@@ -34,6 +34,9 @@ IIgs sound is the fabric DOC5503 on PSRAM.
 - [ ] Fold the TOP_INTEGRATION_PLAN section 6 decisions into MODERNIZATION_PLAN and archive it
 - [ ] USB-C-to-HDMI adapters: only RBR-capable, lane-count-honest adapters work (plan section
       6h recipe); document the qualified list for users
+- [ ] USB sticks: USB 3.x sticks (PNY Elite-X Fit, Verbatim Nano 3.2) fail enumeration on the
+      ESP32-S3 full-speed host, USB 2.0 sticks work (2026-11-19, ESP32_FEATURE_PORT.md P3);
+      recommend USB 2.0 to users and keep a tested list
 
 ## Shipped on displayport1 (2026-10-01 → 10-12)
 
