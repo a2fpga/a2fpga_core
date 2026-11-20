@@ -25,7 +25,11 @@ every new log line. Since 2026-11-18 the tee also carries every **ESP-IDF
 error-level log line** (`idf_log_tee.c`: `E (ts) TAG: msg` → `TAG: MSG`, in
 40-column pieces), so `usb_host` failures such as `HCD DWC: NO MORE HCD
 CHANNELS AVAILABLE` or `ENUM: STAGE ... FAILED` are readable here; the serial
-console is USB1, the host port, and is unreachable whenever a dock is attached. **Every byte you type is a hotkey**, dispatched
+console is USB1, the host port, and is unreachable whenever a dock is attached.
+The same tee feeds one hook: `EXT_PORT: [h:p] Port disabled` starts the
+hub-port power-cycle retry in `usbhost.cpp` (`USB HOST: HUB h PORT p ENUM
+FAILED, POWER CYCLING PORT (TRY n/3)` ... `RECOVERED` or `FAILED TO
+ENUMERATE, PLUG THE STICK DIRECTLY`; a2p25 ESP32_FEATURE_PORT.md P3). **Every byte you type is a hotkey**, dispatched
 immediately, no Enter needed. There is no `help` command in key mode; the
 banner lists the keys:
 

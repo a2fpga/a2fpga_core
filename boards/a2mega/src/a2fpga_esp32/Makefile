@@ -58,7 +58,7 @@ C_FILES = fwupdate.c a2fpga_ospi_link.c a2fpga_spi_service.c fpga_link.c fpga_sc
           wifi_bridge.c usbeth.c usbeth_proto.c net_uplink.c \
           fpga_jtag.c fpgaupdate.c fpgastream.c ftpd.c telnetd.c \
           fusb302.c usbc_port.c esp32s3_integration.c sn75dp130.c gs_socket.c \
-          hid_map.c ble_hid.c
+          hid_map.c ble_hid.c usbhub_retry.c
 HEADER_FILES = a2fpga_jtag.h a2fpga_ospi_link.h a2fpga_spi_service.h wedge_watch.h \
                a2fpga_regs.h fpga_link.h fpga_screen.h osd_console.h menu.h \
                net_status.h idf_log_tee.h settings.h disk.h gcr_dsk.h w5100.h audio_ctl.h \
@@ -66,7 +66,7 @@ HEADER_FILES = a2fpga_jtag.h a2fpga_ospi_link.h a2fpga_spi_service.h wedge_watch
                fpga_jtag.h fpgaupdate.h fpgastream.h ftpd.h telnetd.h \
                board_pins.h fusb302.h usb_pd.h usbc_port.h usbc_glue.h \
                esp32s3_integration.h sn75dp130.h usbhost.h usbstorage.h fwupdate.h gs_socket.h \
-               hid_map.h ble_hid.h
+               hid_map.h ble_hid.h usbhub_retry.h
 ALL_SOURCES = $(SKETCH) $(CPP_FILES) $(C_FILES) $(HEADER_FILES)
 
 # Default target

@@ -12,6 +12,7 @@
 
 static vprintf_like_t s_prev;
 static volatile bool  s_busy;          /* osd_log() itself logs at INFO; guard anyway */
+static idf_log_tee_hook_t volatile s_hook;
 
 static int tee_vprintf(const char *fmt, va_list ap)
 {
@@ -31,6 +32,8 @@ static int tee_vprintf(const char *fmt, va_list ap)
         while (*p == ' ') p++;
         size_t len = strlen(p);
         while (len && (p[len - 1] == '\n' || p[len - 1] == '\r' || p[len - 1] == ' ')) p[--len] = '\0';
+        idf_log_tee_hook_t hook = s_hook;
+        if (hook) hook(p);
         /* 40-column console: first piece verbatim, the rest indented */
         if (len <= 40) {
             osd_log("%s", p);
@@ -50,6 +53,8 @@ static int tee_vprintf(const char *fmt, va_list ap)
     }
     return r;
 }
+
+void idf_log_tee_set_hook(idf_log_tee_hook_t hook) { s_hook = hook; }
 
 void idf_log_tee_init(void)
 {

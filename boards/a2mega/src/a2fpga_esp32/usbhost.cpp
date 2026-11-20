@@ -30,12 +30,15 @@
 #include "driver/usb_serial_jtag.h"
 #include "esp_private/usb_phy.h"
 #include "usb/usb_host.h"
+#include "usb/usb_types_ch11.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "freertos/queue.h"
 #include "freertos/semphr.h"
 #include "usbstorage.h"
 #include "usbeth.h"
+#include "usbhub_retry.h"
+#include "idf_log_tee.h"
 
 #include "osd_console.h"   /* osd_log (C linkage) */
 
@@ -57,7 +60,10 @@ static usb_host_client_handle_t  s_client = NULL;
  * the control transfers of the XInput init) is ever delivered — doing the
  * work inside the client callback deadlocked and watchdog-reset the chip
  * (a2p25 10-12: Apple reset loop on gamepad attach). */
-struct work_item { uint8_t is_gone; uint8_t addr; usb_device_handle_t dev; };
+/* kind: 0 = new device at addr, 1 = device gone, 2 = hub port failed to
+ * enumerate (addr = hub, port = 1-based downstream port; from the log hook) */
+struct work_item { uint8_t kind; uint8_t addr; uint8_t port; usb_device_handle_t dev; };
+enum { WORK_NEW = 0, WORK_GONE = 1, WORK_HUB_PORT_FAILED = 2 };
 static QueueHandle_t s_work = NULL;
 
 /* ---- XInput ---------------------------------------------------------------
@@ -367,6 +373,148 @@ static void arm_in(hintf *f)
     usb_host_transfer_submit(f->xin);
 }
 
+/* ---- hub-port enumeration retry (usbhub_retry.h) ------------------------------
+ * Enumeration of a device behind a hub runs entirely inside the IDF hub
+ * driver (ext_hub/ext_port + enum, prebuilt): our client only hears of a
+ * device once it HAS enumerated, so nothing we do on NEW_DEV -- a delay, an
+ * extra reset -- can change a port that fails before that. The one lever
+ * left is the hub itself: the IDF driver opens hubs through usbh_devs_open
+ * (no client; checked in libusb.a's ext_hub.c.obj), so a client may open a
+ * hub too (usbhost_list already does) and talk to it over EP0. When the
+ * driver logs "EXT_PORT: [hub:port] Port disabled" we power-cycle that one
+ * port (ClearPortFeature / SetPortFeature PORT_POWER); the hub reports a
+ * fresh connection and the driver debounces, resets and enumerates again.
+ * The ladder (how many times, which delays, when it is a new plug) is the
+ * pure usbhub_retry module; this is the plumbing. It never touches a port
+ * whose device enumerated (PORT_ENABLE set), never a hub that switches all
+ * ports together, adds no channels and holds the hub open only during a
+ * cycle. The hook runs in the IDF daemon task: it only posts to the queue. */
+static usbhub_retry_t s_hubr;
+
+static void hub_retry_hook(const char *tag_msg)
+{
+    uint8_t hub, port;
+    if (!s_work || !usbhub_retry_parse_disabled(tag_msg, &hub, &port)) return;
+    work_item w = {}; w.kind = WORK_HUB_PORT_FAILED; w.addr = hub; w.port = port;
+    xQueueSend(s_work, &w, 0);
+}
+
+enum hubcyc_result { HC_OK, HC_NO_HUB, HC_NOT_HUB, HC_PORT_EMPTY, HC_PORT_ENABLED, HC_GANGED, HC_NO_SWITCH, HC_XFER };
+
+static bool hub_open(uint8_t addr, usb_device_handle_t *h)
+{
+    /* usbhost_list() opens and closes devices on this same client from the
+     * menu/console tasks and the library refuses a second open by the same
+     * client, so a collision makes one open fail: try a few times */
+    for (int i = 0; i < 5; i++) {
+        if (usb_host_device_open(s_client, addr, h) == ESP_OK) return true;
+        vTaskDelay(pdMS_TO_TICKS(20));
+    }
+    *h = NULL;
+    return false;
+}
+
+static bool hub_port_status(hdev *d, uint8_t port, usb_port_status_t *st)
+{
+    memset(st, 0, sizeof(*st));
+    return ctrl_xfer(d, USB_BM_REQUEST_TYPE_DIR_IN | USB_BM_REQUEST_TYPE_PORT, USB_B_REQUEST_HUB_GET_PORT_STATUS,
+                     0, port, USB_PORT_STATUS_SIZE, (uint8_t *)st) == ESP_OK;
+}
+
+/* One power cycle of hub:port (off for off_ms). Blocking; worker task only. */
+static hubcyc_result hub_port_cycle(uint8_t hub, uint8_t port, uint16_t off_ms)
+{
+    hdev d; memset(&d, 0, sizeof(d)); d.addr = hub;
+    if (!hub_open(hub, &d.dev)) return HC_NO_HUB;
+    hubcyc_result r = HC_XFER;
+    const usb_device_desc_t *dd = NULL;
+    usb_hub_descriptor_t hd; usb_port_status_t st;
+    if (usb_host_get_device_descriptor(d.dev, &dd) != ESP_OK || !dd || dd->bDeviceClass != 0x09) { r = HC_NOT_HUB; goto out; }
+    if (ctrl_xfer(&d, USB_BM_REQUEST_TYPE_DIR_IN | USB_BM_REQUEST_TYPE_HUB, USB_B_REQUEST_HUB_GET_DESCRIPTOR,
+                  (uint16_t)(USB_CLASS_DESCRIPTOR_TYPE_HUB << 8), 0, USB_HUB_DESCRIPTOR_SIZE, (uint8_t *)&hd) != ESP_OK) goto out;
+    if (port < 1 || port > hd.bNbrPorts) { r = HC_NOT_HUB; goto out; }
+    /* ganged switching would cut the HID dongle / Ethernet adapter too */
+    if (hd.wHubCharacteristics.power_switching == USB_W_HUB_CHARS_PORT_PWR_CTRL_ALL) { r = HC_GANGED; goto out; }
+    if (!hub_port_status(&d, port, &st)) goto out;
+    if (!st.wPortStatus.PORT_CONNECTION) { r = HC_PORT_EMPTY; goto out; }     /* unplugged meanwhile */
+    if (st.wPortStatus.PORT_ENABLE)      { r = HC_PORT_ENABLED; goto out; }   /* it enumerated after all: hands off */
+    if (ctrl_xfer(&d, USB_BM_REQUEST_TYPE_PORT, USB_B_REQUEST_HUB_CLEAR_FEATURE, USB_FEATURE_PORT_POWER, port, 0, NULL) != ESP_OK) goto out;
+    vTaskDelay(pdMS_TO_TICKS(50));
+    /* a hub without power switching may answer the request and change
+     * nothing; then the cycle is a no-op and we say so instead of looping */
+    {
+        bool changed = hub_port_status(&d, port, &st) && (!st.wPortStatus.PORT_POWER || !st.wPortStatus.PORT_CONNECTION);
+        if (off_ms > 50) vTaskDelay(pdMS_TO_TICKS(off_ms - 50));
+        if (ctrl_xfer(&d, USB_BM_REQUEST_TYPE_PORT, USB_B_REQUEST_HUB_SET_PORT_FEATURE, USB_FEATURE_PORT_POWER, port, 0, NULL) != ESP_OK) goto out;
+        r = changed ? HC_OK : HC_NO_SWITCH;
+    }
+out:
+    usb_host_device_close(s_client, d.dev);
+    return r;
+}
+
+static void hub_port_failed(uint8_t hub, uint8_t port)
+{
+    usbhub_retry_plan_t plan = {};
+    usbhub_retry_action_t act = usbhub_retry_on_failure(&s_hubr, hub, port, millis(), &plan);
+    if (act == USBHUB_RETRY_IGNORE) return;
+    if (act == USBHUB_RETRY_GIVE_UP) {
+        osd_log("USB HOST: HUB %u PORT %u FAILED TO", hub, port);
+        osd_log("  ENUMERATE, PLUG THE STICK DIRECTLY");
+        ESP_LOGW(TAG, "hub %u port %u: gave up after %u port power cycles", hub, port, USBHUB_RETRY_MAX);
+        return;
+    }
+    osd_log("USB HOST: HUB %u PORT %u ENUM FAILED,", hub, port);
+    osd_log("  POWER CYCLING PORT (TRY %u/%u)", plan.attempt, USBHUB_RETRY_MAX);
+    vTaskDelay(pdMS_TO_TICKS(plan.settle_ms));          /* let the driver finish recycling the port */
+    hubcyc_result r = hub_port_cycle(hub, port, plan.off_ms);
+    switch (r) {
+    case HC_OK:
+        usbhub_retry_cycled(&s_hubr, hub, port, millis());
+        ESP_LOGI(TAG, "hub %u port %u: power cycled (%u ms off), waiting for the driver", hub, port, plan.off_ms);
+        return;
+    case HC_PORT_EMPTY:
+        usbhub_retry_resolved(&s_hubr, hub, port);
+        osd_log("USB HOST: HUB %u PORT %u IS EMPTY NOW", hub, port);
+        return;
+    case HC_PORT_ENABLED:
+        usbhub_retry_resolved(&s_hubr, hub, port);
+        ESP_LOGI(TAG, "hub %u port %u: enabled meanwhile, not touched", hub, port);
+        return;
+    case HC_NO_HUB:    osd_log("USB HOST: CANNOT OPEN HUB %u FROM OUR", hub); osd_log("  CLIENT, NO PORT RETRY:"); break;
+    case HC_NOT_HUB:   osd_log("USB HOST: ADDR %u IS NOT A HUB WITH", hub);   osd_log("  PORT %u, NO PORT RETRY:", port); break;
+    case HC_GANGED:    osd_log("USB HOST: HUB %u SWITCHES PORT POWER", hub); osd_log("  GANGED (ALL PORTS), NO PORT RETRY:"); break;
+    case HC_NO_SWITCH: osd_log("USB HOST: HUB %u IGNORED PORT POWER OFF,", hub); osd_log("  NO PORT RETRY:"); break;
+    default:           osd_log("USB HOST: HUB %u CONTROL TRANSFER FAILED,", hub); osd_log("  NO PORT RETRY:"); break;
+    }
+    osd_log("  PLUG THE STICK DIRECTLY");
+    usbhub_retry_abort(&s_hubr, hub, port, millis());
+}
+
+/* NEW_DEV while a cycle of ours awaits its verdict: is this the device on
+ * that hub port? Device handles are the library's device objects, so the
+ * hub opened by address compares equal to the new device's parent handle. */
+static void hub_retry_check_recovered(hdev *d)
+{
+    if (!usbhub_retry_pending(&s_hubr)) return;
+    usb_device_info_t info;
+    if (usb_host_device_info(d->dev, &info) != ESP_OK || !info.parent.dev_hdl) return;
+    for (int i = 0; i < USBHUB_RETRY_SLOTS; i++) {
+        const usbhub_retry_slot_t *s = &s_hubr.slot[i];
+        if (s->state != USBHUB_SLOT_WAITING || s->port != info.parent.port_num) continue;
+        uint8_t hub = s->hub, port = s->port;
+        usb_device_handle_t hh = NULL;
+        if (usb_host_device_open(s_client, hub, &hh) != ESP_OK) continue;
+        bool match = (hh == info.parent.dev_hdl);
+        usb_host_device_close(s_client, hh);
+        if (!match) continue;
+        int n = usbhub_retry_resolved(&s_hubr, hub, port);
+        osd_log("USB HOST: HUB %u PORT %u RECOVERED AFTER", hub, port);
+        osd_log("  %d PORT POWER CYCLE%s", n, n == 1 ? "" : "S");
+        return;
+    }
+}
+
 /* ---- device attach --------------------------------------------------------- */
 static void attach_device(uint8_t addr)
 {
@@ -374,6 +522,7 @@ static void attach_device(uint8_t addr)
     if (!d) return;
     if (usb_host_device_open(s_client, addr, &d->dev) != ESP_OK) { d->dev = NULL; return; }
     d->addr = addr;
+    hub_retry_check_recovered(d);
     const usb_device_desc_t *dd = NULL;
     const usb_config_desc_t *cfg = NULL;
     char ifs[96] = ""; int ifl = 0;   /* composite devices list several interfaces */
@@ -515,8 +664,8 @@ static void client_cb(const usb_host_client_event_msg_t *m, void *arg)
 {
     (void)arg;
     work_item w = {};
-    if (m->event == USB_HOST_CLIENT_EVENT_NEW_DEV) { w.is_gone = 0; w.addr = m->new_dev.address; }
-    else if (m->event == USB_HOST_CLIENT_EVENT_DEV_GONE) { w.is_gone = 1; w.dev = m->dev_gone.dev_hdl; }
+    if (m->event == USB_HOST_CLIENT_EVENT_NEW_DEV) { w.kind = WORK_NEW; w.addr = m->new_dev.address; }
+    else if (m->event == USB_HOST_CLIENT_EVENT_DEV_GONE) { w.kind = WORK_GONE; w.dev = m->dev_gone.dev_hdl; }
     else return;
     if (s_work) xQueueSend(s_work, &w, 0);
 }
@@ -527,8 +676,11 @@ static void worker_task(void *arg)
     work_item w;
     for (;;) {
         if (xQueueReceive(s_work, &w, portMAX_DELAY) != pdTRUE) continue;
-        if (w.is_gone) detach_device(w.dev);
-        else           attach_device(w.addr);
+        switch (w.kind) {
+        case WORK_GONE:            detach_device(w.dev); break;
+        case WORK_HUB_PORT_FAILED: hub_port_failed(w.addr, w.port); break;
+        default:                   attach_device(w.addr); break;
+        }
     }
 }
 
@@ -566,6 +718,8 @@ static bool engage_host_mode(void)
     s_work = xQueueCreate(8, sizeof(work_item));
     s_msc_lock = xSemaphoreCreateMutex();
     xTaskCreatePinnedToCore(worker_task, "usbh_work", 6144, NULL, 5, NULL, 0);
+    usbhub_retry_init(&s_hubr);
+    idf_log_tee_set_hook(hub_retry_hook);              /* "EXT_PORT: [h:p] Port disabled" -> port power cycle */
     s_active = true;
     snprintf(s_status, sizeof(s_status), "HOST");
     return true;

@@ -13,6 +13,13 @@
  *
  * Only lines starting with "E (" are mirrored; everything is still passed on
  * to the previous vprintf, so the serial log is unchanged.
+ *
+ * Hook: the stripped "TAG: msg" of every mirrored line is also handed to
+ * one optional callback, so a module can react to a library error it has
+ * no API for (usbhost.cpp: "EXT_PORT: [h:p] Port disabled ..." starts the
+ * hub-port power-cycle retry). The callback runs in the logging task's
+ * context (for usb_host that is its daemon task): post to a queue, do not
+ * block, do not log.
  */
 #pragma once
 
@@ -21,6 +28,10 @@ extern "C" {
 #endif
 
 void idf_log_tee_init(void);
+
+typedef void (*idf_log_tee_hook_t)(const char *tag_msg);
+/* Install (or clear with NULL) the single error-line hook. */
+void idf_log_tee_set_hook(idf_log_tee_hook_t hook);
 
 #ifdef __cplusplus
 }

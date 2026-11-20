@@ -95,6 +95,57 @@ first slice that was already ported.
    releases /RES with `(NO MEDIA)` and leaves the OSD console on screen by
    design (`disk.c`), which reads as a hang although the Apple is running
    (status register 0x07 = 0x87: clock alive, reset released).
+   **Hub-port retry (firmware, 2026-11-20, unflashed):** the IDF hub
+   driver gives a downstream port one reset and then logs `EXT_PORT:
+   [hub:port] Port disabled, reset attempts=1`; nothing re-enumerates the
+   port until its connection changes. `usbhost.cpp` now manufactures that
+   change: `idf_log_tee.c` hands every mirrored error line to a hook,
+   `usbhub_retry.c` (pure, host-tested in `tests/host/`) parses the line
+   and runs a bounded ladder, and the worker task opens the hub from our
+   own `usb_host` client (allowed: the driver opens hubs through
+   `usbh_devs_open`, no client owns them, and the USB DEVICES screen
+   already opens them), reads the hub descriptor and the port status, and
+   power-cycles the one port over EP0 (ClearPortFeature PORT_POWER, 200 /
+   400 / 600 ms off, SetPortFeature PORT_POWER) after a 0.5 / 1 / 2 s
+   settle. The hub reports a fresh connection and the driver debounces,
+   resets and enumerates again. At most 3 cycles per plug; the next
+   failure line inside an 8 s window is the cycle's verdict, one outside
+   it is a new plug; after the third failure one give-up (`HUB 1 PORT 3
+   FAILED TO ENUMERATE, PLUG THE STICK DIRECTLY`) and a 3 s quiet period,
+   so only a human replug restarts the ladder. Guards: a port whose status
+   shows PORT_ENABLE (its device enumerated) or no connection is never
+   touched; a hub that advertises ganged power switching is refused (one
+   ClearPortFeature would cut the dongle and the Ethernet adapter too); a
+   hub that answers the request but leaves PORT_POWER and PORT_CONNECTION
+   set did nothing and is reported once (`IGNORED PORT POWER OFF`); the
+   hub handle is closed after every cycle; no channels are added. A
+   recovered stick is announced by matching the new device's parent
+   handle (`usb_device_info_t.parent`) to the hub: `HUB 1 PORT 3 RECOVERED
+   AFTER n PORT POWER CYCLE(S)`. Console lines all start `USB HOST:`.
+   **Limits:** the cycle is electrically a replug, so a stick that fails
+   every physical replug may fail every cycle too; what it buys is 3 more
+   attempts per plug without a hand on the stick, and timing that differs
+   from a human plug. The 30 ms reset recovery and the single attempt
+   stay the prebuilt library's. The "delay before our client's first
+   activity" idea cannot help: the failing transfer is the driver's first
+   8-byte descriptor read, before any client hears of the device, so no
+   such knob was added. Hub:port in the log is parent address and 1-based
+   port, as the driver prints it; a misread only makes the port-status
+   check decline. **Hardware test plan** (Ed, a2p25, remote dongle
+   1915:1025 on the 05E3:0610 hub, telnet console open): (1) PNY
+   13FE:6700 into a hub port — expect `ENUM FAILED, POWER CYCLING PORT
+   (TRY 1/3)`, then either `RECOVERED` + `STORAGE n MB` + images mounted,
+   or TRY 2/3, TRY 3/3 and the give-up line, never more than 3 cycles;
+   note which; (2) the Verbatim stick, same; (3) unplug the stick during a
+   ladder — expect `IS EMPTY NOW` and silence; (4) replug after a give-up
+   — a fresh TRY 1/3 (bounded again); (5) regression: the K&ZZ USB 2.0
+   stick, the HID dongle and the RTL8152B adapter behind the hub still
+   enumerate and work, the dongle keeps working through a stick ladder
+   (ganged-power guard: if the console says `SWITCHES PORT POWER GANGED`
+   the hub cannot be used for this and nothing was touched); (6) `usb`
+   console command still lists everything. If a retry succeeds, record the
+   attempt number here; if the hub says `IGNORED PORT POWER OFF`, that hub
+   has no per-port power state and the fallback is a hub that does.
 4. **P4 MCU self-update** — DONE (code): `fwupdate.c` on ESP-IDF OTA
    (`esp_ota_begin/write/end`, boot partition switch, restart in 2 s);
    the image is any `*.bin` on the volume (stick, or FTP-dropped onto
