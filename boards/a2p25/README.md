@@ -21,7 +21,8 @@ logic-bound at ~97% CLS and 52/56 BSRAM):
   cache at the arbiter's top priority)
 - Disk II (slot 5) and ProDOS hard disk (slot 6) images served by the ESP32
 - IIgs autodetect on the bus; the Apple's reset is held by the ESP32 until media is mounted
-- Mockingboard (slot 4) and Uthernet II (slot 3, ESP32 WiFi bridge) since the 2026-11-15
+- Mockingboard (slot 4) and Uthernet II (slot 3, ESP32 WiFi bridge, or a CDC-ECM/NCM
+  USB-Ethernet adapter on USB1) since the 2026-11-15
   BSRAM pass (`docs/RESOURCE_AUDIT.md` §8)
 - Off: SuperSprite (16 BSRAM + ~5k logic, does not fit), Super Serial Card (no UART pins on
   this revision)

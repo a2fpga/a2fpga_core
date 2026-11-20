@@ -561,6 +561,8 @@ static void ftpd_thread(void *arg)
 
 void ftpd_init(void)
 {
+    if (s_fslock)
+        return;                            /* already running */
     /* 5.5 KB of session state + transfer chunks: lwIP copies on send/recv
      * and the stick path copies into USB transfer buffers, so PSRAM is fine */
     if (!s_sess) {

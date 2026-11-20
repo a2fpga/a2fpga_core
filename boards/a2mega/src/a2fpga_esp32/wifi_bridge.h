@@ -25,8 +25,8 @@
  * to esp_netif_receive() after copying what the bridge needs, so the ESP32
  * keeps its own DHCP lease/IP independently of the Apple II's traffic.
  *
- * Implements the w5100.h bridge hooks (w5100_bridge_tx, w5100_bridge_uplink_mac,
- * w5100_bridge_set_uplink_mac, w5100_bridge_set_promiscuous).
+ * The same NAT helpers serve the USB-Ethernet uplink (usbeth.c); net_uplink.c
+ * decides which uplink the w5100.h bridge hooks go to.
  */
 #pragma once
 
@@ -55,10 +55,27 @@ void wifi_bridge_config_ip(bool dhcp, const uint8_t ip[4],
  * loop (same task) as w5100_poll(); ~1 kHz cadence recommended. */
 void wifi_bridge_poll(void);
 
+/* ---- uplink interface (called by net_uplink.c) ----
+ * Send one frame for the Apple II (egress MAC NAT applied); no-op until
+ * associated. */
+void wifi_bridge_tx(const uint8_t *frame, uint32_t len);
+/* STA MAC (the NAT outer MAC); false until started. */
+bool wifi_bridge_uplink_mac(uint8_t mac[6]);
+/* Apple II SHAR (the NAT inner MAC). */
+void wifi_bridge_set_apple_mac(const uint8_t mac[6]);
+/* Whether received frames are copied towards the Apple II (default on;
+ * net_uplink.c turns it off while the USB-Ethernet uplink is active). */
+void wifi_bridge_set_bridging(bool on);
+/* true once wifi_bridge_init() succeeded */
+bool wifi_bridge_started(void);
+/* Frames bridged for the Apple II over WiFi (rx = air -> Apple II, tx = Apple II -> air) */
+void wifi_bridge_apple_counts(uint32_t *rx, uint32_t *tx);
+
 /* ---- net status helpers (also declared in net_status.h) ---- */
 const char *net_ssid(void);      /* configured SSID ("" before init) */
 bool        net_connected(void); /* associated AND got a DHCP lease */
 uint32_t    net_ip(void);        /* ESP32's own IPv4, network byte order; 0 if none */
+int         net_rssi(void);      /* RSSI of the associated AP in dBm (negative); 0 if not associated */
 
 /* ---- pure frame-fixup helpers (unit-testable, no ESP dependencies) ----
  * Both rewrite in place and return true if anything changed. `len` is the

@@ -21,7 +21,11 @@ on-screen menu.
 ## Telnet console (port 23): a key-driven console
 
 Connecting prints the current OSD console log (the "tee") and then forwards
-every new log line. **Every byte you type is a hotkey**, dispatched
+every new log line. Since 2026-11-18 the tee also carries every **ESP-IDF
+error-level log line** (`idf_log_tee.c`: `E (ts) TAG: msg` → `TAG: MSG`, in
+40-column pieces), so `usb_host` failures such as `HCD DWC: NO MORE HCD
+CHANNELS AVAILABLE` or `ENUM: STAGE ... FAILED` are readable here; the serial
+console is USB1, the host port, and is unreachable whenever a dock is attached. **Every byte you type is a hotkey**, dispatched
 immediately, no Enter needed. There is no `help` command in key mode; the
 banner lists the keys:
 
@@ -135,7 +139,7 @@ leave it. Line commands, from `help`:
 | `viddbg` | the same 0x70–0x77 debug block as telnet `z` |
 | `spir <space> <addr> <len> [inc]`, `spiw <space> <addr> <inc> <b0> …` | raw OSPI space read/write |
 | `meminfo`, `pins` | ESP32 heap, pin map |
-| `wifi [<ssid> [psk]]`, `net` | WiFi credentials in NVS, IP status |
+| `wifi [<ssid> [psk]]`, `net` | WiFi credentials in NVS; `net` = Uthernet uplink (WiFi / USB-Ethernet), adapter state, IP status |
 | `ble [pair\|cancel\|list\|connect <n>\|forget\|radio on\|off\|map\|raw on\|off]` | Bluetooth HID remote/keyboard/gamepad: status, pairing scan, candidates, connect, forget, radio on/off; `map` = parsed report map, `raw on` = log every input report with its decoded bits (2026-11-19) |
 | `usb` | enumerated USB devices on USB1 (host mode only; in device mode the Mac is on that port, so there is nothing to list) |
 | `pd`, `i2cscan` | PD status, DP I2C scan (PD boards) |
