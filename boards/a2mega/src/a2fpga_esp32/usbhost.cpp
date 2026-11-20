@@ -678,6 +678,10 @@ int usbhost_list(usbhost_devinfo_t *out, int max)
             o->vid = dd->idVendor; o->pid = dd->idProduct;
             if (dd->bDeviceClass == 0x09) strcpy(o->kind, "HUB");
         }
+        /* A dual-configuration Ethernet adapter (Realtek) switched to its CDC
+         * configuration after usbeth.c claimed it; the config walk below sees
+         * neither, so name it from the driver's own flag. */
+        if (!o->kind[0]) for (auto &d : s_devs) if (d.dev && d.addr == o->addr && d.eth) { strcpy(o->kind, "ETHERNET"); break; }
         usb_device_info_t info;
         if (usb_host_device_info(h, &info) == ESP_OK) {
             str16_to_ascii(info.str_desc_product, o->product, sizeof(o->product));
