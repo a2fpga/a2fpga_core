@@ -30,6 +30,7 @@
 #include "freertos/task.h"
 #include "esp_system.h"
 #include "esp_log.h"
+#include "esp_heap_caps.h"
 
 #include "osd_console.h"
 #include "fpga_jtag.h"
@@ -233,8 +234,15 @@ static bool check_file(void)
     s_size = (uint32_t)ftell(f);
     fseek(f, 0, SEEK_SET);
 
-    static uint8_t hdr[FPU_HDR_SCAN];
-    size_t br = fread(hdr, 1, sizeof(hdr), f);
+    /* 4 KB header window: fread fills it (the MSC path copies), the parser
+     * only reads it -> PSRAM (heap diet 11-19) */
+    static uint8_t *hdr;
+    if (!hdr) {
+        hdr = (uint8_t *)heap_caps_malloc(FPU_HDR_SCAN, MALLOC_CAP_SPIRAM);
+        if (!hdr) hdr = (uint8_t *)malloc(FPU_HDR_SCAN);
+        if (!hdr) { fclose(f); fail("NO MEMORY"); return false; }
+    }
+    size_t br = fread(hdr, 1, FPU_HDR_SCAN, f);
     fclose(f);
     if (br < 64) {
         fail("READ ERROR");

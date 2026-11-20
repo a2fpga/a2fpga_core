@@ -133,6 +133,34 @@ Two things came out of it:
   only when their decoded bits change, so the stream stays readable at the
   OSD's 40 columns.
 
+**Heap diet, second slice (2026-11-19 afternoon):** the question was whether
+the PSRAM part was the right pick given 37 KB free. The sdkconfig baked into
+the Arduino 3.3.5 libraries already sends WiFi/lwIP dynamic buffers and any
+malloc ≥ 4 KB to PSRAM and allows task stacks there; what stays internal by
+necessity is USB-host and WiFi DMA buffers and the BT controller, and by the
+libraries' choice the NimBLE host (`CONFIG_BT_NIMBLE_MEM_ALLOC_MODE_INTERNAL`,
+≈ 50 KB that only a custom esp32-arduino-libs build could move). Our own
+remainder moved in this slice: the 12 KB WiFi-bridge ingress ring, the 6.5 KB
+Disk II track buffer and 4 KB sector buffer, the two 4 KB bitstream header
+windows (all CPU-filled; the SPI master bounces non-DMA sources through a
+temporary internal buffer per 512-byte chunk), and the stacks of the tasks
+that never write ESP flash — FTP server + sessions, FPGA stream, USB-C PD —
+via `xTaskCreatePinnedToCoreWithCaps(..., MALLOC_CAP_SPIRAM)`. The disk task
+(runs `fwupdate_poll`, i.e. OTA writes), menu and telnet tasks (NVS saves)
+and the USB host tasks stay internal: a task on a PSRAM stack must not
+disable the flash cache. Result on the a2p25, stick + BLE remote connected
+(`meminfo`):
+
+| | internal free | largest block | internal total |
+|---|---|---|---|
+| before (75762466) | 36,948 B | 26,612 B | 274,068 B |
+| after (this slice) | 85,472 B | 45,044 B | 305,148 B |
+
+PSRAM free 1,973,908 → 1,929,416 B. FTP (on a PSRAM stack) serves listings,
+the remote reconnected, OTA from the stick still works (that is how the build
+went on). The `fwupdate` 4 KB chunk stays internal on purpose (the recovery
+path should not depend on the flash driver's PSRAM bounce).
+
 Still owed: WiFi-bridge throughput with BLE connected and during PAIR,
 passkey display for MITM-only keyboards, a gamepad (Xbox BLE) through the
 pad-button table, the a2mega 1.0a3 card's one-time USB table switch, and the

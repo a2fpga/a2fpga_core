@@ -24,6 +24,7 @@
 #include "esp_netif.h"
 #include "esp_private/wifi.h"   /* esp_wifi_internal_tx / _reg_rxcb (precompiled IDF) */
 #include "nvs_flash.h"
+#include "esp_heap_caps.h"
 
 static const char *TAG = "wifi_br";
 
@@ -55,7 +56,10 @@ typedef struct {
     uint16_t len;
     uint8_t  buf[W5100_MAX_FRAME];
 } rx_slot_t;
-static rx_slot_t s_rx[BR_RX_SLOTS];
+/* 12 KB ring: filled by memcpy in the WiFi RX callback, drained by the main
+ * loop into the FPGA over SPI (the SPI master bounces non-DMA sources through
+ * a temporary internal buffer), so it lives in PSRAM (heap diet 11-19). */
+static rx_slot_t *s_rx;
 static uint32_t  s_rx_head;         /* written by producer only */
 static uint32_t  s_rx_tail;         /* written by consumer only */
 
@@ -380,6 +384,15 @@ bool wifi_bridge_init(const char *ssid, const char *psk)
     }
     strncpy(s_ssid, ssid, sizeof(s_ssid) - 1);
     s_ssid[sizeof(s_ssid) - 1] = 0;
+
+    if (!s_rx) {
+        s_rx = (rx_slot_t *)heap_caps_calloc(BR_RX_SLOTS, sizeof(rx_slot_t), MALLOC_CAP_SPIRAM);
+        if (!s_rx) s_rx = (rx_slot_t *)calloc(BR_RX_SLOTS, sizeof(rx_slot_t));
+        if (!s_rx) {
+            ESP_LOGE(TAG, "no memory for the ingress ring");
+            return false;
+        }
+    }
 
     /* esp_wifi needs NVS; tolerate it already being initialized (Arduino) */
     esp_err_t err = nvs_flash_init();

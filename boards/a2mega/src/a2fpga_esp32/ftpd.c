@@ -551,7 +551,11 @@ static void ftpd_thread(void *arg)
         fs->ctl = fd;
         fs->pasv = -1;
         osd_log("FTP: CLIENT CONNECTED");
-        xTaskCreatePinnedToCore(session_thread, "ftps", 4096, fs, 2, NULL, 1);
+        /* FTP only touches lwIP and the stick (FatFS -> USB), never ESP flash,
+         * so its stacks may live in PSRAM (heap diet 11-19) */
+        if (xTaskCreatePinnedToCoreWithCaps(session_thread, "ftps", 4096, fs, 2, NULL, 1,
+                                            MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT) != pdPASS)
+            xTaskCreatePinnedToCore(session_thread, "ftps", 4096, fs, 2, NULL, 1);
     }
 }
 
@@ -565,5 +569,7 @@ void ftpd_init(void)
         if (!s_sess) return;
     }
     s_fslock = xSemaphoreCreateMutex();
-    xTaskCreatePinnedToCore(ftpd_thread, "ftpd", 4096, NULL, 2, NULL, 1);
+    if (xTaskCreatePinnedToCoreWithCaps(ftpd_thread, "ftpd", 4096, NULL, 2, NULL, 1,
+                                        MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT) != pdPASS)
+        xTaskCreatePinnedToCore(ftpd_thread, "ftpd", 4096, NULL, 2, NULL, 1);
 }

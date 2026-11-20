@@ -37,6 +37,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "freertos/semphr.h"
+#include "esp_heap_caps.h"
 
 extern "C" {
 #include "usbc_port.h"
@@ -516,7 +517,10 @@ extern "C" bool usbc_pd_init(void)
 
     s_wake = xSemaphoreCreateBinary();
     attachInterrupt(digitalPinToInterrupt(PIN_FUSB_INT), fusb_int_isr, FALLING);
-    xTaskCreatePinnedToCore(usbc_task, "usbc_pd", 4096, NULL, 6, NULL, 1);
+    /* I2C + GPIO only, never ESP flash -> stack in PSRAM (heap diet 11-19) */
+    if (xTaskCreatePinnedToCoreWithCaps(usbc_task, "usbc_pd", 4096, NULL, 6, NULL, 1,
+                                        MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT) != pdPASS)
+        xTaskCreatePinnedToCore(usbc_task, "usbc_pd", 4096, NULL, 6, NULL, 1);
     s_running = true;
     osd_log("USBC: PD STACK UP");
     return true;

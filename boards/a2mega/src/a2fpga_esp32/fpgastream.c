@@ -32,6 +32,7 @@
 #include "freertos/task.h"
 #include "esp_system.h"
 #include "esp_log.h"
+#include "esp_heap_caps.h"
 #include "lwip/sockets.h"
 
 #include "osd_console.h"
@@ -167,7 +168,7 @@ static const char *validate_hdr(const uint8_t *hdr, uint32_t n, uint32_t size,
 }
 
 /* ---- one streaming session ----------------------------------------------- */
-static uint8_t s_hdr[FS_HDR_SCAN];
+static uint8_t *s_hdr;              /* FS_HDR_SCAN bytes, PSRAM (heap diet) */
 static uint8_t s_page[FS_PAGE];
 static uint8_t s_back[FS_PAGE];
 
@@ -398,6 +399,16 @@ static void fpgastream_task(void *arg)
 
 void fpgastream_start(void)
 {
-    xTaskCreatePinnedToCore(fpgastream_task, "fpgastream", 8192, NULL, 3,
-                            NULL, 1);
+    /* lwIP copies into the header buffer and the programming loop only reads
+     * it from the CPU (JTAG bit-bang), so PSRAM is fine. The task never writes
+     * ESP flash (the bitstream goes to the FPGA's flash over JTAG), so its
+     * stack may live in PSRAM too (CONFIG_SPIRAM_ALLOW_STACK_EXTERNAL_MEMORY). */
+    if (!s_hdr) {
+        s_hdr = (uint8_t *)heap_caps_malloc(FS_HDR_SCAN, MALLOC_CAP_SPIRAM);
+        if (!s_hdr) s_hdr = (uint8_t *)malloc(FS_HDR_SCAN);
+        if (!s_hdr) return;
+    }
+    if (xTaskCreatePinnedToCoreWithCaps(fpgastream_task, "fpgastream", 8192, NULL, 3,
+                                        NULL, 1, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT) != pdPASS)
+        xTaskCreatePinnedToCore(fpgastream_task, "fpgastream", 8192, NULL, 3, NULL, 1);
 }
