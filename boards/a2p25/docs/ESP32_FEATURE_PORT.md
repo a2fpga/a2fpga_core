@@ -146,6 +146,21 @@ first slice that was already ported.
    console command still lists everything. If a retry succeeds, record the
    attempt number here; if the hub says `IGNORED PORT POWER OFF`, that hub
    has no per-port power state and the fallback is a hub that does.
+   **Hardware result 2026-11-20 (Ed, firmware 3ffd5108 flashed OTA, PNY
+   13FE:6700 swapped in behind the 05E3:0610 hub with the dongle):** the
+   chain fired end to end — `ENUM: [1:3] CHECK_SHORT_DEV_DESC FAILED`,
+   `EXT_PORT: [1:3] PORT DISABLED`, `USB HOST: HUB 1 PORT 3 ENUM FAILED,
+   POWER CYCLING PORT (TRY 1/3)` — and stopped at the ganged-power guard:
+   `HUB 1 SWITCHES PORT POWER GANGED (ALL PORTS), NO PORT RETRY: PLUG THE
+   STICK DIRECTLY`. The 05E3:0610 (Genesys GL85x) advertises ganged power
+   switching in its hub descriptor, so a per-port cycle is not available on
+   it; one ClearPortFeature(PORT_POWER) would drop every port, dongle
+   included. Nothing was touched: USB DEVICES still lists hub + dongle,
+   the dongle works, the PNY never got an address. The retry as specified
+   (per-port, never disturb an enumerated device) therefore cannot help on
+   this hub. Options: a hub with per-port power switching, or an opt-in
+   "ganged" mode that cycles all ports and accepts a sub-second dongle
+   re-enumeration per attempt (bounded at 3; not implemented, Ed's call).
 4. **P4 MCU self-update** — DONE (code): `fwupdate.c` on ESP-IDF OTA
    (`esp_ota_begin/write/end`, boot partition switch, restart in 2 s);
    the image is any `*.bin` on the volume (stick, or FTP-dropped onto

@@ -37,8 +37,10 @@ IIgs sound is the fabric DOC5503 on PSRAM.
 - [ ] USB sticks: USB 3.x sticks (PNY Elite-X Fit, Verbatim Nano 3.2) fail enumeration BEHIND
       THE HUB on the ESP32-S3 host (the PNY works straight on USB1); USB 2.0 sticks work
       (2026-11-19, ESP32_FEATURE_PORT.md P3). Firmware 2026-11-20: bounded hub-port power-cycle
-      retry (`usbhub_retry.c`, 3 cycles per plug, built for 225 and 103, UNFLASHED) — hardware
-      test plan in P3; recommend USB 2.0 to users and keep a tested list
+      retry (`usbhub_retry.c`, 3 cycles per plug) FLASHED and tested 11-20: the 05E3:0610 hub
+      advertises GANGED port power, so the per-port cycle is refused by design (P3 has the log);
+      next = a per-port-switching hub, or an opt-in all-ports mode (dongle blinks); recommend
+      USB 2.0 to users and keep a tested list
 
 ## Shipped on displayport1 (2026-10-01 → 10-12)
 
