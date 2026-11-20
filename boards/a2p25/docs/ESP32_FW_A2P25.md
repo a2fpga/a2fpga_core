@@ -53,6 +53,21 @@ make BOARD_REV=225 PORT=/dev/cu.usbmodemXXXX upload
   request reads, read twice against an Apple /RES mid-request, image sizes checked at mount, image-bounded seeks, write
   failures counted and demoting the volume to read-only, images closed and
   stick unmounted before every restart and reload).
+- **Build result (2026-11-19, BLE HID + USB-Ethernet + min_spiffs):** `make
+  BOARD_REV=225 DP_TEST=0 compile` from a clean `build/` at c623db18 (clean
+  tree), arduino-cli 1.2.2 / esp32 core 3.3.5 → `build/a2fpga_esp32.ino.bin`,
+  1,335,936 B (sketch 67 % of the 1,966,080-byte min_spiffs slot), 0 warnings,
+  sha256 `62153cbf6181fd641f895706f872b89adb63c58d1972060f2de7c9249103b0a4`.
+  **Flashed** the same evening over USB1 (`make … PORT=/dev/cu.usbmodem4101
+  upload`, esptool auto-reset worked from the running Oct-15 firmware, hash
+  verified) onto the card at 192.168.232.66: that was its one-time
+  `default` → `min_spiffs` partition switch (LittleFS now 8 KB of 128 KB; WiFi
+  credentials survived). Then `GPRJ=a2p25.gprj tools/flash.sh a2p25` through
+  the new firmware's JTAG bridge wrote and read-back-verified the build of
+  record `712bc5c2…` (commit c623db18, stamp 20261119182343) in 44 s; after CLI
+  `reconfig` the core reports DONE, link UP, HyperRAM calibrated, and register
+  0x7E reads the stamp back. Before this the card ran firmware Oct 15 2026
+  09:21 and a core with no version register.
 
 ## Pin map (ESP32-S3-MINI-1 U5)
 
