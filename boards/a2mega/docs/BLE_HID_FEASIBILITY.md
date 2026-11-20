@@ -167,11 +167,39 @@ channels on the a2p25 are now hub 2 + stick 3 = 5 of 8, leaving the 3 the
 RTL8152B Ethernet adapter needs once `claude/usb-ethernet-a2p25-a2mega-d6e130`
 merges in.
 
+**Merged with main / the USB-Ethernet uplink (2026-11-19 evening).** PR #38
+(`claude/usb-ethernet-a2p25-a2mega-d6e130`) had landed on main, so main was
+merged into this branch (f633a6c6). Four textual conflicts, all unions:
+the Makefile source list, the serial help text, `ftpd_init` (main's
+already-running guard ahead of our PSRAM session table) and the console doc
+table. The semantic overlap was benign: the USB DEVICES list already names
+CDC-ECM/NCM interfaces, and main's uplink hooks in `wifi_bridge.c` do not touch
+the ring that moved to PSRAM. The merge added 14 KB of internal statics, 12 KB
+of it the Ethernet driver's own ingress ring (`usbeth.c`), which is memcpy-filled
+from the USB transfer buffer and drained to the FPGA over SPI, so it went to
+PSRAM too (09cd93b6), allocated on first attach ahead of the IN transfer.
+Both images build clean (225: 1,335,743 B, 103: 1,342,531 B; 67-68 % of the
+min_spiffs slot).
+
+On the a2p25 (OTA from the stick, two installs, APP1 then APP0), with the stick
+and hub enumerated and no Ethernet adapter attached:
+
+| build | internal free | largest | internal total |
+|---|---|---|---|
+| heap diet slice 2 (pre-merge) | 85,472 | 45,044 | 305,148 |
+| merge as-is | 71,064 | 31,732 | 290,732 |
+| merge + Ethernet ring in PSRAM | 83,180 | 40,948 | 302,884 |
+
+The NETWORK page shows the WiFi uplink, signal and IP beside USB DEVICES and
+BLUETOOTH. Not yet re-verified on the merged build: the BLE remote's reconnect
+(it sleeps and must be woken by a key press; the central is in SEARCHING), the
+RTL8152B uplink with BLE connected (adapter not plugged in), and the remaining
+PSRAM-buffer paths (Disk II track loads, Uthernet traffic through either ring).
+
 Still owed: WiFi-bridge throughput with BLE connected and during PAIR,
 passkey display for MITM-only keyboards, a gamepad (Xbox BLE) through the
 pad-button table, the a2mega 1.0a3 card's one-time USB table switch, and the
-merge with the USB-Ethernet branch (`claude/usb-ethernet-a2p25-a2mega-d6e130`,
-which edits `usbhost.cpp` and the sketch too).
+RTL8152B + BLE remote + stick combined test on the merged build.
 
 ## 1. Why
 
