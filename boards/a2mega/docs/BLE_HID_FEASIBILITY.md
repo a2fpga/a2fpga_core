@@ -190,16 +190,25 @@ and hub enumerated and no Ethernet adapter attached:
 | merge as-is | 71,064 | 31,732 | 290,732 |
 | merge + Ethernet ring in PSRAM | 83,180 | 40,948 | 302,884 |
 
-The NETWORK page shows the WiFi uplink, signal and IP beside USB DEVICES and
-BLUETOOTH. Not yet re-verified on the merged build: the BLE remote's reconnect
-(it sleeps and must be woken by a key press; the central is in SEARCHING), the
-RTL8152B uplink with BLE connected (adapter not plugged in), and the remaining
+**Combined test passed (2026-11-19 evening, build 3 of the merge).** With the
+BOXPUT remote, the stick behind the hub and the RTL8152B all attached, both a
+hot plug-in and a cold reboot (OTA install) end in the same state: USB DEVICES
+lists STORAGE, HUB and ETHERNET (addr 3, 0BDA:8152, in use), `ble` reports
+CONNECTED, and the NETWORK page shows UTHERNET UPLINK = USB ETHERNET, link up,
+IP 192.168.232.176 beside the WiFi row. Internal heap with all three: 77,004 B
+free, 34,804 B largest, 302,884 B total. This is the configuration the whole
+BLE effort was for: hub 2 + stick 3 + adapter 3 = 8 host channels, remote on
+BLE. The USB DEVICES list names a served adapter from the driver's flag because
+the Realtek switches configuration after being claimed and the descriptor
+walk then sees no interface it knows. Not re-run on the merged build: an Apple
+II program over the wire (DATE65 was confirmed on the pre-merge Ethernet
+branch; the Apple II frame counters read 0/0 until one runs) and the remaining
 PSRAM-buffer paths (Disk II track loads, Uthernet traffic through either ring).
 
 Still owed: WiFi-bridge throughput with BLE connected and during PAIR,
 passkey display for MITM-only keyboards, a gamepad (Xbox BLE) through the
 pad-button table, the a2mega 1.0a3 card's one-time USB table switch, and the
-RTL8152B + BLE remote + stick combined test on the merged build.
+DATE65 over the wire and a Disk II boot on the merged build (PSRAM buffers), then a PR to main.
 
 ## 1. Why
 
