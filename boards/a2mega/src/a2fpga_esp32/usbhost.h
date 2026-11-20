@@ -52,6 +52,10 @@ typedef struct {
 int      usbhost_list(usbhost_devinfo_t *out, int max);
 /* console: status line + one line per device; out() gets lines without newline */
 void     usbhost_console(void (*out)(void *ctx, const char *line), void *ctx);
+/* USB HUB PORT RETRY setting: true = a hub with ganged power switching is
+ * cycled too (every device on it re-enumerates), false = refused. Saves the
+ * settings blob; returns the save result. */
+bool     usbhost_set_hub_retry(bool all_ports);
 
 /* USB mass storage (first MSC device, LUN 0, 512-byte blocks). The
  * read/write helpers block and may be called from any task except the

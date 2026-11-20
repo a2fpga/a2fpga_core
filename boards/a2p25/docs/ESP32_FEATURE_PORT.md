@@ -158,9 +158,13 @@ first slice that was already ported.
    included. Nothing was touched: USB DEVICES still lists hub + dongle,
    the dongle works, the PNY never got an address. The retry as specified
    (per-port, never disturb an enumerated device) therefore cannot help on
-   this hub. Options: a hub with per-port power switching, or an opt-in
-   "ganged" mode that cycles all ports and accepts a sub-second dongle
-   re-enumeration per attempt (bounded at 3; not implemented, Ed's call).
+   this hub. **Setting added the same day (Ed): SETTINGS → `USB HUB PORT
+   RETRY` = `PER-PORT` (default, the refusal above) / `ALL PORTS` (a ganged
+   hub is cycled anyway: every device on it re-enumerates, under a second,
+   still at most 3 cycles per plug; console adds `GANGED HUB: ALL ITS PORTS
+   WERE CYCLED`). Stored in the settings blob (`usb_hub_retry`, one reserved
+   byte, no version bump); telnet `usb retry on|off` sets and saves it. The
+   default may change with test results.**
 4. **P4 MCU self-update** — DONE (code): `fwupdate.c` on ESP-IDF OTA
    (`esp_ota_begin/write/end`, boot partition switch, restart in 2 s);
    the image is any `*.bin` on the volume (stick, or FTP-dropped onto

@@ -39,6 +39,7 @@
 #include "usbeth.h"
 #include "usbhub_retry.h"
 #include "idf_log_tee.h"
+#include "settings.h"
 
 #include "osd_console.h"   /* osd_log (C linkage) */
 
@@ -421,9 +422,12 @@ static bool hub_port_status(hdev *d, uint8_t port, usb_port_status_t *st)
                      0, port, USB_PORT_STATUS_SIZE, (uint8_t *)st) == ESP_OK;
 }
 
-/* One power cycle of hub:port (off for off_ms). Blocking; worker task only. */
-static hubcyc_result hub_port_cycle(uint8_t hub, uint8_t port, uint16_t off_ms)
+/* One power cycle of hub:port (off for off_ms). Blocking; worker task only.
+ * A hub with ganged power switching drops every port on the request; that
+ * is done only when settings()->usb_hub_retry allows it (*ganged = true). */
+static hubcyc_result hub_port_cycle(uint8_t hub, uint8_t port, uint16_t off_ms, bool *ganged)
 {
+    *ganged = false;
     hdev d; memset(&d, 0, sizeof(d)); d.addr = hub;
     if (!hub_open(hub, &d.dev)) return HC_NO_HUB;
     hubcyc_result r = HC_XFER;
@@ -433,8 +437,12 @@ static hubcyc_result hub_port_cycle(uint8_t hub, uint8_t port, uint16_t off_ms)
     if (ctrl_xfer(&d, USB_BM_REQUEST_TYPE_DIR_IN | USB_BM_REQUEST_TYPE_HUB, USB_B_REQUEST_HUB_GET_DESCRIPTOR,
                   (uint16_t)(USB_CLASS_DESCRIPTOR_TYPE_HUB << 8), 0, USB_HUB_DESCRIPTOR_SIZE, (uint8_t *)&hd) != ESP_OK) goto out;
     if (port < 1 || port > hd.bNbrPorts) { r = HC_NOT_HUB; goto out; }
-    /* ganged switching would cut the HID dongle / Ethernet adapter too */
-    if (hd.wHubCharacteristics.power_switching == USB_W_HUB_CHARS_PORT_PWR_CTRL_ALL) { r = HC_GANGED; goto out; }
+    /* ganged switching cuts the HID dongle / Ethernet adapter too: only
+     * with the SETTINGS opt-in (USB HUB PORT RETRY = ALL PORTS) */
+    if (hd.wHubCharacteristics.power_switching == USB_W_HUB_CHARS_PORT_PWR_CTRL_ALL) {
+        if (!settings()->usb_hub_retry) { r = HC_GANGED; goto out; }
+        *ganged = true;
+    }
     if (!hub_port_status(&d, port, &st)) goto out;
     if (!st.wPortStatus.PORT_CONNECTION) { r = HC_PORT_EMPTY; goto out; }     /* unplugged meanwhile */
     if (st.wPortStatus.PORT_ENABLE)      { r = HC_PORT_ENABLED; goto out; }   /* it enumerated after all: hands off */
@@ -467,11 +475,13 @@ static void hub_port_failed(uint8_t hub, uint8_t port)
     osd_log("USB HOST: HUB %u PORT %u ENUM FAILED,", hub, port);
     osd_log("  POWER CYCLING PORT (TRY %u/%u)", plan.attempt, USBHUB_RETRY_MAX);
     vTaskDelay(pdMS_TO_TICKS(plan.settle_ms));          /* let the driver finish recycling the port */
-    hubcyc_result r = hub_port_cycle(hub, port, plan.off_ms);
+    bool ganged = false;
+    hubcyc_result r = hub_port_cycle(hub, port, plan.off_ms, &ganged);
     switch (r) {
     case HC_OK:
         usbhub_retry_cycled(&s_hubr, hub, port, millis());
-        ESP_LOGI(TAG, "hub %u port %u: power cycled (%u ms off), waiting for the driver", hub, port, plan.off_ms);
+        if (ganged) osd_log("  GANGED HUB: ALL ITS PORTS WERE CYCLED");
+        ESP_LOGI(TAG, "hub %u port %u: power cycled (%u ms off%s), waiting for the driver", hub, port, plan.off_ms, ganged ? ", all ports" : "");
         return;
     case HC_PORT_EMPTY:
         usbhub_retry_resolved(&s_hubr, hub, port);
@@ -483,7 +493,8 @@ static void hub_port_failed(uint8_t hub, uint8_t port)
         return;
     case HC_NO_HUB:    osd_log("USB HOST: CANNOT OPEN HUB %u FROM OUR", hub); osd_log("  CLIENT, NO PORT RETRY:"); break;
     case HC_NOT_HUB:   osd_log("USB HOST: ADDR %u IS NOT A HUB WITH", hub);   osd_log("  PORT %u, NO PORT RETRY:", port); break;
-    case HC_GANGED:    osd_log("USB HOST: HUB %u SWITCHES PORT POWER", hub); osd_log("  GANGED (ALL PORTS), NO PORT RETRY:"); break;
+    case HC_GANGED:    osd_log("USB HOST: HUB %u SWITCHES PORT POWER", hub); osd_log("  GANGED (ALL PORTS), NO PORT RETRY:");
+                       osd_log("  (SETTINGS: USB HUB PORT RETRY=ALL PORTS)"); break;
     case HC_NO_SWITCH: osd_log("USB HOST: HUB %u IGNORED PORT POWER OFF,", hub); osd_log("  NO PORT RETRY:"); break;
     default:           osd_log("USB HOST: HUB %u CONTROL TRANSFER FAILED,", hub); osd_log("  NO PORT RETRY:"); break;
     }
@@ -776,6 +787,13 @@ bool     usbhost_hid_present(void) { return s_hid_present; }
 uint16_t usbhost_buttons(void)     { return (uint16_t)(s_pad_buttons | s_kbd_buttons | s_con_buttons); }
 const char *usbhost_status_str(void) { return s_status; }
 
+/* SETTINGS / console: allow (true) or refuse (false) cycling a ganged hub */
+bool usbhost_set_hub_retry(bool all_ports)
+{
+    settings()->usb_hub_retry = all_ports ? 1 : 0;
+    return settings_save();
+}
+
 /* ---- device listing (USB DEVICES screen, `usb` console) ------------------- */
 static void str16_to_ascii(const usb_str_desc_t *sd, char *out, int cap)
 {
@@ -878,6 +896,9 @@ void usbhost_console(void (*out)(void *ctx, const char *line), void *ctx)
     char b[112];
     snprintf(b, sizeof(b), "usb: %s%s", s_status, s_active ? "" : " (device mode: no host enumeration)");
     out(ctx, b);
+    snprintf(b, sizeof(b), "  hub port retry: %s (usb retry on|off; SETTINGS -> USB HUB PORT RETRY)",
+             settings()->usb_hub_retry ? "ALL PORTS (ganged hubs cycled too)" : "PER-PORT ONLY (ganged hubs refused)");
+    out(ctx, b);
     if (!s_active) return;
     usbhost_devinfo_t devs[8];
     int n = usbhost_list(devs, 8);
@@ -901,6 +922,7 @@ uint16_t usbhost_buttons(void)     { return 0; }
 const char *usbhost_status_str(void) { return "DEVICE MODE"; }
 int      usbhost_list(usbhost_devinfo_t *o, int m) { (void)o; (void)m; return 0; }
 void     usbhost_console(void (*out)(void *ctx, const char *line), void *ctx) { out(ctx, "usb: not built into this variant"); }
+bool     usbhost_set_hub_retry(bool all_ports) { (void)all_ports; return false; }
 bool     usbhost_msc_present(void) { return false; }
 bool     usbhost_msc_capacity(uint32_t *b, uint32_t *s) { (void)b; (void)s; return false; }
 bool     usbhost_msc_read(uint32_t l, uint32_t c, uint8_t *b) { (void)l; (void)c; (void)b; return false; }

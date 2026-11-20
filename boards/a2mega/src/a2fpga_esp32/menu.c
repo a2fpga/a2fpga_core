@@ -1141,6 +1141,14 @@ static void mb_volume_change(int id, int dir)
     screen_refresh();
 }
 
+static void hub_retry_change(int id, int dir)
+{
+    (void)id; (void)dir;
+    settings()->usb_hub_retry = !settings()->usb_hub_retry;
+    save_settings_status();
+    screen_refresh();
+}
+
 static void settings_build(void)
 {
     {
@@ -1156,6 +1164,19 @@ static void settings_build(void)
                                 settings()->gs_socket_off ? "OFF" : "AUTO");
         g->on_change = gs_socket_change;
         mi_add(MI_INFO, gs_socket_state_str(), "");
+        mi_add(MI_INFO, "", "");
+    }
+    {
+        menu_item_t *u = mi_add(MI_TOGGLE, "USB HUB PORT RETRY",
+                                settings()->usb_hub_retry ? "ALL PORTS" : "PER-PORT");
+        u->on_change = hub_retry_change;
+        if (settings()->usb_hub_retry) {
+            mi_add(MI_INFO, "A GANGED HUB CYCLES EVERY PORT: DONGLE", "");
+            mi_add(MI_INFO, "AND ETHERNET REATTACH (<1 S, MAX 3X)", "");
+        } else {
+            mi_add(MI_INFO, "A HUB WITH GANGED POWER IS REFUSED;", "");
+            mi_add(MI_INFO, "ALL PORTS: CYCLE IT, DONGLE REATTACHES", "");
+        }
         mi_add(MI_INFO, "", "");
     }
     mi_add(MI_INFO, "STORAGE", "SD CARD");

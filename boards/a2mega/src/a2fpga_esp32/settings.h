@@ -91,7 +91,17 @@ typedef struct {
      * Turning it on from the menu starts the host at once; turning it off
      * takes effect at the next boot. */
     uint8_t  ble_off;
-    uint8_t  reserved[12];               /* future fields (shrink as used) */
+
+    /* USB hub-port enumeration retry (usbhost.cpp / usbhub_retry.c): when a
+     * device behind a hub fails enumeration the firmware power-cycles that
+     * hub port. 0 = per-port only (default): a hub that advertises GANGED
+     * power switching is left alone, since one request would drop every
+     * port. 1 = all ports OK: cycle such a hub anyway; every device on it
+     * (dongle, Ethernet) re-enumerates, under a second, at most 3 times per
+     * plug. Took one reserved byte (0 = per-port) so saved v4 blobs load
+     * unchanged. SETTINGS -> USB HUB PORT RETRY, telnet `usb retry on|off`. */
+    uint8_t  usb_hub_retry;
+    uint8_t  reserved[11];               /* future fields (shrink as used) */
 
     uint32_t crc;                        /* CRC-32 of everything above */
 } a2_settings_t;

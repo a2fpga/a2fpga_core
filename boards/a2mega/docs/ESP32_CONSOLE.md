@@ -94,7 +94,9 @@ ble [pair|cancel|list|connect <n>|forget|radio on|off|map|raw on|off]
                              when their decoded bits change) — the way to find
                              out what a new remote's keys send.
                              Works without the FPGA link (2026-11-19).
-usb                          every device the USB host has enumerated on USB1
+usb [retry on|off]           every device the USB host has enumerated on USB1
+                             (with `retry on|off`: first set USB HUB PORT RETRY =
+                             ALL PORTS / PER-PORT, the SETTINGS toggle, and save)
                              (address, VID:PID, kind, speed, product string,
                              [in use] when this firmware claimed it); hubs and
                              unclaimed devices included. Device mode = nothing.
