@@ -199,8 +199,19 @@ first slice that was already ported.
    for two on this hub, both at the second cycle. Ed the same evening: the
    Verbatim Store 'n' Stay Nano behind the hub comes up as well, and the
    remote (1915:1025 dongle) works after a ladder completes — so plan steps
-   (2) and the dongle half of (5) pass. Still unexercised: unplug during a
-   ladder, replug after a give-up, the RTL8152B through a ladder.
+   (2) and the dongle half of (5) pass. **Write check (same evening, Ed's
+   question: if these sticks cannot be written to, bringing them online is
+   moot):** Verbatim 18A5:0250 "STORE N GO" behind the hub, recovered by
+   the ladder at cycle 2 — FTP `STOR` of 64 KB random and of the 1.3 MB
+   firmware image (11 s) both read back byte-exact over FTP, files deleted
+   afterwards. So the Verbatim is fully usable behind the hub. The PNY
+   13FE:6700 is the odd one: reads serve, FTP writes break at a 0-byte file
+   (3/3, see ESP32_FW_A2P25.md). That is a PNY-specific write-path problem,
+   not a property of sticks that need the ladder; the MSC write error is not
+   logged today, so the next step there is an `osd_log` on the failing
+   `fwrite`/SCSI WRITE(10) status to see what the stick returns. Still
+   unexercised: unplug during a ladder, replug after a give-up, the
+   RTL8152B through a ladder.
 4. **P4 MCU self-update** — DONE (code): `fwupdate.c` on ESP-IDF OTA
    (`esp_ota_begin/write/end`, boot partition switch, restart in 2 s);
    the image is any `*.bin` on the volume (stick, or FTP-dropped onto

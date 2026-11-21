@@ -44,9 +44,10 @@ IIgs sound is the fabric DOC5503 on PSRAM.
       remote works after a ladder (Ed, 11-20 evening). Open: RTL8152B uplink through a ladder
       (re-enumerates, re-DHCP), unplug mid-ladder, replug after a give-up;
       ⚠ PNY WRITES: FTP `STOR` onto the PNY breaks after ~6 s with a 0-byte file (3/3, card
-      stays up; the K&ZZ takes the same upload) — writes through the MSC path fail or stall
-      on this stick while reads are fine; DOS33.NIB is mounted RW on it, so Disk II
-      write-back to the PNY is suspect until this is understood (ESP32_FW_A2P25.md);
+      stays up; the K&ZZ AND the ladder-recovered Verbatim take the same 1.3 MB upload with
+      byte-exact readback, 11-20) — PNY-specific MSC write failure while reads are fine;
+      DOS33.NIB is mounted RW on it, so Disk II write-back to the PNY is suspect; next = log
+      the SCSI WRITE(10)/fwrite error status (ESP32_FW_A2P25.md, P3);
       recommend USB 2.0 to users and keep a tested list
 
 ## Shipped on displayport1 (2026-10-01 → 10-12)
