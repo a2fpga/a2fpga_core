@@ -95,7 +95,7 @@ first slice that was already ported.
    releases /RES with `(NO MEDIA)` and leaves the OSD console on screen by
    design (`disk.c`), which reads as a hang although the Apple is running
    (status register 0x07 = 0x87: clock alive, reset released).
-   **Hub-port retry (firmware, 2026-11-20, unflashed):** the IDF hub
+   **Hub-port retry (firmware, 2026-11-20):** the IDF hub
    driver gives a downstream port one reset and then logs `EXT_PORT:
    [hub:port] Port disabled, reset attempts=1`; nothing re-enumerates the
    port until its connection changes. `usbhost.cpp` now manufactures that
@@ -165,6 +165,29 @@ first slice that was already ported.
    WERE CYCLED`). Stored in the settings blob (`usb_hub_retry`, one reserved
    byte, no version bump); telnet `usb retry on|off` sets and saves it. The
    default may change with test results.**
+   **Hardware result, ALL PORTS mode, 2026-11-20 (Ed, firmware 18bfd578
+   flashed OTA, `usb retry on` saved, K&ZZ swapped for the PNY behind the
+   05E3:0610 hub with the dongle on it):** the ladder ran to a recovery.
+   `HUB 1 PORT 3 ENUM FAILED, POWER CYCLING PORT (TRY 1/3)` / `GANGED HUB:
+   ALL ITS PORTS WERE CYCLED`; the driver failed the stick again (`ENUM:
+   [1:3] CHECK_SHORT_DEV_DESC FAILED`, `EXT_PORT: [1:3] PORT DISABLED`);
+   `TRY 2/3`, all ports cycled again; then `USB HOST: HUB 1 PORT 3
+   RECOVERED AFTER 2 PORT POWER CYCLES`, `13FE:6700 [08/06/50]`, `STORAGE
+   59153 MB`, stick mounted at /SDCARD, DOS33.NIB mounted RW, `DISK II:
+   READY - STARTING APPLE II`. Afterwards `usb` lists hub (addr 1), dongle
+   1915:1025 KEYBOARD at addr 2 in use, and the PNY as STORAGE at addr 4 in
+   use. So on this hub the all-ports cycle is what makes the PNY usable:
+   two automatic replugs did what a human replug never did, i.e. the
+   different timing (0.5 s / 1 s settle, 200 / 400 ms off) matters, not
+   only the repetition. Cost per attempt: every device on the hub
+   re-enumerated (the dongle came back by itself, same address). Not yet
+   checked: a keypress on the remote after the ladder, the Verbatim stick,
+   steps (3) and (4) of the plan, the RTL8152B uplink through a ladder (it
+   would re-enumerate and re-DHCP). Default still PER-PORT; given this
+   result the case for ALL PORTS as the default is that cheap hubs gang
+   their port power, so PER-PORT refuses on exactly the hubs people have,
+   while the only cost is a sub-second blink of the hub's other devices,
+   paid only when a stick has already failed.
 4. **P4 MCU self-update** — DONE (code): `fwupdate.c` on ESP-IDF OTA
    (`esp_ota_begin/write/end`, boot partition switch, restart in 2 s);
    the image is any `*.bin` on the volume (stick, or FTP-dropped onto

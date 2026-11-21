@@ -80,8 +80,22 @@ make BOARD_REV=225 PORT=/dev/cu.usbmodemXXXX upload
   mirror (FIRMWARE → UPDATE MCU → file → INSTALL MCU FIRMWARE NOW; the
   picker shows `1306K -> APP1`). Rebooted into `MCU NOV 20 2026 08:32:37`,
   slot APP1; stick remounted, DOS33.NIB served, USB DEVICES lists hub
-  05E3:0610 + dongle 1915:1025 + stick 090C:1000 all in use. The PNY /
-  Verbatim retry test (ESP32_FEATURE_PORT.md P3) is the next step.
+  05E3:0610 + dongle 1915:1025 + stick 090C:1000 all in use. PNY test the
+  same morning: the chain fired and the ganged-power guard refused (P3).
+- **Build + flash (2026-11-20, `USB HUB PORT RETRY` setting):** `make
+  BOARD_REV=225 DP_TEST=0 compile` at 18bfd578 (clean tree; the BOARD_REV=103
+  build also clean, no new warnings under `--warnings all`) →
+  `build/a2fpga_esp32.ino.bin`, 1,339,248 B, sha256
+  `8763a288feef2f87eca88703095a9fd92f1164533503c1db9bd3736ec8318c64`.
+  **Flashed over the air** the same way (K&ZZ stick as the volume, file
+  `a2fpga_esp32_225_hubretry2_8763a288.bin`, telnet menu mirror FIRMWARE →
+  UPDATE MCU → INSTALL; picker `1307K -> APP0`). Rebooted into `MCU NOV 20
+  2026 08:57:10`, slot APP0; hub + dongle + K&ZZ enumerated; telnet `usb
+  retry on` answered `hub port retry setting saved`, `usb` shows `hub port
+  retry: ALL PORTS`. Then K&ZZ swapped for the PNY behind the hub: `HUB 1
+  PORT 3 RECOVERED AFTER 2 PORT POWER CYCLES`, STORAGE 59153 MB, DOS33.NIB
+  served (ESP32_FEATURE_PORT.md P3 has the log). This is the firmware on the
+  card now, setting saved as ALL PORTS.
 
 ## Pin map (ESP32-S3-MINI-1 U5)
 
