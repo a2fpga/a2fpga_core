@@ -159,12 +159,16 @@ first slice that was already ported.
    the dongle works, the PNY never got an address. The retry as specified
    (per-port, never disturb an enumerated device) therefore cannot help on
    this hub. **Setting added the same day (Ed): SETTINGS → `USB HUB PORT
-   RETRY` = `PER-PORT` (default, the refusal above) / `ALL PORTS` (a ganged
-   hub is cycled anyway: every device on it re-enumerates, under a second,
-   still at most 3 cycles per plug; console adds `GANGED HUB: ALL ITS PORTS
-   WERE CYCLED`). Stored in the settings blob (`usb_hub_retry`, one reserved
-   byte, no version bump); telnet `usb retry on|off` sets and saves it. The
-   default may change with test results.**
+   RETRY` = `ALL PORTS` (a ganged hub is cycled anyway: every device on it
+   re-enumerates, under a second, still at most 3 cycles per plug; console
+   adds `GANGED HUB: ALL ITS PORTS WERE CYCLED`) / `PER-PORT` (the refusal
+   above). Stored in the settings blob (`usb_hub_retry_perport`, one
+   reserved byte, no version bump); telnet `usb retry on|off` sets and saves
+   it. The first build (18bfd578) defaulted to PER-PORT; after the result
+   below Ed flipped the default to ALL PORTS, so the stored byte's sense
+   inverted (0 = ALL PORTS) to keep saved blobs loading unchanged — a card
+   that had saved `ALL PORTS` under 18bfd578 reads back as `PER-PORT` once
+   and needs `usb retry on` (or the toggle) again.**
    **Hardware result, ALL PORTS mode, 2026-11-20 (Ed, firmware 18bfd578
    flashed OTA, `usb retry on` saved, K&ZZ swapped for the PNY behind the
    05E3:0610 hub with the dongle on it):** the ladder ran to a recovery.
@@ -187,7 +191,8 @@ first slice that was already ported.
    result the case for ALL PORTS as the default is that cheap hubs gang
    their port power, so PER-PORT refuses on exactly the hubs people have,
    while the only cost is a sub-second blink of the hub's other devices,
-   paid only when a stick has already failed.
+   paid only when a stick has already failed. **Ed's call the same morning:
+   default = ALL PORTS.**
 4. **P4 MCU self-update** — DONE (code): `fwupdate.c` on ESP-IDF OTA
    (`esp_ota_begin/write/end`, boot partition switch, restart in 2 s);
    the image is any `*.bin` on the volume (stick, or FTP-dropped onto

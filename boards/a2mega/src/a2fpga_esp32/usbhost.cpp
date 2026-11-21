@@ -424,7 +424,8 @@ static bool hub_port_status(hdev *d, uint8_t port, usb_port_status_t *st)
 
 /* One power cycle of hub:port (off for off_ms). Blocking; worker task only.
  * A hub with ganged power switching drops every port on the request; that
- * is done only when settings()->usb_hub_retry allows it (*ganged = true). */
+ * is refused only when settings()->usb_hub_retry_perport is set (*ganged = true
+ * when it was done). */
 static hubcyc_result hub_port_cycle(uint8_t hub, uint8_t port, uint16_t off_ms, bool *ganged)
 {
     *ganged = false;
@@ -437,10 +438,11 @@ static hubcyc_result hub_port_cycle(uint8_t hub, uint8_t port, uint16_t off_ms, 
     if (ctrl_xfer(&d, USB_BM_REQUEST_TYPE_DIR_IN | USB_BM_REQUEST_TYPE_HUB, USB_B_REQUEST_HUB_GET_DESCRIPTOR,
                   (uint16_t)(USB_CLASS_DESCRIPTOR_TYPE_HUB << 8), 0, USB_HUB_DESCRIPTOR_SIZE, (uint8_t *)&hd) != ESP_OK) goto out;
     if (port < 1 || port > hd.bNbrPorts) { r = HC_NOT_HUB; goto out; }
-    /* ganged switching cuts the HID dongle / Ethernet adapter too: only
-     * with the SETTINGS opt-in (USB HUB PORT RETRY = ALL PORTS) */
+    /* ganged switching cuts the HID dongle / Ethernet adapter too (they
+     * re-enumerate in under a second); refused when SETTINGS USB HUB PORT
+     * RETRY = PER-PORT */
     if (hd.wHubCharacteristics.power_switching == USB_W_HUB_CHARS_PORT_PWR_CTRL_ALL) {
-        if (!settings()->usb_hub_retry) { r = HC_GANGED; goto out; }
+        if (settings()->usb_hub_retry_perport) { r = HC_GANGED; goto out; }
         *ganged = true;
     }
     if (!hub_port_status(&d, port, &st)) goto out;
@@ -787,10 +789,10 @@ bool     usbhost_hid_present(void) { return s_hid_present; }
 uint16_t usbhost_buttons(void)     { return (uint16_t)(s_pad_buttons | s_kbd_buttons | s_con_buttons); }
 const char *usbhost_status_str(void) { return s_status; }
 
-/* SETTINGS / console: allow (true) or refuse (false) cycling a ganged hub */
+/* SETTINGS / console: allow (true, default) or refuse (false) cycling a ganged hub */
 bool usbhost_set_hub_retry(bool all_ports)
 {
-    settings()->usb_hub_retry = all_ports ? 1 : 0;
+    settings()->usb_hub_retry_perport = all_ports ? 0 : 1;
     return settings_save();
 }
 
@@ -897,7 +899,7 @@ void usbhost_console(void (*out)(void *ctx, const char *line), void *ctx)
     snprintf(b, sizeof(b), "usb: %s%s", s_status, s_active ? "" : " (device mode: no host enumeration)");
     out(ctx, b);
     snprintf(b, sizeof(b), "  hub port retry: %s (usb retry on|off; SETTINGS -> USB HUB PORT RETRY)",
-             settings()->usb_hub_retry ? "ALL PORTS (ganged hubs cycled too)" : "PER-PORT ONLY (ganged hubs refused)");
+             settings()->usb_hub_retry_perport ? "PER-PORT ONLY (ganged hubs refused)" : "ALL PORTS (ganged hubs cycled too, default)");
     out(ctx, b);
     if (!s_active) return;
     usbhost_devinfo_t devs[8];

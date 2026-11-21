@@ -94,8 +94,23 @@ make BOARD_REV=225 PORT=/dev/cu.usbmodemXXXX upload
   retry on` answered `hub port retry setting saved`, `usb` shows `hub port
   retry: ALL PORTS`. Then K&ZZ swapped for the PNY behind the hub: `HUB 1
   PORT 3 RECOVERED AFTER 2 PORT POWER CYCLES`, STORAGE 59153 MB, DOS33.NIB
-  served (ESP32_FEATURE_PORT.md P3 has the log). This is the firmware on the
-  card now, setting saved as ALL PORTS.
+  served (ESP32_FEATURE_PORT.md P3 has the log).
+- **Build (2026-11-20, default flipped to ALL PORTS, `usb_hub_retry_perport`):**
+  `make BOARD_REV=225 DP_TEST=0 compile` at the commit after 3e040114 (clean
+  tree) → 1,339,264 B, sha256
+  `348a140bb991f8b8a5f3ae6c644a86318364012ea30de7227132f07b3b0b3016`;
+  `make BOARD_REV=103 compile` clean (sketch 1,345,875 B); `--warnings all`
+  pass shows only the pre-existing hits. **Flash pending:** the OTA upload
+  could not go through the PNY 13FE:6700 as the volume — `curl -T` to FTP
+  broke the data connection after ~6 s three times (full rate twice,
+  150 kB/s once), leaving a 0-byte file, with the card up the whole time
+  (telnet stayed connected, no reboot, no stick drop; the FTP server logged
+  only `CLIENT CONNECTED`). The K&ZZ 090C:1000 took the same 1.3 MB upload
+  twice earlier the same morning, so this is a PNY write-path problem on
+  the full-speed host (reads serve Disk II fine); the flash goes through the
+  K&ZZ. The card still runs 18bfd578 with ALL PORTS saved; under the new
+  firmware that stored byte reads back as PER-PORT once and needs
+  `usb retry on` again.
 
 ## Pin map (ESP32-S3-MINI-1 U5)
 

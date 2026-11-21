@@ -96,7 +96,8 @@ ble [pair|cancel|list|connect <n>|forget|radio on|off|map|raw on|off]
                              Works without the FPGA link (2026-11-19).
 usb [retry on|off]           every device the USB host has enumerated on USB1
                              (with `retry on|off`: first set USB HUB PORT RETRY =
-                             ALL PORTS / PER-PORT, the SETTINGS toggle, and save)
+                             ALL PORTS (default) / PER-PORT, the SETTINGS toggle,
+                             and save)
                              (address, VID:PID, kind, speed, product string,
                              [in use] when this firmware claimed it); hubs and
                              unclaimed devices included. Device mode = nothing.

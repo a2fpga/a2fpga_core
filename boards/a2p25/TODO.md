@@ -37,11 +37,15 @@ IIgs sound is the fabric DOC5503 on PSRAM.
 - [ ] USB sticks: USB 3.x sticks (PNY Elite-X Fit, Verbatim Nano 3.2) fail enumeration BEHIND
       THE HUB on the ESP32-S3 host (the PNY works straight on USB1); USB 2.0 sticks work
       (2026-11-19, ESP32_FEATURE_PORT.md P3). Firmware 2026-11-20: bounded hub-port power-cycle
-      retry (`usbhub_retry.c`, 3 cycles per plug) + SETTINGS `USB HUB PORT RETRY` (PER-PORT
-      default / ALL PORTS; telnet `usb retry on|off`). Tested 11-20 on the 05E3:0610 hub (ganged
-      port power): PER-PORT refuses by design; ALL PORTS RECOVERED THE PNY AFTER 2 CYCLES
-      (dongle re-enumerated by itself, P3 has both logs). Open: default PER-PORT vs ALL PORTS
-      (Ed), Verbatim stick, remote keypress after a ladder, RTL8152B uplink through a ladder;
+      retry (`usbhub_retry.c`, 3 cycles per plug) + SETTINGS `USB HUB PORT RETRY` (ALL PORTS
+      default since 11-20 / PER-PORT; telnet `usb retry on|off`). Tested 11-20 on the 05E3:0610
+      hub (ganged port power): PER-PORT refuses by design; ALL PORTS RECOVERED THE PNY AFTER 2
+      CYCLES (dongle re-enumerated by itself, P3 has both logs). Open: Verbatim stick, remote
+      keypress after a ladder, RTL8152B uplink through a ladder;
+      ⚠ PNY WRITES: FTP `STOR` onto the PNY breaks after ~6 s with a 0-byte file (3/3, card
+      stays up; the K&ZZ takes the same upload) — writes through the MSC path fail or stall
+      on this stick while reads are fine; DOS33.NIB is mounted RW on it, so Disk II
+      write-back to the PNY is suspect until this is understood (ESP32_FW_A2P25.md);
       recommend USB 2.0 to users and keep a tested list
 
 ## Shipped on displayport1 (2026-10-01 → 10-12)

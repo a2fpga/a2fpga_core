@@ -1144,7 +1144,7 @@ static void mb_volume_change(int id, int dir)
 static void hub_retry_change(int id, int dir)
 {
     (void)id; (void)dir;
-    settings()->usb_hub_retry = !settings()->usb_hub_retry;
+    settings()->usb_hub_retry_perport = !settings()->usb_hub_retry_perport;
     save_settings_status();
     screen_refresh();
 }
@@ -1168,9 +1168,9 @@ static void settings_build(void)
     }
     {
         menu_item_t *u = mi_add(MI_TOGGLE, "USB HUB PORT RETRY",
-                                settings()->usb_hub_retry ? "ALL PORTS" : "PER-PORT");
+                                settings()->usb_hub_retry_perport ? "PER-PORT" : "ALL PORTS");
         u->on_change = hub_retry_change;
-        if (settings()->usb_hub_retry) {
+        if (!settings()->usb_hub_retry_perport) {
             mi_add(MI_INFO, "A GANGED HUB CYCLES EVERY PORT: DONGLE", "");
             mi_add(MI_INFO, "AND ETHERNET REATTACH (<1 S, MAX 3X)", "");
         } else {
