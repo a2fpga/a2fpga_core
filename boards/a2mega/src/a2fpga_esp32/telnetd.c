@@ -298,7 +298,7 @@ static void tn_exec_line(int fd, char *line)
     if (nt == 0)
         return;
     if (!strcmp(tok[0], "help") || !strcmp(tok[0], "?")) {
-        tn_puts(fd, "spireg <reg> [val] | gs | gs set <idx> <val> | gs arm|listen|off|auto|mode <0-3>|hold <ms>|autotrig on|off|clear|freeze|run|trig|untrig | gs trace | gs events|evclear | ble [pair|cancel|list|connect <n>|forget|radio on|off] | usb [retry on|off] | meminfo\r\n");
+        tn_puts(fd, "spireg <reg> [val] | gs | gs set <idx> <val> | gs arm|listen|off|auto|mode <0-3>|hold <ms>|autotrig on|off|clear|freeze|run|trig|untrig | gs trace | gs events|evclear | ble [pair|cancel|list|connect <n>|forget|radio on|off] | usb [retry on|off | probe <lba> [read]] | meminfo\r\n");
         return;
     }
     if (!strcmp(tok[0], "ble")) {      /* no FPGA link needed */
@@ -306,6 +306,12 @@ static void tn_exec_line(int fd, char *line)
         return;
     }
     if (!strcmp(tok[0], "usb")) {
+        if (nt >= 3 && !strcmp(tok[1], "probe")) {
+            uint32_t lba = (uint32_t)strtoul(tok[2], NULL, 0);
+            bool allow_write = !(nt >= 4 && !strcmp(tok[3], "read"));
+            usbhost_msc_probe(lba, allow_write, tn_console_line, &fd);
+            return;
+        }
         if (nt >= 3 && !strcmp(tok[1], "retry")) {
             bool all = !strcmp(tok[2], "on") || !strcmp(tok[2], "all");
             tn_console_line(&fd, usbhost_set_hub_retry(all) ? "usb: hub port retry setting saved" : "usb: setting changed, NVS save FAILED");

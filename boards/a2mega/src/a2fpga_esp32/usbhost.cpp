@@ -223,6 +223,22 @@ static bool bulk_xfer(hdev *d, uint8_t ep, uint8_t *buf, size_t len, size_t *don
     return ok;
 }
 
+/* Where the last SCSI command failed (msc_rw turns it into a console line;
+ * `usb probe` reads it too). Set by scsi_cmd, read right after it fails. */
+enum scsi_stage { SC_OK = 0, SC_CBW, SC_DATA, SC_CSW_XFER, SC_CSW_BAD, SC_CSW_STATUS };
+static struct { uint8_t stage; uint8_t csw_status; uint32_t data_done; } s_scsi_err;
+static const char *scsi_stage_str(uint8_t st)
+{
+    switch (st) {
+    case SC_CBW:        return "CBW (COMMAND NOT ACCEPTED)";
+    case SC_DATA:       return "DATA PHASE (TIMEOUT/STALL)";
+    case SC_CSW_XFER:   return "CSW NEVER CAME";
+    case SC_CSW_BAD:    return "CSW MALFORMED";
+    case SC_CSW_STATUS: return "CSW STATUS (CHECK CONDITION)";
+    default:            return "OK";
+    }
+}
+
 /* one SCSI command: CBW, optional data phase, CSW. Returns true on a good CSW. */
 static bool scsi_cmd(hdev *d, const uint8_t *cb, uint8_t cblen, uint8_t *data, uint32_t dlen, bool data_in)
 {
@@ -231,23 +247,39 @@ static bool scsi_cmd(hdev *d, const uint8_t *cb, uint8_t cblen, uint8_t *data, u
     cbw[0]='U'; cbw[1]='S'; cbw[2]='B'; cbw[3]='C';
     memcpy(&cbw[4], &tag, 4); memcpy(&cbw[8], &dlen, 4);
     cbw[12] = data_in ? 0x80 : 0x00; cbw[13] = 0; cbw[14] = cblen; memcpy(&cbw[15], cb, cblen);
-    if (!bulk_xfer(d, d->bulk_out, cbw, 31, NULL, 1000)) return false;
+    s_scsi_err.stage = SC_OK; s_scsi_err.csw_status = 0; s_scsi_err.data_done = 0;
+    if (!bulk_xfer(d, d->bulk_out, cbw, 31, NULL, 1000)) { s_scsi_err.stage = SC_CBW; return false; }
     if (dlen) {
         /* data phase in chunks the host library accepts */
         uint32_t off = 0;
         while (off < dlen) {
             uint32_t n = dlen - off; if (n > 4096) n = 4096;
             size_t got = 0;
-            if (!bulk_xfer(d, data_in ? d->bulk_in : d->bulk_out, data + off, n, &got, 3000)) return false;
+            if (!bulk_xfer(d, data_in ? d->bulk_in : d->bulk_out, data + off, n, &got, 3000)) {
+                s_scsi_err.stage = SC_DATA; s_scsi_err.data_done = off; return false;
+            }
             off += data_in ? (got ? got : n) : n;
             if (data_in && got < n) break;               /* short read: device sent less */
         }
+        s_scsi_err.data_done = off;
     }
     uint8_t csw[13]; size_t got = 0;
     if (!bulk_xfer(d, d->bulk_in, csw, 13, &got, 1000)) {
-        if (!bulk_xfer(d, d->bulk_in, csw, 13, &got, 1000)) return false;   /* one retry after a STALL clear */
+        if (!bulk_xfer(d, d->bulk_in, csw, 13, &got, 1000)) { s_scsi_err.stage = SC_CSW_XFER; return false; }   /* one retry after a STALL clear */
     }
-    return got == 13 && csw[0]=='U' && csw[1]=='S' && csw[2]=='B' && csw[3]=='S' && csw[12] == 0;
+    if (!(got == 13 && csw[0]=='U' && csw[1]=='S' && csw[2]=='B' && csw[3]=='S')) { s_scsi_err.stage = SC_CSW_BAD; return false; }
+    if (csw[12] != 0) { s_scsi_err.stage = SC_CSW_STATUS; s_scsi_err.csw_status = csw[12]; return false; }
+    return true;
+}
+
+/* REQUEST SENSE after a CHECK CONDITION: key/ASC/ASCQ, or false. */
+static bool scsi_request_sense(hdev *d, uint8_t *key, uint8_t *asc, uint8_t *ascq)
+{
+    uint8_t cb[16]; memset(cb, 0, 16); cb[0] = 0x03; cb[4] = 18;
+    uint8_t sense[18]; memset(sense, 0, sizeof(sense));
+    if (!scsi_cmd(d, cb, 6, sense, 18, true)) return false;
+    *key = sense[2] & 0x0F; *asc = sense[12]; *ascq = sense[13];
+    return true;
 }
 
 static bool msc_init(hdev *d)
@@ -280,6 +312,30 @@ bool usbhost_msc_capacity(uint32_t *blocks, uint32_t *bsize)
     if (bsize)  *bsize  = s_msc->msc_bsize;
     return true;
 }
+/* Failed READ(10)/WRITE(10) go to the console: the first 5, then every
+ * 50th (a dying stick must not flood the OSD). `usb` prints the totals. */
+static uint32_t s_msc_fail_rd, s_msc_fail_wr;
+static char     s_msc_last_fail[80];
+static void msc_log_failure(hdev *d, bool write, uint32_t lba, uint32_t n)
+{
+    uint8_t stage = s_scsi_err.stage, csw = s_scsi_err.csw_status; uint32_t done = s_scsi_err.data_done;
+    uint32_t cnt = write ? ++s_msc_fail_wr : ++s_msc_fail_rd;
+    uint8_t key = 0, asc = 0, ascq = 0; bool have_sense = false;
+    if (stage == SC_CSW_STATUS) have_sense = scsi_request_sense(d, &key, &asc, &ascq);
+    snprintf(s_msc_last_fail, sizeof(s_msc_last_fail), "%s lba %lu x%lu: %s csw=%02X data=%lu sense=%X/%02X/%02X",
+             write ? "WRITE" : "READ", (unsigned long)lba, (unsigned long)n, scsi_stage_str(stage), csw,
+             (unsigned long)done, have_sense ? key : 0xF, asc, ascq);
+    if (cnt <= 5 || cnt % 50 == 0) {
+        osd_log("USB HOST: %s LBA %lu X%lu FAILED", write ? "WRITE" : "READ", (unsigned long)lba, (unsigned long)n);
+        osd_log("  %s", scsi_stage_str(stage));
+        if (stage == SC_CSW_STATUS)
+            osd_log("  CSW %02X SENSE KEY %X ASC %02X/%02X%s", csw, key, asc, ascq, have_sense ? "" : " (NO SENSE)");
+        else if (stage == SC_DATA)
+            osd_log("  %lu OF %lu BYTES MOVED", (unsigned long)done, (unsigned long)n * 512);
+        if (cnt == 5) osd_log("  (FURTHER FAILURES: EVERY 50TH)");
+    }
+}
+
 static bool msc_rw(uint32_t lba, uint32_t count, uint8_t *buf, bool write)
 {
     hdev *d = s_msc;
@@ -293,10 +349,51 @@ static bool msc_rw(uint32_t lba, uint32_t count, uint8_t *buf, bool write)
         cb[2] = lba >> 24; cb[3] = lba >> 16; cb[4] = lba >> 8; cb[5] = lba;
         cb[7] = n >> 8; cb[8] = n;
         ok = scsi_cmd(d, cb, 10, buf, n * 512, !write);
+        if (!ok && s_msc == d) msc_log_failure(d, write, lba, n);
         buf += n * 512; lba += n; count -= n;
     }
     xSemaphoreGive(s_msc_lock);
     return ok;
+}
+
+/* `usb probe <lba> [read]`: one-sector read at lba, and unless read-only
+ * and only if the sector is all zeros (free space, nothing to lose), a
+ * WRITE(10) of the same zeros followed by a read-back. Reports each step
+ * with its time; the MSC lock serialises it against FatFS. For bisecting a
+ * stick that fails above some address (the 64 GB PNY, 2026-11-20). */
+void usbhost_msc_probe(uint32_t lba, bool allow_write, void (*out)(void *ctx, const char *line), void *ctx)
+{
+    char b[120];
+    uint32_t blocks = 0, bsize = 0;
+    if (!usbhost_msc_capacity(&blocks, &bsize)) { out(ctx, "probe: no storage device"); return; }
+    snprintf(b, sizeof(b), "probe: device has %lu blocks of %lu (%lu MB), lba %lu = %lu MB in",
+             (unsigned long)blocks, (unsigned long)bsize, (unsigned long)((uint64_t)blocks * bsize >> 20),
+             (unsigned long)lba, (unsigned long)((uint64_t)lba * bsize >> 20));
+    out(ctx, b);
+    if (lba >= blocks) { out(ctx, "probe: lba beyond the device"); return; }
+    static uint8_t sec[512];
+    uint32_t t0 = millis();
+    bool ok = usbhost_msc_read(lba, 1, sec);
+    uint32_t t1 = millis();
+    if (!ok) { snprintf(b, sizeof(b), "probe: READ FAILED after %lu ms: %s", (unsigned long)(t1 - t0), s_msc_last_fail); out(ctx, b); return; }
+    bool zero = true; for (int i = 0; i < 512; i++) if (sec[i]) { zero = false; break; }
+    snprintf(b, sizeof(b), "probe: read ok in %lu ms, sector is %s", (unsigned long)(t1 - t0), zero ? "all zeros" : "NOT zero (in use?)");
+    out(ctx, b);
+    if (!allow_write) return;
+    if (!zero) { out(ctx, "probe: refusing to write a non-zero sector; pick another lba or add 'read'"); return; }
+    t0 = millis();
+    ok = usbhost_msc_write(lba, 1, sec);
+    t1 = millis();
+    if (!ok) { snprintf(b, sizeof(b), "probe: WRITE FAILED after %lu ms: %s", (unsigned long)(t1 - t0), s_msc_last_fail); out(ctx, b); return; }
+    snprintf(b, sizeof(b), "probe: write (same zeros) ok in %lu ms", (unsigned long)(t1 - t0)); out(ctx, b);
+    memset(sec, 0xA5, sizeof(sec));
+    t0 = millis();
+    ok = usbhost_msc_read(lba, 1, sec);
+    t1 = millis();
+    if (!ok) { snprintf(b, sizeof(b), "probe: READ-BACK FAILED after %lu ms: %s", (unsigned long)(t1 - t0), s_msc_last_fail); out(ctx, b); return; }
+    zero = true; for (int i = 0; i < 512; i++) if (sec[i]) { zero = false; break; }
+    snprintf(b, sizeof(b), "probe: read-back ok in %lu ms, %s", (unsigned long)(t1 - t0), zero ? "still all zeros: PASS" : "NOT zeros: FAIL (data changed!)");
+    out(ctx, b);
 }
 bool usbhost_msc_read(uint32_t lba, uint32_t count, uint8_t *buf)        { return msc_rw(lba, count, buf, false); }
 bool usbhost_msc_write(uint32_t lba, uint32_t count, const uint8_t *buf) { return msc_rw(lba, count, (uint8_t *)buf, true); }
@@ -901,6 +998,12 @@ void usbhost_console(void (*out)(void *ctx, const char *line), void *ctx)
     snprintf(b, sizeof(b), "  hub port retry: %s (usb retry on|off; SETTINGS -> USB HUB PORT RETRY)",
              settings()->usb_hub_retry_perport ? "PER-PORT ONLY (ganged hubs refused)" : "ALL PORTS (ganged hubs cycled too, default)");
     out(ctx, b);
+    if (s_msc_fail_rd || s_msc_fail_wr) {
+        snprintf(b, sizeof(b), "  storage failures: %lu read, %lu write; last:",
+                 (unsigned long)s_msc_fail_rd, (unsigned long)s_msc_fail_wr);
+        out(ctx, b);
+        out(ctx, s_msc_last_fail);
+    }
     if (!s_active) return;
     usbhost_devinfo_t devs[8];
     int n = usbhost_list(devs, 8);
@@ -928,6 +1031,7 @@ bool     usbhost_set_hub_retry(bool all_ports) { (void)all_ports; return false; 
 bool     usbhost_msc_present(void) { return false; }
 bool     usbhost_msc_capacity(uint32_t *b, uint32_t *s) { (void)b; (void)s; return false; }
 bool     usbhost_msc_read(uint32_t l, uint32_t c, uint8_t *b) { (void)l; (void)c; (void)b; return false; }
+void     usbhost_msc_probe(uint32_t l, bool w, void (*out)(void *ctx, const char *line), void *ctx) { (void)l; (void)w; out(ctx, "probe: not built into this variant"); }
 bool     usbhost_msc_write(uint32_t l, uint32_t c, const uint8_t *b) { (void)l; (void)c; (void)b; return false; }
 
 #endif

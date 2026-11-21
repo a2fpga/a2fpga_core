@@ -97,7 +97,16 @@ ble [pair|cancel|list|connect <n>|forget|radio on|off|map|raw on|off]
 usb [retry on|off]           every device the USB host has enumerated on USB1
                              (with `retry on|off`: first set USB HUB PORT RETRY =
                              ALL PORTS (default) / PER-PORT, the SETTINGS toggle,
-                             and save)
+                             and save; also prints storage read/write failure
+                             totals and the last failure's SCSI stage/CSW/sense)
+usb probe <lba> [read]       storage sector test at <lba>: READ(10) of one
+                             sector with its time; then, unless `read` is given
+                             and only if the sector is all zeros, a WRITE(10) of
+                             the same zeros and a read-back (PASS/FAIL). A failed
+                             step names the SCSI stage, CSW status and sense.
+                             For bisecting a stick that fails above some address
+                             (2026-11-20, the 64 GB PNY). Non-zero sectors are
+                             refused for writing.
                              (address, VID:PID, kind, speed, product string,
                              [in use] when this firmware claimed it); hubs and
                              unclaimed devices included. Device mode = nothing.

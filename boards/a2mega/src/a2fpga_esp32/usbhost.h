@@ -64,6 +64,10 @@ bool     usbhost_msc_present(void);
 bool     usbhost_msc_capacity(uint32_t *blocks, uint32_t *bsize);
 bool     usbhost_msc_read(uint32_t lba, uint32_t count, uint8_t *buf);
 bool     usbhost_msc_write(uint32_t lba, uint32_t count, const uint8_t *buf);
+/* `usb probe <lba> [read]`: one-sector read, and (unless read-only, and only
+ * when the sector is all zeros) a same-zeros WRITE(10) + read-back, each step
+ * reported with its time and, on failure, the SCSI stage / CSW / sense. */
+void     usbhost_msc_probe(uint32_t lba, bool allow_write, void (*out)(void *ctx, const char *line), void *ctx);
 
 #ifdef __cplusplus
 }

@@ -117,6 +117,21 @@ make BOARD_REV=225 PORT=/dev/cu.usbmodemXXXX upload
   `USB HUB PORT RETRY  ALL PORTS` with `NVS … LD:OK SV:OK`. This is the
   firmware on the card now. PNY swapped in behind the hub afterwards: the
   ladder recovered it at the second cycle again (P3).
+- **Build + flash (2026-11-20 evening, storage write diagnostics):** `make
+  BOARD_REV=225 DP_TEST=0 compile` → 1,341,392 B, sha256
+  `4736ba59bbda926b0613947d0e0f21c64e1e3934b32f41cef218b95ed6b3be86`; 103
+  build clean; `--warnings all` only pre-existing hits. Adds: every failed
+  READ(10)/WRITE(10) logged with LBA, SCSI stage (CBW / data phase / CSW
+  missing / CSW malformed / CHECK CONDITION), CSW status and REQUEST SENSE
+  key/ASC/ASCQ (first 5, then every 50th; `usb` prints the totals and the
+  last one); telnet `usb probe <lba> [read]` (one-sector read, and for an
+  all-zero sector a same-zeros WRITE(10) + read-back, each step timed).
+  Purpose: the PNY 13FE:6700 (64 GB) refuses FTP writes while the two 32 GB
+  sticks take them — find the failing stage and bisect the address. Flashed
+  OTA through the Verbatim 18A5:0250 (`a2fpga_esp32_225_probe_4736ba59.bin`,
+  picker `1309K -> APP0`); the Verbatim re-recovered at ladder cycle 2 on
+  the reboot. Baseline on the Verbatim: `usb probe 2048` and `usb probe
+  61439000` (29999 MB in) both PASS, read 3–6 ms, write 5–8 ms.
 
 ## Pin map (ESP32-S3-MINI-1 U5)
 
