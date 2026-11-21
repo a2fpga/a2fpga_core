@@ -162,8 +162,12 @@ make BOARD_REV=225 PORT=/dev/cu.usbmodemXXXX upload
   Verbatim (`a2fpga_esp32_225_cancel_70055b45.bin`, picker `1310K -> APP1`),
   boots as `MCU NOV 20 2026 18:57:11`; Verbatim re-recovered at ladder cycle
   2; `usb probe 2048` / `usb probe 61439000` PASS (write 6 / 8 ms). This is
-  the firmware on the card. Next: PNY back in, `usb probe 2048` with the 8 s
-  CSW wait and no crash hazard.
+  the firmware on the card. **PNY re-probe on it:** `usb probe 2048` write
+  ok in **1940 ms** (first write after power-up), then 2048 / 2049 / 4096 /
+  67108864 (32 GB) / 121000000 (59 GB) all PASS at 17–47 ms; 8 KB FTP write
+  0.5 s; 1.3 MB FTP write 69 s, read back 9 s, byte-exact; test files
+  deleted; card up throughout, no timeouts counted. The PNY write problem
+  was the firmware's 1.5 s wait plus the in-flight free. Closed.
 
 ## Pin map (ESP32-S3-MINI-1 U5)
 

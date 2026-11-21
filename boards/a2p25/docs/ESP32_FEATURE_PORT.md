@@ -209,9 +209,20 @@ first slice that was already ported.
    (3/3, see ESP32_FW_A2P25.md). That is a PNY-specific write-path problem,
    not a property of sticks that need the ladder; the MSC write error is not
    logged today, so the next step there is an `osd_log` on the failing
-   `fwrite`/SCSI WRITE(10) status to see what the stick returns. Still
-   unexercised: unplug during a ladder, replug after a give-up, the
-   RTL8152B through a ladder.
+   `fwrite`/SCSI WRITE(10) status to see what the stick returns. **Resolved
+   the same night (probe firmware, ESP32_FW_A2P25.md):** the PNY's FIRST
+   WRITE(10) after power-up takes ~1.9 s to return its CSW (`usb probe 2048`:
+   write 1940 ms); every later write is 17–47 ms at any address, 1 MB in or
+   59 GB in. The firmware's 1.5 s wait cut that first write off, and — the
+   real bug — `bulk_xfer` then freed the still-in-flight transfer (this
+   IDF's `timeout_ms` is unimplemented), which broke the FTP session and,
+   once, rebooted the card. With the cancel fix and an 8 s write CSW wait
+   (98ff773e) the PNY takes the 1.3 MB upload (69 s vs 11 s on the Verbatim)
+   with byte-exact read-back. So: the PNY is writable; it is slow to wake
+   and slower than the 32 GB sticks, nothing more. Caveat for Disk II
+   write-back: the first track flush to a freshly plugged PNY will hold the
+   MSC lock ~2 s. Still unexercised: unplug during a ladder, replug after a
+   give-up, the RTL8152B through a ladder.
 4. **P4 MCU self-update** — DONE (code): `fwupdate.c` on ESP-IDF OTA
    (`esp_ota_begin/write/end`, boot partition switch, restart in 2 s);
    the image is any `*.bin` on the volume (stick, or FTP-dropped onto

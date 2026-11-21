@@ -43,15 +43,12 @@ IIgs sound is the fabric DOC5503 on PSRAM.
       CYCLES (dongle re-enumerated by itself, P3 has both logs); Verbatim recovers too and the
       remote works after a ladder (Ed, 11-20 evening). Open: RTL8152B uplink through a ladder
       (re-enumerates, re-DHCP), unplug mid-ladder, replug after a give-up;
-      ⚠ PNY WRITES: FTP `STOR` onto the PNY breaks after ~6 s with a 0-byte file (3/3, card
-      stays up; the K&ZZ AND the ladder-recovered Verbatim take the same 1.3 MB upload with
-      byte-exact readback, 11-20) — PNY-specific MSC write failure while reads are fine;
-      DOS33.NIB is mounted RW on it, so Disk II write-back to the PNY is suspect. Probe fw
-      (f69f315e) result: WRITE(10) data goes out, the PNY holds the CSW > 1.5 s → and the
-      card CRASHED on it: `bulk_xfer` freed the in-flight transfer (IDF timeout_ms is not
-      implemented) → use-after-free when the stick answered. Fix built (cancel via endpoint
-      halt/flush, 8 s write CSW wait, RESET REASON at boot), flash + re-probe pending
-      (ESP32_FW_A2P25.md, P3);
+      PNY WRITES — CLOSED 11-20: the PNY's first WRITE(10) after power-up takes ~1.9 s (then
+      17–47 ms); the old 1.5 s wait cut it off and `bulk_xfer` FREED THE IN-FLIGHT TRANSFER
+      (IDF timeout_ms unimplemented) → broken FTP sessions and one card reboot. Fixed in
+      98ff773e (endpoint halt/flush cancel, 8 s write CSW wait, RESET REASON at boot): 1.3 MB
+      FTP write to the PNY byte-exact (69 s vs 11 s Verbatim). Caveat: first Disk II track
+      flush to a fresh PNY holds the MSC lock ~2 s (P3);
       recommend USB 2.0 to users and keep a tested list
 
 ## Shipped on displayport1 (2026-10-01 → 10-12)
