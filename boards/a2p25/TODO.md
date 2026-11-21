@@ -40,8 +40,9 @@ IIgs sound is the fabric DOC5503 on PSRAM.
       retry (`usbhub_retry.c`, 3 cycles per plug) + SETTINGS `USB HUB PORT RETRY` (ALL PORTS
       default since 11-20 / PER-PORT; telnet `usb retry on|off`). Tested 11-20 on the 05E3:0610
       hub (ganged port power): PER-PORT refuses by design; ALL PORTS RECOVERED THE PNY AFTER 2
-      CYCLES (dongle re-enumerated by itself, P3 has both logs). Open: Verbatim stick, remote
-      keypress after a ladder, RTL8152B uplink through a ladder;
+      CYCLES (dongle re-enumerated by itself, P3 has both logs); Verbatim recovers too and the
+      remote works after a ladder (Ed, 11-20 evening). Open: RTL8152B uplink through a ladder
+      (re-enumerates, re-DHCP), unplug mid-ladder, replug after a give-up;
       ⚠ PNY WRITES: FTP `STOR` onto the PNY breaks after ~6 s with a 0-byte file (3/3, card
       stays up; the K&ZZ takes the same upload) — writes through the MSC path fail or stall
       on this stick while reads are fine; DOS33.NIB is mounted RW on it, so Disk II

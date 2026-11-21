@@ -196,7 +196,11 @@ first slice that was already ported.
    `MCU NOV 20 2026 18:02:30`, PNY swapped in for the K&ZZ behind the hub):
    identical — TRY 1/3, TRY 2/3, `RECOVERED AFTER 2 PORT POWER CYCLES`,
    STORAGE 59153 MB, DOS33.NIB served, dongle back at addr 2 in use. Two
-   for two on this hub, both at the second cycle.
+   for two on this hub, both at the second cycle. Ed the same evening: the
+   Verbatim Store 'n' Stay Nano behind the hub comes up as well, and the
+   remote (1915:1025 dongle) works after a ladder completes — so plan steps
+   (2) and the dongle half of (5) pass. Still unexercised: unplug during a
+   ladder, replug after a give-up, the RTL8152B through a ladder.
 4. **P4 MCU self-update** — DONE (code): `fwupdate.c` on ESP-IDF OTA
    (`esp_ota_begin/write/end`, boot partition switch, restart in 2 s);
    the image is any `*.bin` on the volume (stick, or FTP-dropped onto
