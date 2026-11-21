@@ -36,6 +36,7 @@
 #include <LittleFS.h>
 #endif
 #include "driver/gpio.h"
+#include "esp_system.h"
 #include "soc/usb_serial_jtag_reg.h"
 #include "a2fpga_jtag.h"
 #include "a2fpga_spi_service.h"
@@ -1116,6 +1117,23 @@ static void start_network() {
     sd_mounted = mount_sd();
 
     osd_log("%s ESP32 %s %s", A2_BOARD_NAME, __DATE__, __TIME__);
+    {   /* name an unplanned restart (a crash is otherwise invisible: no
+         * serial console on the bench, the OSD ring starts over) */
+        esp_reset_reason_t rr = esp_reset_reason();
+        const char *why = NULL;
+        switch (rr) {
+        case ESP_RST_POWERON:  break;
+        case ESP_RST_SW:       why = "SOFTWARE RESTART"; break;
+        case ESP_RST_PANIC:    why = "PANIC (FIRMWARE CRASH)"; break;
+        case ESP_RST_INT_WDT:  why = "INTERRUPT WATCHDOG"; break;
+        case ESP_RST_TASK_WDT: why = "TASK WATCHDOG"; break;
+        case ESP_RST_WDT:      why = "WATCHDOG"; break;
+        case ESP_RST_BROWNOUT: why = "BROWNOUT"; break;
+        case ESP_RST_EXT:      why = "EXTERNAL RESET PIN"; break;
+        default:               why = "OTHER"; break;
+        }
+        if (why) osd_log("RESET REASON: %s (%d)", why, (int)rr);
+    }
 #if A2MEGA_BOARD_REV == 225 && A2P25_DP_TEST
     osd_log("DP_TEST MODE: HPD->IO10, TELEM<-IO11");
 #endif

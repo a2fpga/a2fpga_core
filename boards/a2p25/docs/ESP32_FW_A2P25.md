@@ -132,6 +132,31 @@ make BOARD_REV=225 PORT=/dev/cu.usbmodemXXXX upload
   picker `1309K -> APP0`); the Verbatim re-recovered at ladder cycle 2 on
   the reboot. Baseline on the Verbatim: `usb probe 2048` and `usb probe
   61439000` (29999 MB in) both PASS, read 3–6 ms, write 5–8 ms.
+  **PNY result + CARD CRASH (same evening):** PNY swapped in (ladder, cycle
+  2 again). `usb probe 2048 read`: ok, 6 ms, zeros. `usb probe 2048`
+  (write): `WRITE FAILED after 1943 ms: WRITE lba 2048 x1: CSW MALFORMED
+  csw=00 data=512` — the 512 data bytes went out, the stick then held the
+  CSW past the 1.5 s wait, the retry read came back malformed. The next
+  command (`usb probe 60000000 read`) never answered: the card REBOOTED
+  (PNY back at addr 3, failure counters zero, console ring restarted,
+  Apple II reset with it). **Root cause (firmware, not the stick):** this
+  IDF's `usb_transfer_t.timeout_ms` is "currently not supported yet"
+  (usb_types_stack.h), so `bulk_xfer` waiting 1.5 s and then
+  `usb_host_transfer_free()` left the CSW transfer in flight; when the PNY
+  finally answered, the host stack completed into freed memory. The two
+  32 GB sticks never held a CSW that long, so the hazard never fired before.
+  So the PNY's symptom is a WRITE(10) whose status takes > 1.5 s (how long,
+  and whether it then succeeds, is what the next build measures), and the
+  crash is ours.
+- **Build (2026-11-20 evening, transfer cancel + reset reason), UNFLASHED:**
+  `bulk_xfer` on its own timeout now halts + flushes the endpoint (the stack
+  completes the transfer as CANCELED, the callback fires), waits for that,
+  clears the endpoint and frees; if the callback still does not come the
+  transfer is leaked, never freed in flight (`usb` prints timeout/leak
+  counts). WRITE(10) gets an 8 s CSW wait (reads keep 1 s); the failure log
+  says `AFTER A TIMEOUT` when that is what happened. Boot logs `RESET
+  REASON: PANIC (FIRMWARE CRASH) / TASK WATCHDOG / …` for anything but
+  power-on, so the next crash names itself. Build record follows the flash.
 
 ## Pin map (ESP32-S3-MINI-1 U5)
 

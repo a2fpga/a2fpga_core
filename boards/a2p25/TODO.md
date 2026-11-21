@@ -46,8 +46,12 @@ IIgs sound is the fabric DOC5503 on PSRAM.
       ⚠ PNY WRITES: FTP `STOR` onto the PNY breaks after ~6 s with a 0-byte file (3/3, card
       stays up; the K&ZZ AND the ladder-recovered Verbatim take the same 1.3 MB upload with
       byte-exact readback, 11-20) — PNY-specific MSC write failure while reads are fine;
-      DOS33.NIB is mounted RW on it, so Disk II write-back to the PNY is suspect; next = log
-      the SCSI WRITE(10)/fwrite error status (ESP32_FW_A2P25.md, P3);
+      DOS33.NIB is mounted RW on it, so Disk II write-back to the PNY is suspect. Probe fw
+      (f69f315e) result: WRITE(10) data goes out, the PNY holds the CSW > 1.5 s → and the
+      card CRASHED on it: `bulk_xfer` freed the in-flight transfer (IDF timeout_ms is not
+      implemented) → use-after-free when the stick answered. Fix built (cancel via endpoint
+      halt/flush, 8 s write CSW wait, RESET REASON at boot), flash + re-probe pending
+      (ESP32_FW_A2P25.md, P3);
       recommend USB 2.0 to users and keep a tested list
 
 ## Shipped on displayport1 (2026-10-01 → 10-12)
