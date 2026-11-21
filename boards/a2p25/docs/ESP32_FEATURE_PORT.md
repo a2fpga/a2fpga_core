@@ -192,7 +192,11 @@ first slice that was already ported.
    their port power, so PER-PORT refuses on exactly the hubs people have,
    while the only cost is a sub-second blink of the hub's other devices,
    paid only when a stick has already failed. **Ed's call the same morning:
-   default = ALL PORTS.**
+   default = ALL PORTS.** Re-run on the shipped-default build (bee90d1a,
+   `MCU NOV 20 2026 18:02:30`, PNY swapped in for the K&ZZ behind the hub):
+   identical — TRY 1/3, TRY 2/3, `RECOVERED AFTER 2 PORT POWER CYCLES`,
+   STORAGE 59153 MB, DOS33.NIB served, dongle back at addr 2 in use. Two
+   for two on this hub, both at the second cycle.
 4. **P4 MCU self-update** — DONE (code): `fwupdate.c` on ESP-IDF OTA
    (`esp_ota_begin/write/end`, boot partition switch, restart in 2 s);
    the image is any `*.bin` on the volume (stick, or FTP-dropped onto

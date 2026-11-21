@@ -115,7 +115,8 @@ make BOARD_REV=225 PORT=/dev/cu.usbmodemXXXX upload
   enumerated, DOS33.NIB served. As expected the byte saved under 18bfd578
   read back as `PER-PORT ONLY`; `usb retry on` saved it, and SETTINGS shows
   `USB HUB PORT RETRY  ALL PORTS` with `NVS … LD:OK SV:OK`. This is the
-  firmware on the card now.
+  firmware on the card now. PNY swapped in behind the hub afterwards: the
+  ladder recovered it at the second cycle again (P3).
 
 ## Pin map (ESP32-S3-MINI-1 U5)
 
