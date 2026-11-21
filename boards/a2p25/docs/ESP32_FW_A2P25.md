@@ -156,7 +156,14 @@ make BOARD_REV=225 PORT=/dev/cu.usbmodemXXXX upload
   counts). WRITE(10) gets an 8 s CSW wait (reads keep 1 s); the failure log
   says `AFTER A TIMEOUT` when that is what happened. Boot logs `RESET
   REASON: PANIC (FIRMWARE CRASH) / TASK WATCHDOG / …` for anything but
-  power-on, so the next crash names itself. Build record follows the flash.
+  power-on, so the next crash names itself. **Built at 98ff773e** → 1,342,256 B,
+  sha256 `70055b45a633b4042356b2bb43dfa0789454866d76014f8610a6121de6ae9c70`;
+  103 clean; warnings pass only pre-existing hits. **Flashed** OTA through the
+  Verbatim (`a2fpga_esp32_225_cancel_70055b45.bin`, picker `1310K -> APP1`),
+  boots as `MCU NOV 20 2026 18:57:11`; Verbatim re-recovered at ladder cycle
+  2; `usb probe 2048` / `usb probe 61439000` PASS (write 6 / 8 ms). This is
+  the firmware on the card. Next: PNY back in, `usb probe 2048` with the 8 s
+  CSW wait and no crash hazard.
 
 ## Pin map (ESP32-S3-MINI-1 U5)
 
