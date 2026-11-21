@@ -96,7 +96,7 @@ make BOARD_REV=225 PORT=/dev/cu.usbmodemXXXX upload
   PORT 3 RECOVERED AFTER 2 PORT POWER CYCLES`, STORAGE 59153 MB, DOS33.NIB
   served (ESP32_FEATURE_PORT.md P3 has the log).
 - **Build (2026-11-20, default flipped to ALL PORTS, `usb_hub_retry_perport`):**
-  `make BOARD_REV=225 DP_TEST=0 compile` at the commit after 3e040114 (clean
+  `make BOARD_REV=225 DP_TEST=0 compile` from the source of bee90d1a (clean
   tree) → 1,339,264 B, sha256
   `348a140bb991f8b8a5f3ae6c644a86318364012ea30de7227132f07b3b0b3016`;
   `make BOARD_REV=103 compile` clean (sketch 1,345,875 B); `--warnings all`
@@ -108,9 +108,14 @@ make BOARD_REV=225 PORT=/dev/cu.usbmodemXXXX upload
   only `CLIENT CONNECTED`). The K&ZZ 090C:1000 took the same 1.3 MB upload
   twice earlier the same morning, so this is a PNY write-path problem on
   the full-speed host (reads serve Disk II fine); the flash goes through the
-  K&ZZ. The card still runs 18bfd578 with ALL PORTS saved; under the new
-  firmware that stored byte reads back as PER-PORT once and needs
-  `usb retry on` again.
+  K&ZZ. **Flashed** once Ed put the K&ZZ back: `curl -T` onto it as
+  `a2fpga_esp32_225_hubretry3_348a140b.bin` went through first time, telnet
+  menu mirror FIRMWARE → UPDATE MCU → file → INSTALL (`1307K -> APP1`),
+  rebooted into `MCU NOV 20 2026 18:02:30`, slot APP1, hub + dongle + K&ZZ
+  enumerated, DOS33.NIB served. As expected the byte saved under 18bfd578
+  read back as `PER-PORT ONLY`; `usb retry on` saved it, and SETTINGS shows
+  `USB HUB PORT RETRY  ALL PORTS` with `NVS … LD:OK SV:OK`. This is the
+  firmware on the card now.
 
 ## Pin map (ESP32-S3-MINI-1 U5)
 
