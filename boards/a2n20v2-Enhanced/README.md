@@ -200,8 +200,9 @@ writes the bitstream into the FPGA's configuration flash over JTAG:
    firmware `.bin` is rejected), then choose **INSTALL NOW**
 4. The screen goes **completely dark for one to two minutes** while the
    core is written — this is normal; **do not power off**
-5. The board restarts itself into the new core; the main menu shows the
-   new core build stamp next to the MCU one
+5. The new core starts and the Apple II restarts into it by itself. The
+   MCU keeps running throughout, so USB, the network and telnet stay up;
+   the main menu shows the new core build stamp next to the MCU one
 
 Unlike the MCU update there is no staged copy: the running core must be
 stopped before its flash is reachable. If the write is interrupted, the
@@ -292,8 +293,8 @@ Menu screens:
   (staged and verified in the background, then installed; the board
   restarts itself). Shows the installed MCU build stamp.
 - **FPGA UPDATE** — install a new FPGA core `.bin` from the stick (the
-  screen goes dark for the 1-2 minute write, then the board restarts
-  itself into the new core). Shows the running core's build stamp.
+  screen goes dark for the 1-2 minute write, then the Apple II restarts
+  into the new core; the MCU stays up). Shows the running core's build stamp.
 - **RESTART MCU** — warm-restart the MCU firmware (remounts storage,
   re-enumerates USB, resets the Apple II).
 - **RESET SETTINGS TO DEFAULTS** — clears all saved preferences.

@@ -55,6 +55,10 @@ void menu_inject(uint16_t buttons);
  * whatever view is currently active. Used by the telnet mirror. */
 void menu_request_menu_view(void);
 
+/* FPGA UPDATE completed in place: lift the install page and hand the screen
+ * back to the Apple II. Safe from any thread (consumed by menu_input). */
+void menu_fpga_reloaded(void);
+
 /* True when the MCU owns the display (menu or console view). */
 bool menu_mcu_view_active(void);
 

@@ -990,7 +990,7 @@ static void fpga_install(int id)
     put_row(4,  "  THE SCREEN WILL GO COMPLETELY DARK    ", false);
     put_row(5,  "  FOR ONE TO TWO MINUTES WHILE THE      ", false);
     put_row(6,  "  NEW CORE IS WRITTEN. THIS IS NORMAL.  ", false);
-    put_row(9,  "  THE BOARD THEN RESTARTS BY ITSELF     ", false);
+    put_row(9,  "  THE APPLE II THEN RESTARTS BY ITSELF  ", false);
     put_row(10, "  INTO THE NEW CORE.                    ", false);
     put_row(13, "  IF NOTHING APPEARS AFTER THREE        ", false);
     put_row(14, "  MINUTES, POWER OFF AND ON. IF STILL   ", false);
@@ -1265,8 +1265,28 @@ void menu_request_menu_view(void)
     s_req_menu_view = true;
 }
 
+/* FPGA UPDATE finished and the new core is running with the MCU still up
+ * (no restart -- see fpgaupdate.c). Called from the disk thread; consumed on
+ * the next menu_input tick, which is the only place the install freeze can
+ * be lifted without racing the menu's own state. */
+static volatile bool s_req_fpga_done;
+
+void menu_fpga_reloaded(void)
+{
+    s_req_fpga_done = true;
+}
+
 void menu_input(uint16_t buttons)
 {
+    if (s_req_fpga_done) {
+        s_req_fpga_done = false;
+        s_fw_installing = false;
+        s_depth = 0;                 /* back to MAIN MENU for next time, */
+        s_cursor[0] = 0;             /* highlight on its first row       */
+        s_scroll[0] = 0;
+        enter_view(VIEW_APPLE);      /* the Apple II reboots into the new core */
+    }
+
     if (s_fw_installing)
         return;   /* install page owns the screen until the MCU stops */
 

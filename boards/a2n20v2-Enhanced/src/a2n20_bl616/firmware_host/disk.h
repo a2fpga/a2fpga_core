@@ -26,6 +26,12 @@ void disk_poll(void);
  * removed). Safe to call from the USB host thread. */
 void disk_request_remount(void);
 
+#include <stdbool.h>
+/* After an in-place FPGA core reload: replay the FPGA-side bring-up (bus-ready,
+ * remount, slot map + /RES release). Disk thread only. Returns false if the
+ * new core never answered on SPI. */
+bool disk_fpga_reloaded(void);
+
 /* ---- menu accessors ------------------------------------------------------ */
 #include <stdbool.h>
 
