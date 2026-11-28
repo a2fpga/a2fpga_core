@@ -21,6 +21,8 @@ sdk_add_compile_definitions(-DFPGA_SPI_THREADSAFE)
 # DIAGNOSTIC: intercept the SDK's exception_entry (it only printf's the fault to a
 # UART we can't see) so __wrap_exception_entry can paint mcause/mepc on the overlay.
 sdk_add_link_options(-Wl,--wrap=exception_entry)
+# Recovered EHCI XactErr/DBErr completions are successes (usb_urbfix.c).
+sdk_add_link_options(-Wl,--wrap=usbh_submit_urb)
 
 # The host build routes FatFS disk_* between SD and USB in diskio_host.c, so
 # sdmm.c must export its SD logic as mmc_disk_* instead of owning disk_*.
@@ -42,6 +44,7 @@ target_sources(app PRIVATE
     sscbridge.c
     ftpd.c
     boot_timeline.c
+    usb_urbfix.c
     ../firmware/gcr_dsk.c
     ../firmware/fpga_spi.c
     ../firmware/fpga_screen.c
