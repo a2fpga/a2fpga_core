@@ -275,7 +275,8 @@ on-screen menu — this is the normal path for end users:
   flash image from `impl/pnr/`) to the stick, menu → FPGA UPDATE. The
   file is validated (Gowin sync + device IDCODE) before anything is
   erased; the write (~1-2 min, screen dark) is verified page by page,
-  then the board reloads the new core and warm-restarts the MCU. An
+  then the board reloads the new core and replays the FPGA-side bring-up
+  in place (no MCU restart, so USB stays up) and the Apple II reboots. An
   interrupted write leaves the FPGA unconfigured but the MCU alive —
   recover with a PC FPGA flash.
 

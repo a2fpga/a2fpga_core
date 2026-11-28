@@ -18,8 +18,9 @@ typedef enum {
 /* Begin validating a bitstream file (path relative to the volume root). */
 bool fpgaupdate_request(const char *path);
 
-/* Erase + program + verify + reload + MCU restart. Only valid in READY.
- * The screen goes dark for the duration (~1-2 min). */
+/* Erase + program + verify + reload, then the in-place bring-up replay (no
+ * MCU restart; USB and the network stay up). Only valid in READY. The screen
+ * goes dark for the write (~1-2 min); the Apple II then reboots the new core. */
 void fpgaupdate_commit(void);
 
 void fpgaupdate_cancel(void);

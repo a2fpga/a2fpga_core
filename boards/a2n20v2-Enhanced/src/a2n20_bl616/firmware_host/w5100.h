@@ -102,6 +102,10 @@ void w5100_init(void);
  * Call from the W5100 task loop. */
 void w5100_poll(void);
 
+/* The FPGA core was reloaded in place (emulated W5100 state is gone): reset
+ * the bridge and re-seed on the next w5100_poll. Safe from any thread. */
+void w5100_request_reinit(void);
+
 /* True once a MACRAW socket is open (bridge active). Used by the RX path to
  * decide whether to deliver wire frames to the card. */
 bool w5100_macraw_active(void);

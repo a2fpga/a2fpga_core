@@ -448,6 +448,13 @@ static void mount_hdd(int u)
  * startup and whenever a USB stick is attached/removed. Prefers the USB stick
  * if present, otherwise the SD card. */
 static volatile bool g_remount_req = true;
+
+/* Apple II reset-release state (see the release block in disk_poll). File
+ * scope, not a function static, so disk_fpga_reloaded() can re-arm it after
+ * an in-place FPGA core update. The deadline is absolute uptime: 7 s after
+ * power-on for a cold boot, or 7 s after the reload for a core update. */
+static bool     s_a2_released       = false;
+static uint32_t s_release_deadline_us = 7000000u;
 static volatile bool g_remounting  = false;   /* disk_remount() running */
 
 /* Non-blocking console hide: disk_remount() schedules the "READY" screen to be
@@ -461,6 +468,35 @@ static uint32_t g_hide_console_at_us = 0;
 void disk_request_remount(void)
 {
     g_remount_req = true;
+}
+
+/* A new FPGA core was just booted in place (FPGA UPDATE, fpgaupdate.c) while
+ * the MCU, USB and the network kept running. Every piece of FPGA-side state
+ * is gone: the fresh core holds the Apple II in reset and knows no slot map,
+ * no mounted images and no bridge state. Replay the cold-boot bring-up
+ * instead of restarting the MCU (a warm MCU restart is what leaves USB dead
+ * on fused boards -- TODO.md item 2), in the same order main() and the
+ * mount/release path use:
+ *   1. wait for config-done + a genuine SPI answer;
+ *   2. 0x30 bus-ready, so apple_bus grabs and holds the Apple II /RES;
+ *   3. remount every image (rewrites the VOL_* / HDD_* registers);
+ *   4. re-arm the release block in its deferred form: once the remount has
+ *      run, it programs + strobes the slot map (0x6B), releases the CardROM
+ *      and writes 0x2E -- the proven path a cold boot takes whenever the
+ *      early slot apply is unconfirmed. The Apple II then boots the new core.
+ * Disk thread only (it owns the mount state and the release block). */
+bool disk_fpga_reloaded(void)
+{
+    bool ready = fpga_spi_wait_ready(8000);
+    if (!ready)
+        osd_log("FPGA: NEW CORE NOT ANSWERING - POWER-CYCLE");
+    fpga_spi_reg_write(0x30, 1);                    /* REG_A2BUS_READY */
+
+    g_slots_applied_early = false;                  /* strobe after the mounts */
+    s_release_deadline_us = (uint32_t)bflb_mtimer_get_time_us() + 7000000u;
+    s_a2_released         = false;
+    g_remount_req         = true;
+    return ready;
 }
 
 /* ---- Disk II (re)mount, logged to the shared OSD console -------------------
@@ -964,14 +1000,14 @@ void disk_poll(void)
      * at least one volume, or after a deadline so a machine with no media
      * still boots. The FPGA has its own 15 s backstop should we never write. */
     {
-        static bool s_released = false;
-        if (!s_released) {
+        if (!s_a2_released) {
             bool any = false;
             for (int v = 0; v < NDRV; v++) any = any || g_mounted[v];
             for (int u = 0; u < NHDD; u++) any = any || g_hdd_mounted[u];
             if (any) bt_mark(BT_MOUNT_FOUND);   /* first volume seen (pre-release) */
             if ((any && !g_remount_req) ||
-                bflb_mtimer_get_time_us() > 7000000u) {
+                (int32_t)((uint32_t)bflb_mtimer_get_time_us() -
+                          s_release_deadline_us) > 0) {
                 /* Fallback slot-map apply: normally main() already programmed
                  * and strobed the map (readback-verified, g_slots_applied_early)
                  * and /RES released on that strobe per the reset contract. Only
@@ -1016,7 +1052,7 @@ void disk_poll(void)
                     if (fpga_spi_reg_read(0x2E) & 0x01) { rst_ok = 1; break; }
                     bflb_mtimer_delay_us(50);
                 }
-                s_released = true;
+                s_a2_released = true;
                 osd_log("A2: RESET RELEASED%s%s", any ? "" : " (NO MEDIA)",
                         rst_ok ? "" : " (0x2E UNCONFIRMED)");
             }

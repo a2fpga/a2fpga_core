@@ -313,8 +313,23 @@ static void w5100_report(void)
     fpga_spi_reg_write(0x0F, (uint8_t)g_drop_full);
 }
 
+/* Set from the disk thread after an in-place FPGA core reload: the emulated
+ * W5100 registers (BSRAM) and doorbell started over, so this thread drops its
+ * view of them and re-seeds on its next poll. A flag rather than a direct
+ * w5100_init() call because the bridge state belongs to this thread. */
+static volatile bool g_reinit_req;
+
+void w5100_request_reinit(void)
+{
+    g_reinit_req = true;
+}
+
 void w5100_poll(void)
 {
+    if (g_reinit_req) {
+        g_reinit_req = false;
+        w5100_init();
+    }
     /* Self-healing seed: retry the reset-default registers until a read-back
      * confirms they landed (early-startup SPACE-3 writes are dropped -- see
      * w5100_seed_defaults). Once confirmed, stop. */

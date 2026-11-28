@@ -17,7 +17,11 @@
  *    with one retry (erase of a page is not possible; retry re-programs —
  *    a persistent mismatch aborts).
  *  - On success: JTAG RELOAD boots the new bitstream, then the MCU
- *    restarts itself (fwupdate_restart_app path) for a clean bring-up.
+ *    replays the FPGA-side bring-up in place (disk_fpga_reloaded: bus-ready,
+ *    remount, slot map, /RES release) and the Apple II boots the new core.
+ *    The MCU deliberately does NOT restart: on fused boards the only restart
+ *    is a warm jump, after which USB (and with it the network and the
+ *    remote) never re-enumerates -- TODO.md item 2.
  *  - An interrupted/failed write leaves the FPGA unconfigured but the
  *    BL616 fully alive; recovery is the PC flash procedure (tools/flash.sh
  *    with the Mac attached), documented in the README.
@@ -34,6 +38,9 @@
 #include "fpga_jtag.h"
 #include "fwupdate.h"
 #include "fpgaupdate.h"
+#include "disk.h"          /* disk_fpga_reloaded: in-place bring-up replay */
+#include "menu.h"          /* menu_fpga_reloaded: release the install page */
+#include "w5100.h"         /* w5100_request_reinit: bridge state is gone */
 
 #define FPU_MIN_SIZE   (256u * 1024u)
 #define FPU_MAX_SIZE   (4u * 1024u * 1024u)
@@ -261,7 +268,14 @@ static void install(void)
     fpga_jtag_reload();                  /* boot the new bitstream */
     usb_osal_msleep(2000);
     s_state = FPU_IDLE;
-    fwupdate_request_restart();          /* clean full-system bring-up */
+
+    /* Hand the screen back first, so the remount console below is visible
+     * (the menu's install page holds the console lockout until then). */
+    menu_fpga_reloaded();
+    usb_osal_msleep(100);
+    w5100_request_reinit();
+    if (disk_fpga_reloaded())
+        osd_log("FPGA: NEW CORE RUNNING - RESTARTING APPLE II");
 }
 
 void fpgaupdate_poll(void)
