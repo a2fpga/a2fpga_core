@@ -152,12 +152,25 @@ module videx_card #(
     reg [7:0] crtc_regs[0:15];
     reg [1:0] bank_sel;
 
+    // A real 6845 has no reset input: an Apple RESET leaves its registers
+    // alone, and the firmware relies on that. $C800 skips the CRTC table
+    // write when its RAM marker ($077B) says the card is already set up,
+    // so clearing the registers on system_reset_n left a zeroed CRTC after
+    // RESET (steady one-line cursor, R12/R13 start address out of step with
+    // the firmware's copy in RAM). Reset only with the FPGA, and load the
+    // firmware's own table ($C8A1) so an FPGA reload under a running Apple
+    // matches what the firmware expects.
+    localparam logic [7:0] CRTC_INIT [0:15] = '{
+        8'h7A, 8'h50, 8'h5E, 8'h2F, 8'h22, 8'h00, 8'h18, 8'h1D,
+        8'h00, 8'h08, 8'hE0, 8'h08, 8'h00, 8'h00, 8'h00, 8'h00
+    };
+
     always @(posedge a2bus_if.clk_logic) begin
-        if (!a2bus_if.system_reset_n) begin
+        if (!a2bus_if.device_reset_n) begin
             crtc_idx <= 5'h0;
             bank_sel <= 2'b0;
             for (int i = 0; i < 16; i++)
-                crtc_regs[i] <= 8'h00;
+                crtc_regs[i] <= CRTC_INIT[i];
         end else if (a2bus_if.phi1_posedge && !a2bus_if.m2sel_n &&
                      (a2bus_if.addr[15:4] == 12'hC0B) && live) begin
             bank_sel <= a2bus_if.addr[3:2];
