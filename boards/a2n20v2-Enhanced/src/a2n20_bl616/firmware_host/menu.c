@@ -55,7 +55,6 @@ typedef enum {
 
 #define MENU_MAX_ITEMS 64
 #define MENU_LABEL_LEN 38          /* full row when the value is empty */
-#define MENU_VALUE_COL 26          /* label clip when a value is shown */
 #define MENU_VALUE_LEN 12
 
 typedef struct menu_item {
@@ -154,11 +153,18 @@ static void paint(void)
         char val[MENU_VALUE_LEN + 2];
         selectable_hint(m, val, sizeof(val));
         char line[41];
-        if (val[0])
-            snprintf(line, sizeof(line), " %-*.*s%*.*s ",
-                     MENU_VALUE_COL, MENU_VALUE_COL, m->label,
-                     40 - 2 - MENU_VALUE_COL, MENU_VALUE_LEN, val);
-        else
+        if (val[0]) {
+            /* Value right-aligned at the edge; the label gets every column
+             * the value doesn't use (min. one space between them). A fixed
+             * 26-column label clip cut short labels like the slot screen's
+             * "SAVE (APPLIES AT NEXT BOOT)" even though its value is "*". */
+            int vlen = (int)strlen(val);
+            if (vlen > MENU_VALUE_LEN)
+                vlen = MENU_VALUE_LEN;
+            int lw = MENU_LABEL_LEN - vlen - 1;
+            snprintf(line, sizeof(line), " %-*.*s %*.*s ",
+                     lw, lw, m->label, vlen, vlen, val);
+        } else
             snprintf(line, sizeof(line), " %-38.38s ", m->label);
         put_row(ROW_ITEMS_TOP + i, line, idx == cur);
     }
@@ -443,7 +449,9 @@ static void slots_build(void)
             mark = '!';
         else if (s_slot_draft[i] != settings()->slot_cards[i])
             mark = '*';
-        snprintf(label, sizeof(label), "%cSLOT %d (NOW:%s)", mark, i,
+        /* worst case "*SLOT 7 NOW:MOCKINGBOARD" + gap + 12-char draft
+         * value = 37 of the 38 columns */
+        snprintf(label, sizeof(label), "%cSLOT %d NOW:%s", mark, i,
                  card_name(slot_live_card(i)));
         menu_item_t *m = mi_add(MI_CHOICE, label, card_name(s_slot_draft[i]));
         m->on_change = slots_change;
